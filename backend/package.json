@@ -1,0 +1,44 @@
+{
+  "name": "3d-marketplace-backend",
+  "version": "1.0.0",
+  "description": "Backend for 3D Marketplace",
+  "main": "src/app.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/app.js",
+    "dev": "node --watch src/app.js",
+    "migrate:up": "db-migrate up",
+    "migrate:down": "db-migrate down",
+    "migrate:create": "db-migrate create",
+    "migrate:reset": "db-migrate reset",
+    "migrate:status": "db-migrate status"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^4.18.2",
+    "express-validator": "^7.0.1",
+    "pg": "^8.11.3",
+    "passport": "^0.7.0",
+    "passport-local": "^1.0.0",
+    "passport-jwt": "^4.0.1",
+    "bcryptjs": "^2.4.3",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "2.0.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "db-migrate": "0.11.14",
+    "db-migrate-pg": "1.5.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2",
+    "eslint": "^8.55.0",
+    "eslint-config-standard": "^17.1.0",
+    "eslint-plugin-import": "^2.29.1",
+    "eslint-plugin-n": "^16.6.2",
+    "eslint-plugin-promise": "^6.1.1",
+    "prettier": "^3.1.1"
+  }
+}
+
