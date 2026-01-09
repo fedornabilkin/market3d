@@ -12,24 +12,24 @@ help:
 
 # Build all images
 build:
-	docker-compose build
+	docker compose build
 
 # Start containers
 up:
-	docker-compose up -d
+	docker compose up -d
 
 # Stop and remove containers
 down:
-	docker-compose down
+	docker compose down
 
 # View logs
 logs:
-	docker-compose logs -f
+	docker compose logs -f
 
 # Restart containers
 restart:
-	docker-compose restart
+	docker compose restart
 
 # Clean up: stop, remove containers and images
 clean:
-	docker-compose down -v --rmi all
+	docker compose down -v --rmi all

@@ -1,7 +1,7 @@
 import axios, { AxiosInstance, AxiosError } from 'axios';
 
 const api: AxiosInstance = axios.create({
-  baseURL: import.meta.env.DEV ? '/api' : `${import.meta.env.VITE_API_HOST}/api`,
+  baseURL: '/api',
   headers: {
     'Content-Type': 'application/json',
   },
