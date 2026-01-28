@@ -5,8 +5,8 @@ import { authenticateJWT } from '../middleware/auth.js';
 
 const router = express.Router();
 
-router.get('/:orderId/messages', authenticateJWT, getOrderMessages);
-router.post('/:orderId/messages', authenticateJWT, messageValidation, validate, createMessage);
+router.get('/:orderId/order', authenticateJWT, getOrderMessages);
+router.post('/:orderId/order', authenticateJWT, messageValidation, validate, createMessage);
 
 export default router;
 

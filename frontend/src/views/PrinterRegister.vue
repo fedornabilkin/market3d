@@ -20,7 +20,7 @@
             :value="item.name"
           )
       el-form-item(label="Цена за час (₽)" prop="pricePerHour")
-        el-input-number(v-model="form.pricePerHour" :min="0.01" :precision="2" style="width: 100%")
+        el-input-number(v-model="form.pricePerHour" :min="1" :precision="0" style="width: 100%")
       el-form-item(label="Материалы" prop="materialIds")
         el-select(
           v-model="form.materialIds"
@@ -35,6 +35,21 @@
             :key="material.id"
             :label="material.name"
             :value="material.id"
+          )
+      el-form-item(label="Цвета" prop="colorIds")
+        el-select(
+          v-model="form.colorIds"
+          placeholder="Выберите цвета"
+          multiple
+          filterable
+          style="width: 100%"
+          :loading="dictionariesStore.loading"
+        )
+          el-option(
+            v-for="color in colors"
+            :key="color.id"
+            :label="color.name"
+            :value="color.id"
           )
       el-form-item(label="Статус" prop="state")
         el-select(v-model="form.state" placeholder="Выберите статус" style="width: 100%")
@@ -66,14 +81,16 @@ const isEditMode = computed(() => !!route.params.id);
 const manufacturers = ref([]);
 const models = ref([]);
 const materials = ref([]);
+const colors = ref([]);
 
 const formRef = ref<FormInstance>();
 const form = reactive({
   modelName: '',
   manufacturer: '',
-  pricePerHour: 0,
+  pricePerHour: 1,
   state: 'available' as 'available' | 'busy' | 'maintenance' | 'inactive',
   materialIds: [] as number[],
+  colorIds: [] as number[],
   maxBuildVolumeJson: '',
   materialsJson: '',
   specificationsJson: '',
@@ -100,10 +117,7 @@ const rules = reactive<FormRules>({
   ],
   pricePerHour: [
     { required: true, message: 'Пожалуйста, введите цену', trigger: 'blur' },
-    { type: 'number', min: 0.01, message: 'Цена должна быть положительным числом (минимум 0.01)', trigger: 'blur' },
-  ],
-  materialIds: [
-    { type: 'array', min: 1, message: 'Выберите хотя бы один материал', trigger: 'change' },
+    { type: 'number', min: 1, message: 'Цена должна быть положительным целым числом (минимум 1)', trigger: 'blur' },
   ],
   state: [
     { required: true, message: 'Пожалуйста, выберите статус', trigger: 'change' },
@@ -117,7 +131,7 @@ const handleManufacturerChange = async () => {
 
 const handleSubmit = async () => {
   if (!formRef.value) return;
-  
+ 
   await formRef.value.validate(async (valid) => {
     if (valid) {
       try {
@@ -127,6 +141,7 @@ const handleSubmit = async () => {
           pricePerHour: form.pricePerHour,
           state: form.state,
           materialIds: form.materialIds || [],
+          colorIds: form.colorIds || [],
         };
         
         if (form.maxBuildVolumeJson) {
@@ -158,7 +173,7 @@ const handleSubmit = async () => {
         
         setTimeout(() => {
           router.push(`/printers/${result.id}`);
-        }, 2000);
+        }, 700);
       } catch (error) {
         console.error('Error saving printer:', error);
       }
@@ -174,6 +189,8 @@ onMounted(async () => {
     models.value = await dictionariesStore.fetchItemsByDictionaryName('printer_models');
 
     materials.value = await dictionariesStore.fetchItemsByDictionaryName('materials');
+    
+    colors.value = await dictionariesStore.fetchItemsByDictionaryName('colors');
   } catch (error) {
     console.error('Failed to load dictionaries:', error);
   }
@@ -187,10 +204,13 @@ onMounted(async () => {
       if (printer.value && printer.value.userId === printersStore.currentPrinter?.userId) {
         form.modelName = printer.value.model_name;
         form.manufacturer = printer.value.manufacturer;
-        form.pricePerHour = printer.value.price_per_hour;
+        form.pricePerHour = parseInt(printer.value.price_per_hour);
         form.state = printer.value.state;
         if (printer.value.materials && Array.isArray(printer.value.materials)) {
           form.materialIds = printer.value.materials.map((m: any) => m.id || m);
+        }
+        if (printer.value.colors && Array.isArray(printer.value.colors)) {
+          form.colorIds = printer.value.colors.map((c: any) => c.id || c);
         }
         if (printer.value.maxBuildVolume) {
           form.maxBuildVolumeJson = JSON.stringify(printer.value.maxBuildVolume, null, 2);

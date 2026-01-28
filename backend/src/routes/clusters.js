@@ -1,6 +1,7 @@
 import express from 'express';
 import {
   getAllClusters,
+  getMyClusters,
   getActiveClusters,
   getClusterById,
   createCluster,
@@ -15,6 +16,7 @@ import { authenticateJWT } from '../middleware/auth.js';
 const router = express.Router();
 
 router.get('/', getAllClusters);
+router.get('/my', authenticateJWT, getMyClusters);
 router.get('/active', getActiveClusters);
 router.get('/:id', getClusterById);
 router.get('/:clusterId/orders', authenticateJWT, getClusterOrders);

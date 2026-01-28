@@ -25,6 +25,7 @@ const deadlineValidation = (value) => {
 
 export const orderValidation = [
   body('material').notEmpty().withMessage('Material is required'),
+  body('colorId').optional().isInt({ min: 1 }).withMessage('Color ID must be a positive integer'),
   body('quantity').isInt({ min: 1 }).withMessage('Quantity must be at least 1'),
   body('deadline').custom(deadlineValidation),
   body('description').optional().isString().withMessage('Description must be a string'),
@@ -32,6 +33,7 @@ export const orderValidation = [
 
 export const orderUpdateValidation = [
   body('material').optional().notEmpty().withMessage('Material cannot be empty'),
+  body('colorId').optional().isInt({ min: 1 }).withMessage('Color ID must be a positive integer'),
   body('quantity').optional().isInt({ min: 1 }).withMessage('Quantity must be at least 1'),
   body('deadline').optional().custom(deadlineValidation),
   body('description').optional().isString().withMessage('Description must be a string'),

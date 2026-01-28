@@ -9,6 +9,7 @@
             router-link(to="/clusters") Кластеры
             router-link(to="/printers") Принтеры
             router-link(to="/orders") Заказы
+            NotificationDropdown(v-if="authStore.isAuthenticated")
             router-link(v-if="authStore.isAuthenticated" to="/profile").user-info {{ authStore.user?.email }}
             router-link(v-else to="/login")
               el-button(type="primary") Войти
@@ -21,6 +22,7 @@
 import { onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from './stores/auth';
+import NotificationDropdown from './components/NotificationDropdown.vue';
 
 const router = useRouter();
 const authStore = useAuthStore();

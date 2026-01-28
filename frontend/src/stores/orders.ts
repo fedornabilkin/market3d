@@ -15,7 +15,9 @@ interface Order {
   userId: number;
   userEmail?: string;
   material: string;
-  color: string;
+  color?: string;
+  colorId?: number;
+  colorName?: string;
   quantity: number;
   dimensions: Record<string, any>;
   deadline: string;
@@ -24,6 +26,7 @@ interface Order {
   description?: string;
   createdAt: string;
   updatedAt: string;
+  completedAt?: string;
   files?: OrderFile[];
 }
 
@@ -212,7 +215,7 @@ export const useOrdersStore = defineStore('orders', {
       this.loading = true;
       this.error = null;
       try {
-        const response = await api.get(`/messages/${orderId}/messages`);
+        const response = await api.get(`/messages/${orderId}/order`);
         this.messages = response.data;
         return response.data;
       } catch (error: any) {
@@ -227,7 +230,7 @@ export const useOrdersStore = defineStore('orders', {
       this.loading = true;
       this.error = null;
       try {
-        const response = await api.post(`/messages/${orderId}/messages`, { message });
+        const response = await api.post(`/messages/${orderId}/order`, { message });
         this.messages.push(response.data);
         // Перезагружаем сообщения
         await this.fetchMessages(orderId);

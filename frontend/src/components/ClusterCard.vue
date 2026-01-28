@@ -23,16 +23,23 @@ el-card.cluster-card(:class="{ 'my-cluster': isMine }" style="margin-bottom: 20p
       strong Завершенных заказов: 
       | {{ cluster.completedOrdersCount || 0 }}
     p
-      strong Статус: 
       el-tag(:type="getStatusType(cluster.state)") {{ getStatusText(cluster.state) }}
+    
     div(v-if="cluster.uniqueMaterials && cluster.uniqueMaterials.length > 0" style="margin-top: 10px")
-      strong Материалы: 
       el-tag(
         v-for="material in cluster.uniqueMaterials"
         :key="material.id"
-        style="margin-left: 5px; margin-top: 5px"
+        style="margin: 5px"
         size="small"
       ) {{ material.name }}
+    hr
+    div(v-if="cluster.uniqueColors && cluster.uniqueColors.length > 0" style="margin-top: 10px")
+      el-tag(
+        v-for="color in cluster.uniqueColors"
+        :key="color.id"
+        style="margin-left: 5px; margin-top: 5px"
+        size="small"
+      ) {{ color.name }}
 </template>
 
 <script setup lang="ts">
@@ -92,7 +99,7 @@ const goToCluster = () => {
 }
 
 .cluster-card.my-cluster {
-  border: 2px solid #409EFF;
+  /*border: 2px solid #409EFF;*/
 }
 
 .card-header {

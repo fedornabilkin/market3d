@@ -22,6 +22,12 @@
     el-card.dashboard-section
       template(#header)
         h2 Активные кластеры
+      el-card(style="margin-bottom: 20px")
+        ClusterFilter(
+          :filters="clusterFilters"
+          :loading="dictionariesStore.loading"
+          @update:filters="handleClusterFilterUpdate"
+        )
       div(v-if="clustersStore.loading")
         el-skeleton(:rows="3" animated)
       el-alert(v-else-if="clustersError" :title="clustersError" type="error")
@@ -49,7 +55,7 @@
     // Последние заказы
     el-card.dashboard-section
       template(#header)
-        h2 Последние заказы
+        h2 Завершенные заказы
       div(v-if="ordersStore.loading")
         el-skeleton(:rows="3" animated)
       el-alert(v-else-if="ordersError" :title="ordersError" type="error")
@@ -58,35 +64,27 @@
       div(v-else)
         el-row(:gutter="20")
           el-col(v-for="order in recentOrders" :key="order.id" :span="8" :xs="24" :sm="12" :md="8")
-            el-card(style="margin-bottom: 20px")
-              template(#header)
-                router-link(:to="`/orders/${order.id}`")
-                  h3 Заказ {{ `#${order.id}` }}
-              p
-                strong Материал: 
-                | {{ order.material }}
-              p
-                strong Статус: 
-                | {{ getStatusText(order.state) }}
-              p
-                strong Создан: 
-                | {{ formatDate(order.createdAt) }}
+            OrderCard(:order="order" :userId="authStore.user?.id")
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, reactive, onMounted } from 'vue';
 import { useAuthStore } from '../stores/auth';
 import { usePrintersStore } from '../stores/printers';
 import { useOrdersStore } from '../stores/orders';
 import { useClustersStore } from '../stores/clusters';
+import { useDictionariesStore } from '../stores/dictionaries';
 import ClusterCard from '../components/ClusterCard.vue';
 import PrinterCard from '../components/PrinterCard.vue';
+import OrderCard from '../components/OrderCard.vue';
+import ClusterFilter from '../components/ClusterFilter.vue';
 import api from '../services/api';
 
 const authStore = useAuthStore();
 const printersStore = usePrintersStore();
 const ordersStore = useOrdersStore();
 const clustersStore = useClustersStore();
+const dictionariesStore = useDictionariesStore();
 
 const stats = ref({
   printers: 0,
@@ -103,6 +101,14 @@ const clustersError = ref('');
 const recentPrinters = ref([]);
 const recentOrders = ref([]);
 const recentClusters = ref([]);
+
+const clusterFilters = reactive({
+  state: 'active' as string | undefined,
+  regionId: null as number | null,
+  cityId: null as number | null,
+  materialId: null as number | null,
+  colorId: null as number | null,
+});
 
 const getStatusText = (status: string): string => {
   const statusMap: Record<string, string> = {
@@ -144,26 +150,44 @@ onMounted(async () => {
     console.error('Failed to load recent printers:', error);
   }
 
-  // Загружаем последние заказы независимо
+  // Загружаем только завершенные заказы
   try {
-    recentOrders.value = await ordersStore.fetchRecentOrders(5);
+    const result = await ordersStore.fetchOrders({ state: 'completed', limit: 6 });
+    recentOrders.value = result.data || result;
     ordersError.value = '';
   } catch (error: any) {
     ordersError.value = error.response?.data?.error || 'Не удалось загрузить заказы';
     console.error('Failed to load recent orders:', error);
   }
 
-  // Загружаем активные кластеры независимо
+  // Загружаем активные кластеры с фильтрами
+  await loadClusters();
+});
+
+const handleClusterFilterUpdate = async (newFilters: typeof clusterFilters) => {
+  Object.assign(clusterFilters, newFilters);
+  await loadClusters();
+};
+
+const loadClusters = async () => {
   try {
-    const clustersResponse = await clustersStore.fetchActiveClusters();
-    recentClusters.value = clustersResponse.slice(0, 6); // Показываем первые 6
+    const params: any = {
+      limit: 6,
+    };
+    if (clusterFilters.state) params.state = clusterFilters.state;
+    if (clusterFilters.regionId) params.regionId = clusterFilters.regionId;
+    if (clusterFilters.cityId) params.cityId = clusterFilters.cityId;
+    if (clusterFilters.materialId) params.materialId = clusterFilters.materialId;
+    if (clusterFilters.colorId) params.colorId = clusterFilters.colorId;
+
+    const result = await clustersStore.fetchClusters(params);
+    recentClusters.value = (result.data || result).slice(0, 6);
     clustersError.value = '';
   } catch (error: any) {
     clustersError.value = error.response?.data?.error || 'Не удалось загрузить кластеры';
     console.error('Failed to load recent clusters:', error);
   }
-  
-});
+};
 </script>
 
 <style scoped>

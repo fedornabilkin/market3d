@@ -43,7 +43,7 @@ class OrderMessage {
 
   static async findByOrderId(orderId) {
     const result = await pool.query(
-      `SELECT m.*, u.email as sender_email, u.role as sender_role
+      `SELECT m.*, u.email as sender_email
        FROM order_messages m
        LEFT JOIN users u ON m.sender_id = u.id
        WHERE m.order_id = $1

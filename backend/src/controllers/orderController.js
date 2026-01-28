@@ -1,17 +1,14 @@
 import Order from '../models/Order.js';
 import OrderFile from '../models/OrderFile.js';
+import Notification from '../models/Notification.js';
 
 export const getAllOrders = async (req, res) => {
   try {
     const filters = {};
     
-    // Фильтруем по пользователю, если не указан другой фильтр
-    if (req.query.userId) {
-      filters.userId = parseInt(req.query.userId);
-    } else {
-      // По умолчанию показываем заказы текущего пользователя
-      filters.userId = req.user.id;
-    }
+    // По умолчанию показываем только заказы текущего пользователя
+    filters.userId = req.user.id;
+    if (req.query.userId) filters.userId = parseInt(req.query.userId);
 
     if (req.query.state) filters.state = req.query.state;
     if (req.query.page) filters.page = parseInt(req.query.page);
@@ -68,7 +65,7 @@ export const saveOrder = async (req, res) => {
   try {
     const {
       material,
-      color,
+      colorId,
       quantity,
       deadline,
       description,
@@ -94,7 +91,7 @@ export const saveOrder = async (req, res) => {
 
       const updates = {};
       if (material) updates.material = material;
-      if (color !== undefined) updates.color = color;
+      if (colorId !== undefined) updates.colorId = colorId;
       if (quantity !== undefined) updates.quantity = parseInt(quantity);
       if (deadline) updates.deadline = deadline;
       if (description !== undefined) updates.description = description;
@@ -109,13 +106,55 @@ export const saveOrder = async (req, res) => {
       // Создание нового заказа
       const { clusterId } = req.body;
       
+      // Если указан clusterId, проверяем доступность материала и цвета у активных принтеров
+      if (clusterId) {
+        const pool = (await import('../config/database.js')).default;
+        
+        // Проверяем материал
+        if (material) {
+          const materialCheck = await pool.query(
+            `SELECT 1 FROM cluster_printers cp
+             INNER JOIN printers p ON cp.printer_id = p.id
+             INNER JOIN printer_materials pm ON p.id = pm.printer_id
+             INNER JOIN dictionary_items di ON pm.material_id = di.id
+             WHERE cp.cluster_id = $1 
+             AND p.state IN ('available', 'busy')
+             AND di.name = $2
+             LIMIT 1`,
+            [clusterId, material]
+          );
+          
+          if (materialCheck.rows.length === 0) {
+            return res.status(400).json({ error: 'Material is not available in active printers of this cluster' });
+          }
+        }
+        
+        // Проверяем цвет
+        if (colorId) {
+          const colorCheck = await pool.query(
+            `SELECT 1 FROM cluster_printers cp
+             INNER JOIN printers p ON cp.printer_id = p.id
+             INNER JOIN printer_colors pc ON p.id = pc.printer_id
+             WHERE cp.cluster_id = $1 
+             AND p.state IN ('available', 'busy')
+             AND pc.color_id = $2
+             LIMIT 1`,
+            [clusterId, colorId]
+          );
+          
+          if (colorCheck.rows.length === 0) {
+            return res.status(400).json({ error: 'Color is not available in active printers of this cluster' });
+          }
+        }
+      }
+      
       let order;
       if (clusterId) {
         // Создание заказа с привязкой к кластеру
         order = await Order.createWithCluster({
           userId: req.user.id,
           material,
-          color: color || 'default',
+          colorId: colorId || null,
           quantity: parseInt(quantity),
           dimensions: {},
           deadline,
@@ -127,7 +166,7 @@ export const saveOrder = async (req, res) => {
         order = await Order.create({
           userId: req.user.id,
           material,
-          color: color || 'default',
+          colorId: colorId || null,
           quantity: parseInt(quantity),
           dimensions: {},
           deadline,
@@ -140,7 +179,7 @@ export const saveOrder = async (req, res) => {
     }
   } catch (error) {
     console.error('Save order error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: error.message || 'Internal server error' });
   }
 };
 
@@ -191,6 +230,12 @@ export const updateOrderState = async (req, res) => {
       return res.status(400).json({ error: 'Invalid state' });
     }
 
+    // Получаем текущий заказ для проверки кластера
+    const currentOrder = await Order.findById(req.params.id);
+    if (!currentOrder) {
+      return res.status(404).json({ error: 'Order not found' });
+    }
+
     const order = await Order.updateState(
       req.params.id,
       state,
@@ -199,6 +244,29 @@ export const updateOrderState = async (req, res) => {
 
     if (!order) {
       return res.status(404).json({ error: 'Order not found or access denied' });
+    }
+
+    // Создаем уведомление для владельца кластера, если заказ привязан к кластеру
+    if (currentOrder.clusterOwnerId && currentOrder.clusterOwnerId !== req.user.id) {
+      const stateLabels = {
+        'draft': 'черновик',
+        'pending': 'ожидает',
+        'approved': 'одобрен',
+        'in_progress': 'в работе',
+        'completed': 'завершен',
+        'cancelled': 'отменен'
+      };
+      const stateLabel = stateLabels[state] || state;
+      
+      try {
+        await Notification.create({
+          userId: currentOrder.clusterOwnerId,
+          message: `Статус заказа #${order.id} изменен на "${stateLabel}"`
+        });
+      } catch (notificationError) {
+        // Логируем ошибку, но не прерываем выполнение
+        console.error('Failed to create notification:', notificationError);
+      }
     }
 
     res.json(order);
@@ -211,6 +279,7 @@ export const updateOrderState = async (req, res) => {
 export const getClusterOrders = async (req, res) => {
   try {
     const clusterId = parseInt(req.params.clusterId);
+    const pool = (await import('../config/database.js')).default;
     
     // Проверяем существование кластера
     const clusterCheck = await pool.query('SELECT id, user_id FROM clusters WHERE id = $1', [clusterId]);
@@ -227,12 +296,15 @@ export const getClusterOrders = async (req, res) => {
     const result = await pool.query(
       `SELECT o.*, 
               u.email as user_email,
-              oc.cluster_id
+              oc.cluster_id,
+              di_color.id as color_id,
+              di_color.name as color_name
        FROM orders o
        INNER JOIN order_clusters oc ON o.id = oc.order_id
        LEFT JOIN users u ON o.user_id = u.id
+       LEFT JOIN dictionary_items di_color ON o.color_id = di_color.id
        WHERE oc.cluster_id = $1
-       ORDER BY o.created_at DESC`,
+       ORDER BY o.id DESC`,
       [clusterId]
     );
 

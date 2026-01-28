@@ -14,6 +14,8 @@ export interface Cluster {
   availablePrintersCount?: number;
   completedOrdersCount?: number;
   uniqueMaterials?: Array<{ id: number; name: string }>;
+  uniqueColors?: Array<{ id: number; name: string }>;
+  deliveryMethods?: Array<{ id: number; name: string; dictionaryId?: number }>;
   regionName?: string;
   cityName?: string;
   metroName?: string;

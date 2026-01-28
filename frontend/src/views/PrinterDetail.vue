@@ -16,8 +16,39 @@
         el-tag(:type="getStatusType(printer.state)") {{ getStatusText(printer.state) }}
       el-descriptions-item(v-if="printer.cluster" label="Кластер")
         router-link(:to="`/clusters/${printer.cluster.id}`") {{ printer.cluster.name }}
-      el-descriptions-item(label="Материалы")
-        span(v-if="printer.materials && printer.materials.length > 0") {{ printer.materials.join(', ') }}
+      el-descriptions-item(label="Материалы" :span="2")
+        div(v-if="printer.materials && printer.materials.length > 0")
+          el-tag(
+            v-for="material in printer.materials"
+            :key="material.id"
+            style="margin-right: 5px; margin-top: 5px"
+          )
+            span {{ material.name }}
+            el-button(
+              v-if="canEdit"
+              @click.stop="removeMaterial(material.id)"
+              type="danger"
+              link
+              size="small"
+              style="margin-left: 5px"
+            ) ×
+        span(v-else) Не указаны
+      el-descriptions-item(label="Цвета" :span="2")
+        div(v-if="printer.colors && printer.colors.length > 0")
+          el-tag(
+            v-for="color in printer.colors"
+            :key="color.id"
+            style="margin-right: 5px; margin-top: 5px"
+          )
+            span {{ color.name }}
+            el-button(
+              v-if="canEdit"
+              @click.stop="removeColor(color.id)"
+              type="danger"
+              link
+              size="small"
+              style="margin-left: 5px"
+            ) ×
         span(v-else) Не указаны
     div(v-if="printer.specifications && Object.keys(printer.specifications).length > 0" style="margin-top: 20px")
       h3 Характеристики
@@ -32,6 +63,7 @@ import { computed, onMounted } from 'vue';
 import { useRoute } from 'vue-router';
 import { usePrintersStore } from '../stores/printers';
 import { useAuthStore } from '../stores/auth';
+import { ElMessage, ElMessageBox } from 'element-plus';
 
 const route = useRoute();
 const printersStore = usePrintersStore();
@@ -61,6 +93,34 @@ const getStatusType = (status: string): 'success' | 'warning' | 'danger' | 'info
     inactive: 'danger',
   };
   return typeMap[status] || 'info';
+};
+
+const removeMaterial = async (materialId: number) => {
+  if (!printer.value) return;
+  try {
+    await ElMessageBox.confirm('Удалить материал?', 'Подтверждение', { type: 'warning' });
+    await printersStore.removeMaterials(printer.value.id, [materialId]);
+    ElMessage.success('Материал удален');
+    await printersStore.fetchPrinterById(printer.value.id);
+  } catch (error: any) {
+    if (error !== 'cancel') {
+      ElMessage.error('Не удалось удалить материал');
+    }
+  }
+};
+
+const removeColor = async (colorId: number) => {
+  if (!printer.value) return;
+  try {
+    await ElMessageBox.confirm('Удалить цвет?', 'Подтверждение', { type: 'warning' });
+    await printersStore.removeColors(printer.value.id, [colorId]);
+    ElMessage.success('Цвет удален');
+    await printersStore.fetchPrinterById(printer.value.id);
+  } catch (error: any) {
+    if (error !== 'cancel') {
+      ElMessage.error('Не удалось удалить цвет');
+    }
+  }
 };
 
 onMounted(async () => {

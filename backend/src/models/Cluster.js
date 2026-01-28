@@ -1,14 +1,24 @@
 import pool from '../config/database.js';
 
 class Cluster {
-  static async create({ userId, name, description, regionId, cityId, metroId, parentClusterId, state }) {
+  static async create({ userId, name, description, regionId, cityId, metroId, parentClusterId, state, deliveryMethodIds }) {
     const result = await pool.query(
       `INSERT INTO clusters (user_id, name, description, region_id, city_id, metro_id, parent_cluster_id, state, created_at, updated_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
        RETURNING *`,
       [userId, name, description || null, regionId, cityId, metroId || null, parentClusterId || null, state || 'draft']
     );
-    return this.formatCluster(result.rows[0]);
+    
+    const cluster = this.formatCluster(result.rows[0]);
+    
+    // Добавляем способы доставки, если они указаны
+    if (deliveryMethodIds && Array.isArray(deliveryMethodIds) && deliveryMethodIds.length > 0) {
+      cluster.deliveryMethods = await this.addDeliveryMethods(cluster.id, deliveryMethodIds);
+    } else {
+      cluster.deliveryMethods = [];
+    }
+    
+    return cluster;
   }
 
   static async findAll(filters = {}) {
@@ -66,13 +76,58 @@ class Cluster {
       countParams.push(filters.cityId);
       paramCount++;
     }
+    if (filters.materialId) {
+      // Фильтр по материалу: кластеры с принтерами, у которых есть этот материал
+      query += ` AND EXISTS (
+        SELECT 1 FROM cluster_printers cp
+        INNER JOIN printers p ON cp.printer_id = p.id
+        INNER JOIN printer_materials pm ON p.id = pm.printer_id
+        WHERE cp.cluster_id = c.id 
+        AND p.state IN ('available', 'busy')
+        AND pm.material_id = $${paramCount}
+      )`;
+      countQuery += ` AND EXISTS (
+        SELECT 1 FROM cluster_printers cp
+        INNER JOIN printers p ON cp.printer_id = p.id
+        INNER JOIN printer_materials pm ON p.id = pm.printer_id
+        WHERE cp.cluster_id = c.id 
+        AND p.state IN ('available', 'busy')
+        AND pm.material_id = $${paramCount}
+      )`;
+      params.push(filters.materialId);
+      countParams.push(filters.materialId);
+      paramCount++;
+    }
+    if (filters.colorId) {
+      // Фильтр по цвету: кластеры с принтерами, у которых есть этот цвет
+      query += ` AND EXISTS (
+        SELECT 1 FROM cluster_printers cp
+        INNER JOIN printers p ON cp.printer_id = p.id
+        INNER JOIN printer_colors pc ON p.id = pc.printer_id
+        WHERE cp.cluster_id = c.id 
+        AND p.state IN ('available', 'busy')
+        AND pc.color_id = $${paramCount}
+      )`;
+      countQuery += ` AND EXISTS (
+        SELECT 1 FROM cluster_printers cp
+        INNER JOIN printers p ON cp.printer_id = p.id
+        INNER JOIN printer_colors pc ON p.id = pc.printer_id
+        WHERE cp.cluster_id = c.id 
+        AND p.state IN ('available', 'busy')
+        AND pc.color_id = $${paramCount}
+      )`;
+      params.push(filters.colorId);
+      countParams.push(filters.colorId);
+      paramCount++;
+    }
 
     // Пагинация
     const page = parseInt(filters.page) || 1;
     const limit = parseInt(filters.limit) || 20;
     const offset = (page - 1) * limit;
 
-    query += ' ORDER BY c.created_at DESC';
+    // Сортировка по id в обратном порядке
+    query += ' ORDER BY c.id DESC';
     query += ` LIMIT $${paramCount} OFFSET $${paramCount + 1}`;
     params.push(limit, offset);
 
@@ -91,6 +146,8 @@ class Cluster {
         cluster.printersCount = await this.getPrintersCount(cluster.id);
         cluster.completedOrdersCount = await this.getCompletedOrdersCount(cluster.id);
         cluster.uniqueMaterials = await this.getUniqueMaterials(cluster.id);
+        cluster.uniqueColors = await this.getUniqueColors(cluster.id);
+        cluster.deliveryMethods = await this.getDeliveryMethods(cluster.id);
         return cluster;
       })
     );
@@ -127,6 +184,8 @@ class Cluster {
         cluster.printersCount = await this.getPrintersCount(cluster.id);
         cluster.completedOrdersCount = await this.getCompletedOrdersCount(cluster.id);
         cluster.uniqueMaterials = await this.getUniqueMaterials(cluster.id);
+        cluster.uniqueColors = await this.getUniqueColors(cluster.id);
+        cluster.deliveryMethods = await this.getDeliveryMethods(cluster.id);
         return cluster;
       })
     );
@@ -156,6 +215,8 @@ class Cluster {
     cluster.printersCount = await this.getPrintersCount(id);
     cluster.completedOrdersCount = await this.getCompletedOrdersCount(id);
     cluster.uniqueMaterials = await this.getUniqueMaterials(id);
+    cluster.uniqueColors = await this.getUniqueColors(id);
+    cluster.deliveryMethods = await this.getDeliveryMethods(id);
     return cluster;
   }
 
@@ -309,6 +370,92 @@ class Cluster {
       id: row.id,
       name: row.name,
     }));
+  }
+
+  static async getUniqueColors(id) {
+    const result = await pool.query(
+      `SELECT DISTINCT di.id, di.name
+       FROM cluster_printers cp
+       INNER JOIN printers p ON cp.printer_id = p.id
+       INNER JOIN printer_colors pc ON p.id = pc.printer_id
+       INNER JOIN dictionary_items di ON pc.color_id = di.id
+       WHERE cp.cluster_id = $1 
+       AND p.state IN ('available', 'busy')
+       ORDER BY di.name ASC`,
+      [id]
+    );
+    return result.rows.map(row => ({
+      id: row.id,
+      name: row.name,
+    }));
+  }
+
+  static async getDeliveryMethods(clusterId) {
+    const result = await pool.query(
+      `SELECT di.id, di.name, di.dictionary_id
+       FROM cluster_deliveries cd
+       INNER JOIN dictionary_items di ON cd.delivery_method_id = di.id
+       WHERE cd.cluster_id = $1
+       ORDER BY di.name ASC`,
+      [clusterId]
+    );
+    return result.rows.map(row => ({
+      id: row.id,
+      name: row.name,
+      dictionaryId: row.dictionary_id,
+    }));
+  }
+
+  static async addDeliveryMethods(clusterId, deliveryMethodIds) {
+    if (!Array.isArray(deliveryMethodIds) || deliveryMethodIds.length === 0) {
+      throw new Error('Delivery method IDs must be a non-empty array');
+    }
+
+    // Проверяем существование способов доставки в справочнике
+    const deliveryCheck = await pool.query(
+      `SELECT id FROM dictionary_items 
+       WHERE id = ANY($1::int[]) 
+       AND dictionary_id = (SELECT id FROM dictionaries WHERE name = 'delivery_methods')`,
+      [deliveryMethodIds]
+    );
+
+    if (deliveryCheck.rows.length !== deliveryMethodIds.length) {
+      throw new Error('Some delivery method IDs are invalid or not found in delivery_methods dictionary');
+    }
+
+    // Удаляем существующие связи для этих способов доставки (чтобы избежать дубликатов)
+    await pool.query(
+      `DELETE FROM cluster_deliveries 
+       WHERE cluster_id = $1 AND delivery_method_id = ANY($2::int[])`,
+      [clusterId, deliveryMethodIds]
+    );
+
+    // Добавляем новые связи
+    const values = deliveryMethodIds.map((_, index) => `($1, $${index + 2}, NOW())`).join(', ');
+    const params = [clusterId, ...deliveryMethodIds];
+    
+    await pool.query(
+      `INSERT INTO cluster_deliveries (cluster_id, delivery_method_id, created_at)
+       VALUES ${values}`,
+      params
+    );
+
+    return this.getDeliveryMethods(clusterId);
+  }
+
+  static async removeDeliveryMethods(clusterId, deliveryMethodIds) {
+    if (!Array.isArray(deliveryMethodIds) || deliveryMethodIds.length === 0) {
+      throw new Error('Delivery method IDs must be a non-empty array');
+    }
+
+    const result = await pool.query(
+      `DELETE FROM cluster_deliveries 
+       WHERE cluster_id = $1 AND delivery_method_id = ANY($2::int[])
+       RETURNING delivery_method_id`,
+      [clusterId, deliveryMethodIds]
+    );
+
+    return result.rows.map(row => row.delivery_method_id);
   }
 
   static async count() {

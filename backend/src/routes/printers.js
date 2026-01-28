@@ -7,6 +7,8 @@ import {
   getRecentPrinters,
   addPrinterMaterials,
   removePrinterMaterials,
+  addPrinterColors,
+  removePrinterColors,
 } from '../controllers/printerController.js';
 import { printerValidation, validate } from '../utils/validators/index.js';
 import { authenticateJWT } from '../middleware/auth.js';
@@ -21,6 +23,8 @@ router.put('/:id', authenticateJWT, printerValidation, validate, savePrinter);
 router.post('/:id/archive', authenticateJWT, archivePrinter);
 router.post('/:id/materials', authenticateJWT, addPrinterMaterials);
 router.delete('/:id/materials', authenticateJWT, removePrinterMaterials);
+router.post('/:id/colors', authenticateJWT, addPrinterColors);
+router.delete('/:id/colors', authenticateJWT, removePrinterColors);
 
 export default router;
 

@@ -1,6 +1,6 @@
 <template lang="pug">
 el-row(:gutter="20" style="margin-bottom: 20px")
-  el-col(:span="8")
+  el-col(:span="6")
     el-select(
       v-model="localFilters.state"
       placeholder="Выберите состояние"
@@ -12,7 +12,7 @@ el-row(:gutter="20" style="margin-bottom: 20px")
       el-option(label="Черновики" value="draft")
       el-option(label="Неактивные" value="inactive")
       el-option(label="Архив" value="archived")
-  el-col(:span="8")
+  el-col(:span="6")
     el-select(
       v-model="localFilters.regionId"
       placeholder="Выберите регион"
@@ -27,7 +27,7 @@ el-row(:gutter="20" style="margin-bottom: 20px")
         :label="region.name"
         :value="region.id"
       )
-  el-col(:span="8")
+  el-col(:span="6")
     el-select(
       v-model="localFilters.cityId"
       placeholder="Выберите город"
@@ -43,6 +43,36 @@ el-row(:gutter="20" style="margin-bottom: 20px")
         :label="city.name"
         :value="city.id"
       )
+  el-col(:span="6")
+    el-select(
+      v-model="localFilters.materialId"
+      placeholder="Выберите материал"
+      clearable
+      style="width: 100%"
+      :loading="loading"
+      @change="handleFilterChange"
+    )
+      el-option(
+        v-for="material in materials"
+        :key="material.id"
+        :label="material.name"
+        :value="material.id"
+      )
+  el-col(:span="6")
+    el-select(
+      v-model="localFilters.colorId"
+      placeholder="Выберите цвет"
+      clearable
+      style="width: 100%"
+      :loading="loading"
+      @change="handleFilterChange"
+    )
+      el-option(
+        v-for="color in colors"
+        :key="color.id"
+        :label="color.name"
+        :value="color.id"
+      )
 </template>
 
 <script setup lang="ts">
@@ -53,6 +83,8 @@ interface Filters {
   state?: string;
   regionId?: number | null;
   cityId?: number | null;
+  materialId?: number | null;
+  colorId?: number | null;
 }
 
 interface Props {
@@ -71,17 +103,23 @@ const emit = defineEmits<{
 const dictionariesStore = useDictionariesStore();
 const regions = ref([]);
 const cities = ref([]);
+const materials = ref([]);
+const colors = ref([]);
 
 const localFilters = reactive<Filters>({
   state: props.filters.state || 'active',
   regionId: props.filters.regionId || null,
   cityId: props.filters.cityId || null,
+  materialId: props.filters.materialId || null,
+  colorId: props.filters.colorId || null,
 });
 
 watch(() => props.filters, (newFilters) => {
   localFilters.state = newFilters.state || 'active';
   localFilters.regionId = newFilters.regionId || null;
   localFilters.cityId = newFilters.cityId || null;
+  localFilters.materialId = newFilters.materialId || null;
+  localFilters.colorId = newFilters.colorId || null;
 }, { deep: true });
 
 const handleFilterChange = () => {
@@ -91,7 +129,7 @@ const handleFilterChange = () => {
 const handleRegionChange = async () => {
   localFilters.cityId = null;
   await loadCities();
-  handleFilterChange();
+  emit('update:filters', { ...localFilters });
 };
 
 const loadRegions = async () => {
@@ -114,8 +152,26 @@ const loadCities = async () => {
   }
 };
 
+const loadMaterials = async () => {
+  try {
+    materials.value = await dictionariesStore.fetchItemsByDictionaryName('materials');
+  } catch (error) {
+    console.error('Failed to load materials:', error);
+  }
+};
+
+const loadColors = async () => {
+  try {
+    colors.value = await dictionariesStore.fetchItemsByDictionaryName('colors');
+  } catch (error) {
+    console.error('Failed to load colors:', error);
+  }
+};
+
 onMounted(async () => {
   await loadRegions();
+  await loadMaterials();
+  await loadColors();
   if (localFilters.regionId) {
     await loadCities();
   }

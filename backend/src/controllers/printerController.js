@@ -3,6 +3,8 @@ import Printer from '../models/Printer.js';
 export const getAllPrinters = async (req, res) => {
   try {
     const filters = {};
+    // По умолчанию показываем только принтеры текущего пользователя
+    filters.userId = req.user.id;
     if (req.query.userId) filters.userId = parseInt(req.query.userId);
     if (req.query.clusterId) filters.clusterId = parseInt(req.query.clusterId);
     if (req.query.state) filters.state = req.query.state;
@@ -59,6 +61,7 @@ export const savePrinter = async (req, res) => {
       pricePerHour,
       state,
       materialIds,
+      colorIds,
     } = req.body;
 
     const printerId = req.params.id;
@@ -78,10 +81,10 @@ export const savePrinter = async (req, res) => {
       if (modelName) updates.modelName = modelName;
       if (manufacturer) updates.manufacturer = manufacturer;
       if (pricePerHour !== undefined) {
-        if (typeof pricePerHour !== 'number' || pricePerHour < 0.01) {
-          return res.status(400).json({ error: 'Price per hour must be a positive number (minimum 0.01)' });
+        if (typeof pricePerHour !== 'number' || pricePerHour < 1 || !Number.isInteger(pricePerHour)) {
+          return res.status(400).json({ error: 'Price per hour must be a positive integer (minimum 1)' });
         }
-        updates.pricePerHour = parseFloat(pricePerHour);
+        updates.pricePerHour = parseInt(pricePerHour);
       }
       if (state) updates.state = state;
 
@@ -104,6 +107,20 @@ export const savePrinter = async (req, res) => {
         updatedPrinter.materials = await Printer.getMaterials(printerId);
       }
 
+      // Обновляем цвета, если они указаны
+      if (colorIds !== undefined && Array.isArray(colorIds)) {
+        if (colorIds.length > 0) {
+          await Printer.addColors(printerId, colorIds);
+        } else {
+          // Удаляем все цвета
+          const currentColors = await Printer.getColors(printerId);
+          if (currentColors.length > 0) {
+            await Printer.removeColors(printerId, currentColors.map(c => c.id));
+          }
+        }
+        updatedPrinter.colors = await Printer.getColors(printerId);
+      }
+
       return res.json(updatedPrinter);
     } else {
       // Создание нового принтера
@@ -111,9 +128,10 @@ export const savePrinter = async (req, res) => {
         userId: req.user.id,
         modelName,
         manufacturer,
-        pricePerHour: parseFloat(pricePerHour),
+        pricePerHour: parseInt(pricePerHour),
         state: state || 'available',
         materialIds: materialIds || [],
+        colorIds: colorIds || [],
       });
 
       return res.status(201).json(printer);
@@ -172,6 +190,58 @@ export const removePrinterMaterials = async (req, res) => {
     res.json({ removedIds });
   } catch (error) {
     console.error('Remove printer materials error:', error);
+    res.status(500).json({ error: error.message || 'Internal server error' });
+  }
+};
+
+export const addPrinterColors = async (req, res) => {
+  try {
+    const printerId = parseInt(req.params.id);
+    const { colorIds } = req.body;
+
+    if (!Array.isArray(colorIds) || colorIds.length === 0) {
+      return res.status(400).json({ error: 'Color IDs must be a non-empty array' });
+    }
+
+    const printer = await Printer.findById(printerId);
+    if (!printer) {
+      return res.status(404).json({ error: 'Printer not found' });
+    }
+
+    if (printer.userId !== req.user.id) {
+      return res.status(403).json({ error: 'Forbidden: You can only modify your own printers' });
+    }
+
+    const colors = await Printer.addColors(printerId, colorIds);
+    res.json({ colors });
+  } catch (error) {
+    console.error('Add printer colors error:', error);
+    res.status(500).json({ error: error.message || 'Internal server error' });
+  }
+};
+
+export const removePrinterColors = async (req, res) => {
+  try {
+    const printerId = parseInt(req.params.id);
+    const { colorIds } = req.body;
+
+    if (!Array.isArray(colorIds) || colorIds.length === 0) {
+      return res.status(400).json({ error: 'Color IDs must be a non-empty array' });
+    }
+
+    const printer = await Printer.findById(printerId);
+    if (!printer) {
+      return res.status(404).json({ error: 'Printer not found' });
+    }
+
+    if (printer.userId !== req.user.id) {
+      return res.status(403).json({ error: 'Forbidden: You can only modify your own printers' });
+    }
+
+    const removedIds = await Printer.removeColors(printerId, colorIds);
+    res.json({ removedIds });
+  } catch (error) {
+    console.error('Remove printer colors error:', error);
     res.status(500).json({ error: error.message || 'Internal server error' });
   }
 };

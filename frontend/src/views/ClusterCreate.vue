@@ -66,6 +66,21 @@
             :label="cluster.name"
             :value="cluster.id"
           )
+      el-form-item(label="Способы доставки")
+        el-select(
+          v-model="form.deliveryMethodIds"
+          placeholder="Выберите способы доставки"
+          multiple
+          filterable
+          style="width: 100%"
+          :loading="dictionariesStore.loading"
+        )
+          el-option(
+            v-for="method in deliveryMethods"
+            :key="method.id"
+            :label="method.name"
+            :value="method.id"
+          )
       el-alert(v-if="clustersStore.error" :title="clustersStore.error" type="error")
       el-alert(v-if="successMessage" :title="successMessage" type="success")
       el-form-item
@@ -78,6 +93,7 @@ import { ref, reactive, onMounted, computed, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useClustersStore } from '../stores/clusters';
 import { useDictionariesStore } from '../stores/dictionaries';
+import { useAuthStore } from '../stores/auth';
 import { ElMessage } from 'element-plus';
 import type { FormInstance, FormRules } from 'element-plus';
 
@@ -85,6 +101,7 @@ const router = useRouter();
 const route = useRoute();
 const clustersStore = useClustersStore();
 const dictionariesStore = useDictionariesStore();
+const authStore = useAuthStore();
 
 const isEditMode = computed(() => !!route.params.id);
 
@@ -96,6 +113,7 @@ const form = reactive({
   cityId: null as number | null,
   metroId: null as number | null,
   parentClusterId: null as number | null,
+  deliveryMethodIds: [] as number[],
 });
 
 const successMessage = ref('');
@@ -105,6 +123,7 @@ const regions = ref([]);
 const cities = ref([]);
 const metroStations = ref([]);
 const availableClusters = ref([]);
+const deliveryMethods = ref([]);
 
 const rules = reactive<FormRules>({
   name: [
@@ -143,6 +162,7 @@ const handleSubmit = async () => {
           cityId: form.cityId,
           metroId: form.metroId || undefined,
           parentClusterId: form.parentClusterId || undefined,
+          deliveryMethodIds: form.deliveryMethodIds || [],
         };
 
         let result;
@@ -206,14 +226,23 @@ const loadMetroStations = async () => {
 
 const loadAvailableClusters = async () => {
   try {
+    // Загружаем только мои кластеры
     const result = await clustersStore.fetchClusters({ includeArchived: false });
-    availableClusters.value = result.data || result;
+    availableClusters.value = (result.data || result).filter((c: any) => c.userId === authStore.user?.id);
     // Исключаем текущий кластер из списка родительских (если редактируем)
     if (isEditMode.value && cluster.value) {
       availableClusters.value = availableClusters.value.filter((c: any) => c.id !== cluster.value.id);
     }
   } catch (error) {
     console.error('Failed to load clusters:', error);
+  }
+};
+
+const loadDeliveryMethods = async () => {
+  try {
+    deliveryMethods.value = await dictionariesStore.fetchItemsByDictionaryName('delivery_methods');
+  } catch (error) {
+    console.error('Failed to load delivery methods:', error);
   }
 };
 
@@ -231,6 +260,7 @@ watch(() => form.cityId, () => {
 onMounted(async () => {
   await loadRegions();
   await loadAvailableClusters();
+  await loadDeliveryMethods();
 
   // Если режим редактирования - загружаем данные кластера
   if (isEditMode.value) {
@@ -245,6 +275,11 @@ onMounted(async () => {
         form.regionId = cluster.value.regionId;
         form.metroId = cluster.value.metroId || null;
         form.parentClusterId = cluster.value.parentClusterId || null;
+        
+        // Загружаем способы доставки
+        if (cluster.value.deliveryMethods && Array.isArray(cluster.value.deliveryMethods)) {
+          form.deliveryMethodIds = cluster.value.deliveryMethods.map((d: any) => d.id);
+        }
         
         // Загружаем города перед установкой cityId
         if (form.regionId) {

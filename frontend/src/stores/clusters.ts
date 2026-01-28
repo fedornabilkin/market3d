@@ -33,6 +33,21 @@ export const useClustersStore = defineStore('clusters', {
       }
     },
 
+    async fetchMyClusters(filters: Record<string, any> = {}) {
+      this.loading = true;
+      this.error = null;
+      try {
+        const response = await api.get('/clusters/my', {params: filters});
+        this.clusters = response.data.data || response.data;
+        return response.data;
+      } catch (error: any) {
+        this.error = error.response?.data?.error || 'Failed to fetch my clusters';
+        throw error;
+      } finally {
+        this.loading = false;
+      }
+    },
+
     async fetchActiveClusters() {
       this.loading = true;
       this.error = null;

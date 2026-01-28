@@ -24,6 +24,14 @@ el-card.printer-card(:class="{ 'my-printer': isMine }" style="margin-bottom: 20p
         style="margin-left: 5px; margin-top: 5px"
         size="small"
       ) {{ material.name }}
+    div(v-if="printer.colors && printer.colors.length > 0" style="margin-top: 10px")
+      strong Цвета: 
+      el-tag(
+        v-for="color in printer.colors"
+        :key="color.id"
+        style="margin-left: 5px; margin-top: 5px"
+        size="small"
+      ) {{ color.name }}
 </template>
 
 <script setup lang="ts">
@@ -95,7 +103,7 @@ const goToPrinter = () => {
 }
 
 .printer-card.my-printer {
-  border: 2px solid #409EFF;
+  /*border: 2px solid #409EFF;*/
 }
 
 .card-header {

@@ -3,22 +3,37 @@
   h1 {{ isEditMode ? 'Редактировать заказ' : 'Создать заказ' }}
   el-alert(
     v-if="!isEditMode && !clusterId"
-    title="Заказ можно создать только с детальной страницы кластера"
     type="warning"
     style="margin-bottom: 20px"
+    :closable="false"
   )
+    template(#title)
+      div
+        p Заказ можно создать только с детальной страницы кластера
+        router-link(to="/")
+          el-button(type="primary" size="small" style="margin-top: 10px") Перейти к выбору кластеров
   el-card.form-card(v-if="isEditMode || clusterId")
     el-form(@submit.prevent="handleSubmit" :model="form" :rules="rules" ref="formRef")
       el-form-item(label="Материал" prop="material")
-        el-select(v-model="form.material" placeholder="Выберите материал" style="width: 100%" :loading="dictionariesStore.loading")
-          el-option(
-            v-for="item in materialItems"
-            :key="item.id"
-            :label="item.name"
-            :value="item.name"
-          )
-      el-form-item(label="Цвет")
-        el-input(v-model="form.color" placeholder="Белый, черный и т.д.")
+        div(style="display: flex; flex-wrap: wrap; gap: 8px")
+          el-tag(
+            v-for="material in availableMaterials"
+            :key="material.id"
+            :type="form.material === material.name ? 'primary' : 'info'"
+            :effect="form.material === material.name ? 'dark' : 'plain'"
+            style="cursor: pointer"
+            @click="form.material = material.name"
+          ) {{ material.name }}
+      el-form-item(label="Цвет" prop="colorId")
+        div(style="display: flex; flex-wrap: wrap; gap: 8px")
+          el-tag(
+            v-for="color in availableColors"
+            :key="color.id"
+            :type="form.colorId === color.id ? 'primary' : 'info'"
+            :effect="form.colorId === color.id ? 'dark' : 'plain'"
+            style="cursor: pointer"
+            @click="form.colorId = form.colorId === color.id ? null : color.id"
+          ) {{ color.name }}
       el-form-item(label="Количество" prop="quantity")
         el-input-number(v-model="form.quantity" :min="1" style="width: 100%")
       el-form-item(label="Описание")
@@ -61,7 +76,7 @@ const clusterId = computed(() => {
 const formRef = ref<FormInstance>();
 const form = reactive({
   material: '',
-  color: '',
+  colorId: null as number | null,
   quantity: 1,
   description: '',
   deadline: '',
@@ -70,6 +85,9 @@ const form = reactive({
 const successMessage = ref('');
 
 const materialItems = ref([]);
+const colorItems = ref([]);
+const availableMaterials = ref([]);
+const availableColors = ref([]);
 
 const rules = reactive<FormRules>({
   material: [
@@ -114,7 +132,7 @@ const handleSubmit = async () => {
       try {
         const orderData = {
           material: form.material,
-          color: form.color,
+          colorId: form.colorId,
           quantity: form.quantity,
           deadline: form.deadline,
           description: form.description,
@@ -159,12 +177,38 @@ const handleSubmit = async () => {
   });
 };
 
+const loadAvailableMaterialsAndColors = async () => {
+  if (!clusterId.value) return;
+  
+  try {
+    // Загружаем информацию о кластере для получения доступных материалов и цветов
+    const { useClustersStore } = await import('../stores/clusters');
+    const clustersStore = useClustersStore();
+    await clustersStore.fetchClusterById(clusterId.value);
+    const cluster = clustersStore.currentCluster;
+    
+    if (cluster) {
+      // Используем материалы и цвета из активных принтеров кластера
+      availableMaterials.value = cluster.uniqueMaterials || [];
+      availableColors.value = cluster.uniqueColors || [];
+    }
+  } catch (error) {
+    console.error('Failed to load cluster data:', error);
+  }
+};
+
 onMounted(async () => {
-  // Загружаем материалы из справочника
+  // Загружаем материалы и цвета из справочника
   try {
     materialItems.value = await dictionariesStore.fetchItemsByDictionaryName('materials');
+    colorItems.value = await dictionariesStore.fetchItemsByDictionaryName('colors');
   } catch (error) {
-    console.error('Failed to load materials:', error);
+    console.error('Failed to load dictionaries:', error);
+  }
+
+  // Если есть clusterId, загружаем доступные материалы и цвета
+  if (clusterId.value) {
+    await loadAvailableMaterialsAndColors();
   }
 
   // Если режим редактирования - загружаем данные заказа
@@ -175,10 +219,15 @@ onMounted(async () => {
       const order = ordersStore.currentOrder;
       if (order && order.userId === ordersStore.currentOrder?.userId) {
         form.material = order.material;
-        form.color = order.color || '';
+        form.colorId = order.colorId || null;
         form.quantity = order.quantity;
         form.description = order.description || '';
         form.deadline = order.deadline;
+        
+        // Если есть clusterId, загружаем доступные материалы и цвета
+        if (order.clusterId) {
+          await loadAvailableMaterialsAndColors();
+        }
       } else {
         router.push('/orders');
       }

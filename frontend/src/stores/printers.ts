@@ -15,6 +15,7 @@ interface Printer {
   price_per_hour: number;
   state: 'available' | 'busy' | 'maintenance' | 'inactive';
   materials?: Material[];
+  colors?: Material[];
   specifications?: Record<string, any>;
   maxBuildVolume?: Record<string, any>;
   createdAt?: string;

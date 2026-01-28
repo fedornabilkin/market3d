@@ -52,6 +52,8 @@ const filters = reactive({
   state: 'active' as string | undefined,
   regionId: null as number | null,
   cityId: null as number | null,
+  materialId: null as number | null,
+  colorId: null as number | null,
 });
 
 const pagination = reactive({
@@ -80,8 +82,10 @@ const loadClusters = async () => {
     if (filters.state) params.state = filters.state;
     if (filters.regionId) params.regionId = filters.regionId;
     if (filters.cityId) params.cityId = filters.cityId;
+    if (filters.materialId) params.materialId = filters.materialId;
+    if (filters.colorId) params.colorId = filters.colorId;
 
-    const result = await clustersStore.fetchClusters(params);
+    const result = await clustersStore.fetchMyClusters(params);
     clusters.value = result.data || result;
     if (result.total !== undefined) {
       pagination.total = result.total;

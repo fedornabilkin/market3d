@@ -7,6 +7,8 @@ export const getAllClusters = async (req, res) => {
     if (req.query.state) filters.state = req.query.state;
     if (req.query.regionId) filters.regionId = parseInt(req.query.regionId);
     if (req.query.cityId) filters.cityId = parseInt(req.query.cityId);
+    if (req.query.materialId) filters.materialId = parseInt(req.query.materialId);
+    if (req.query.colorId) filters.colorId = parseInt(req.query.colorId);
     if (req.query.page) filters.page = parseInt(req.query.page);
     if (req.query.limit) filters.limit = parseInt(req.query.limit);
     if (req.query.includeArchived === 'true') filters.includeArchived = true;
@@ -18,6 +20,27 @@ export const getAllClusters = async (req, res) => {
     res.status(500).json({ error: 'Internal server error' });
   }
 };
+
+export const getMyClusters = async (req, res) => {
+  try {
+    const filters = {};
+    filters.userId = req.user.id;
+    if (req.query.state) filters.state = req.query.state;
+    if (req.query.regionId) filters.regionId = parseInt(req.query.regionId);
+    if (req.query.cityId) filters.cityId = parseInt(req.query.cityId);
+    if (req.query.materialId) filters.materialId = parseInt(req.query.materialId);
+    if (req.query.colorId) filters.colorId = parseInt(req.query.colorId);
+    if (req.query.page) filters.page = parseInt(req.query.page);
+    if (req.query.limit) filters.limit = parseInt(req.query.limit);
+    if (req.query.includeArchived === 'true') filters.includeArchived = true;
+
+    const result = await Cluster.findAll(filters);
+    res.json(result);
+  } catch (error) {
+    console.error('Get clusters error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+}
 
 export const getActiveClusters = async (req, res) => {
   try {
@@ -58,6 +81,7 @@ export const createCluster = async (req, res) => {
       cityId,
       metroId,
       parentClusterId,
+      deliveryMethodIds,
     } = req.body;
 
     const cluster = await Cluster.create({
@@ -69,12 +93,13 @@ export const createCluster = async (req, res) => {
       metroId,
       parentClusterId,
       state: 'draft',
+      deliveryMethodIds: deliveryMethodIds || [],
     });
 
     res.status(201).json(cluster);
   } catch (error) {
     console.error('Create cluster error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: error.message || 'Internal server error' });
   }
 };
 
@@ -87,6 +112,7 @@ export const updateCluster = async (req, res) => {
       cityId,
       metroId,
       parentClusterId,
+      deliveryMethodIds,
     } = req.body;
 
     const updates = {};
@@ -102,10 +128,24 @@ export const updateCluster = async (req, res) => {
       return res.status(404).json({ error: 'Cluster not found or access denied' });
     }
 
+    // Обновляем способы доставки, если они указаны
+    if (deliveryMethodIds !== undefined && Array.isArray(deliveryMethodIds)) {
+      if (deliveryMethodIds.length > 0) {
+        await Cluster.addDeliveryMethods(req.params.id, deliveryMethodIds);
+      } else {
+        // Удаляем все способы доставки
+        const currentDeliveryMethods = await Cluster.getDeliveryMethods(req.params.id);
+        if (currentDeliveryMethods.length > 0) {
+          await Cluster.removeDeliveryMethods(req.params.id, currentDeliveryMethods.map(d => d.id));
+        }
+      }
+      updatedCluster.deliveryMethods = await Cluster.getDeliveryMethods(req.params.id);
+    }
+
     res.json(updatedCluster);
   } catch (error) {
     console.error('Update cluster error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: error.message || 'Internal server error' });
   }
 };
 
