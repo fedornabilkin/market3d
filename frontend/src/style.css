@@ -102,3 +102,29 @@ body {
   font-size: 14px;
 }
 
+/* Tag styling */
+.el-tag {
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
+}
+
+/* Material tags - dark gray with white text */
+.material-tag,
+.el-tag[data-type="material"] {
+  background-color: #4a4a4a !important;
+  color: white !important;
+  border-color: #4a4a4a !important;
+}
+
+/* Color tags - use actual colors from name */
+.color-tag,
+.el-tag[data-type="color"] {
+  /* Colors will be set dynamically via inline styles based on color name */
+  color: white !important;
+  /* Fallback for colors without specific styling */
+  background-color: #409EFF !important;
+}
+
+/* Delivery method tags */
+.delivery-tag {
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
+}

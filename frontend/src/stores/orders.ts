@@ -24,6 +24,11 @@ interface Order {
   state: 'draft' | 'pending' | 'approved' | 'in_progress' | 'completed' | 'cancelled';
   totalPrice: number;
   description?: string;
+  deliveryMethodId?: number;
+  deliveryMethodName?: string;
+  clusterId?: number;
+  clusterName?: string;
+  clusterOwnerId?: number;
   createdAt: string;
   updatedAt: string;
   completedAt?: string;

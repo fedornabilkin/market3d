@@ -70,5 +70,21 @@ export const generateToken = (user) => {
 // Middleware для проверки JWT
 export const authenticateJWT = passport.authenticate('jwt', { session: false });
 
+// Middleware для обновления времени последней активности пользователя
+export const updateLastActivity = async (req, res, next) => {
+  if (req.user && req.user.id) {
+    try {
+      // Обновляем время активности асинхронно, не блокируя запрос
+      User.updateLastActivity(req.user.id).catch(err => {
+        console.error('Failed to update last activity:', err);
+      });
+    } catch (error) {
+      // Не прерываем запрос при ошибке обновления активности
+      console.error('Error in updateLastActivity middleware:', error);
+    }
+  }
+  next();
+};
+
 export default passport;
 

@@ -6,33 +6,73 @@
         .nav-content
           router-link.logo(to="/") 3D Marketplace
           .nav-links
-            router-link(to="/clusters") Кластеры
-            router-link(to="/printers") Принтеры
-            router-link(to="/orders") Заказы
+            router-link(to="/clusters")
+              el-icon(style="margin-right: 5px")
+                OfficeBuilding
+              | Кластеры
+            router-link(to="/printers")
+              el-icon(style="margin-right: 5px")
+                Printer
+              | Принтеры
+            router-link(to="/orders")
+              el-icon(style="margin-right: 5px")
+                Document
+              | Заказы
             NotificationDropdown(v-if="authStore.isAuthenticated")
-            router-link(v-if="authStore.isAuthenticated" to="/profile").user-info {{ authStore.user?.email }}
+            .avatar-container(v-if="authStore.isAuthenticated")
+              .avatar-circle(@click="showUserPopup = !showUserPopup")
+                img(v-if="authStore.user?.avatarUrl" :src="authStore.user.avatarUrl" alt="Avatar")
+                span(v-else) {{ getInitials(authStore.user?.name || authStore.user?.email || '') }}
+              el-popover(
+                v-model:visible="showUserPopup"
+                placement="bottom-end"
+                :width="250"
+                trigger="click"
+              )
+                template(#reference)
+                  span
+                .user-popup
+                  .user-popup-header
+                    img(v-if="authStore.user?.avatarUrl" :src="authStore.user.avatarUrl" alt="Avatar" style="width: 80px; height: 80px; border-radius: 50%; margin-bottom: 10px")
+                    div(v-else style="width: 80px; height: 80px; border-radius: 50%; background: #409EFF; display: flex; align-items: center; justify-content: center; color: white; font-size: 32px; margin: 0 auto 10px") {{ getInitials(authStore.user?.name || authStore.user?.email || '') }}
+                    h3 {{ authStore.user?.name || 'Пользователь' }}
+                    p {{ authStore.user?.email }}
+                  router-link(to="/profile" @click="showUserPopup = false")
+                    el-button(type="primary" style="width: 100%; margin-bottom: 10px") Профиль
+                  el-button(type="danger" style="width: 100%" @click="handleLogout") Выход
             router-link(v-else to="/login")
               el-button(type="primary") Войти
-            el-button(v-if="authStore.isAuthenticated" @click="handleLogout" type="default") Выйти
   main
     router-view
 </template>
 
 <script setup lang="ts">
-import { onMounted } from 'vue';
+import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from './stores/auth';
 import NotificationDropdown from './components/NotificationDropdown.vue';
+import { OfficeBuilding, Printer, Document } from '@element-plus/icons-vue';
 
 const router = useRouter();
 const authStore = useAuthStore();
+const showUserPopup = ref(false);
 
 onMounted(() => {
   authStore.init();
 });
 
+const getInitials = (text: string): string => {
+  if (!text) return '';
+  const parts = text.split(' ');
+  if (parts.length >= 2) {
+    return (parts[0][0] + parts[1][0]).toUpperCase();
+  }
+  return text.substring(0, 2).toUpperCase();
+};
+
 const handleLogout = () => {
   authStore.logout();
+  showUserPopup.value = false;
   router.push('/login');
 };
 </script>
@@ -82,17 +122,59 @@ const handleLogout = () => {
   background-color: rgba(255, 255, 255, 0.1);
 }
 
-.user-info {
-  color: white;
-  margin-right: 10px;
-  text-decoration: none;
-  padding: 5px 10px;
-  border-radius: 3px;
-  transition: background-color 0.3s;
+.avatar-container {
+  position: relative;
+  margin-left: 10px;
 }
 
-.user-info:hover {
-  background-color: rgba(255, 255, 255, 0.1);
+.avatar-circle {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.3s;
+  overflow: hidden;
+}
+
+.avatar-circle:hover {
+  background: rgba(255, 255, 255, 0.3);
+  transform: scale(1.05);
+}
+
+.avatar-circle img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.avatar-circle span {
+  color: white;
+  font-weight: bold;
+  font-size: 14px;
+}
+
+.user-popup {
+  padding: 10px;
+}
+
+.user-popup-header {
+  text-align: center;
+  margin-bottom: 15px;
+}
+
+.user-popup-header h3 {
+  margin: 10px 0 5px;
+  font-size: 18px;
+}
+
+.user-popup-header p {
+  margin: 0;
+  color: #666;
+  font-size: 14px;
 }
 
 main {

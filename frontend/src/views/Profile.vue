@@ -1,5 +1,6 @@
 <template lang="pug">
 .container
+  Breadcrumbs
   h1 Профиль пользователя
   el-card.form-card
     // Информация о пользователе
@@ -10,6 +11,21 @@
         el-tag(v-if="authStore.user?.emailVerified" type="success") Да
         el-tag(v-else type="warning") Нет
       el-descriptions-item(label="Дата регистрации") {{ formatDate(authStore.user?.createdAt) }}
+    
+    // Редактирование профиля
+    el-card(style="margin-top: 20px")
+      template(#header)
+        h3 Редактирование профиля
+      el-form(@submit.prevent="handleProfileUpdate" :model="profileForm" ref="profileFormRef")
+        el-form-item(label="Имя")
+          el-input(v-model="profileForm.name" placeholder="Введите имя")
+        el-form-item(label="Описание")
+          el-input(v-model="profileForm.description" type="textarea" :rows="4" placeholder="Введите описание")
+        el-form-item(label="Аватар (URL)")
+          el-input(v-model="profileForm.avatarUrl" placeholder="Введите URL аватара")
+        el-form-item
+          el-button(type="primary" @click="handleProfileUpdate" :loading="profileUpdateLoading") Сохранить
+          el-alert(v-if="profileUpdateSuccess" :title="profileUpdateSuccess" type="success" style="margin-top: 10px" :closable="false")
     
     // Верификация email (скрываем если email подтвержден)
     el-card(v-if="!authStore.user?.emailVerified" style="margin-top: 20px")
@@ -59,6 +75,7 @@
 import { ref, reactive, onMounted } from 'vue';
 import { useAuthStore } from '../stores/auth';
 import type { FormInstance, FormRules } from 'element-plus';
+import Breadcrumbs from '../components/Breadcrumbs.vue';
 
 const authStore = useAuthStore();
 
@@ -81,6 +98,15 @@ const passwordForm = reactive({
   newPassword: '',
   confirmPassword: '',
 });
+
+const profileFormRef = ref<FormInstance>();
+const profileForm = reactive({
+  name: '',
+  description: '',
+  avatarUrl: '',
+});
+const profileUpdateLoading = ref(false);
+const profileUpdateSuccess = ref('');
 
 const emailRules = reactive<FormRules>({
   newEmail: [
@@ -243,8 +269,33 @@ const handlePasswordChange = async () => {
   });
 };
 
+const handleProfileUpdate = async () => {
+  profileUpdateLoading.value = true;
+  profileUpdateSuccess.value = '';
+  try {
+    await authStore.updateProfile({
+      name: profileForm.name,
+      description: profileForm.description,
+      avatarUrl: profileForm.avatarUrl,
+    });
+    profileUpdateSuccess.value = 'Профиль успешно обновлен!';
+    setTimeout(() => {
+      profileUpdateSuccess.value = '';
+    }, 3000);
+  } catch (error) {
+    // Error handled by store
+  } finally {
+    profileUpdateLoading.value = false;
+  }
+};
+
 onMounted(async () => {
   await authStore.getProfile();
+  if (authStore.user) {
+    profileForm.name = authStore.user.name || '';
+    profileForm.description = authStore.user.description || '';
+    profileForm.avatarUrl = authStore.user.avatarUrl || '';
+  }
 });
 </script>
 

@@ -1,5 +1,6 @@
 <template lang="pug">
 .container
+  Breadcrumbs
   el-card
     template(#header)
       .header-section
@@ -34,6 +35,7 @@ import { useAuthStore } from '../stores/auth';
 import PrinterFilter from '../components/PrinterFilter.vue';
 import PrinterCard from '../components/PrinterCard.vue';
 import Pagination from '../components/Pagination.vue';
+import Breadcrumbs from '../components/Breadcrumbs.vue';
 
 const route = useRoute();
 const router = useRouter();

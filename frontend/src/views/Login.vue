@@ -1,5 +1,6 @@
 <template lang="pug">
 .login-container
+  Breadcrumbs
   el-card.login-card(shadow="always")
     template(#header)
       h1 Вход
@@ -22,6 +23,7 @@ import { ref, reactive } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '../stores/auth';
 import type { FormInstance, FormRules } from 'element-plus';
+import Breadcrumbs from '../components/Breadcrumbs.vue';
 
 const router = useRouter();
 const authStore = useAuthStore();

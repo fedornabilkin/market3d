@@ -1,5 +1,6 @@
 <template lang="pug">
 .container
+  Breadcrumbs
   h1 Мои заказы
   el-card(style="margin-bottom: 20px")
     el-form(:inline="true")
@@ -37,6 +38,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { useOrdersStore } from '../stores/orders';
 import { useAuthStore } from '../stores/auth';
 import OrderCard from '../components/OrderCard.vue';
+import Breadcrumbs from '../components/Breadcrumbs.vue';
 
 const route = useRoute();
 const router = useRouter();

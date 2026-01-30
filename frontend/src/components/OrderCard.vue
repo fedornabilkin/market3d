@@ -7,12 +7,12 @@ el-card.order-card(:class="{ 'my-order': isMine }" style="margin-bottom: 20px" @
       el-icon.my-icon(v-if="isMine" style="color: #409EFF; margin-left: 8px")
         User
   .card-content
-    p
+    p(v-if="order.material")
       strong Материал: 
-      | {{ order.material }}
+      el-tag(style="margin-left: 5px") {{ order.material }}
     p(v-if="order.colorName || order.color")
       strong Цвет: 
-      | {{ order.colorName || order.color }}
+      el-tag(style="margin-left: 5px") {{ order.colorName || order.color }}
     p
       strong Количество: 
       | {{ order.quantity }}
@@ -38,7 +38,7 @@ import { User } from '@element-plus/icons-vue';
 interface Order {
   id: number;
   userId: number;
-  material: string;
+  material?: string | null;
   color?: string;
   colorName?: string;
   quantity: number;

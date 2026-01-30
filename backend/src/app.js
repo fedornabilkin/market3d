@@ -27,6 +27,9 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 
+// Disable X-Powered-By header
+app.disable('x-powered-by');
+
 // Middleware
 app.use(cors());
 app.use(express.json());

@@ -1,5 +1,6 @@
 <template lang="pug">
 .container
+  Breadcrumbs
   el-card
     template(#header)
       .header-section
@@ -40,6 +41,7 @@ import { ElMessage } from 'element-plus';
 import ClusterFilter from '../components/ClusterFilter.vue';
 import ClusterList from '../components/ClusterList.vue';
 import Pagination from '../components/Pagination.vue';
+import Breadcrumbs from '../components/Breadcrumbs.vue';
 
 const route = useRoute();
 const clustersStore = useClustersStore();

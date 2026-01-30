@@ -4,6 +4,9 @@ import api from '../services/api';
 interface User {
   id: number;
   email: string;
+  name?: string;
+  description?: string;
+  avatarUrl?: string;
   emailVerified?: boolean;
   createdAt?: string;
 }

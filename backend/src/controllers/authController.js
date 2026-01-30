@@ -62,12 +62,19 @@ export const register = async (req, res) => {
 };
 
 export const login = async (req, res, next) => {
-  passport.authenticate('local', { session: false }, (err, user, info) => {
+  passport.authenticate('local', { session: false }, async (err, user, info) => {
     if (err) {
       return res.status(500).json({ error: 'Internal server error' });
     }
     if (!user) {
       return res.status(401).json({ error: info.message || 'Invalid credentials' });
+    }
+
+    // Обновляем время последней активности при успешном логине
+    try {
+      await User.updateLastActivity(user.id);
+    } catch (error) {
+      console.error('Failed to update last activity on login:', error);
     }
 
     const token = generateToken(user);
@@ -77,6 +84,9 @@ export const login = async (req, res, next) => {
       user: {
         id: user.id,
         email: user.email,
+        name: user.name,
+        description: user.description,
+        avatarUrl: user.avatar_url,
       },
     });
   })(req, res, next);
@@ -91,6 +101,9 @@ export const getProfile = async (req, res) => {
     res.json({
       id: user.id,
       email: user.email,
+      name: user.name,
+      description: user.description,
+      avatarUrl: user.avatar_url,
       emailVerified: user.email_verified || false,
       createdAt: user.created_at,
     });
@@ -279,10 +292,19 @@ export const confirmEmailChange = async (req, res) => {
 export const updateProfile = async (req, res) => {
   try {
     const userId = req.user.id;
+    const { name, description, avatarUrl } = req.body;
     const updates = {};
 
     // Можно обновлять только определенные поля (кроме email и пароля)
-    // В данном случае, кроме email и пароля других полей нет, но оставляем структуру для будущего расширения
+    if (name !== undefined) {
+      updates.name = name;
+    }
+    if (description !== undefined) {
+      updates.description = description;
+    }
+    if (avatarUrl !== undefined) {
+      updates.avatarUrl = avatarUrl;
+    }
 
     if (Object.keys(updates).length === 0) {
       return res.status(400).json({ error: 'No fields to update' });
@@ -296,6 +318,9 @@ export const updateProfile = async (req, res) => {
     res.json({
       id: updatedUser.id,
       email: updatedUser.email,
+      name: updatedUser.name,
+      description: updatedUser.description,
+      avatarUrl: updatedUser.avatar_url,
       emailVerified: updatedUser.email_verified || false,
       createdAt: updatedUser.created_at,
     });

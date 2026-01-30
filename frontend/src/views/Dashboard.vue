@@ -1,22 +1,28 @@
 <template lang="pug">
 .container
-  h1 Добро пожаловать, {{ authStore.user?.email }}!
+  Breadcrumbs
   .dashboard-content
     // Статистика
     el-row(:gutter="20" style="margin-bottom: 30px")
       el-col(:span="6")
         el-card.stat-card
           el-statistic(title="Принтеров" :value="stats.printers")
+            template(#suffix)
+              span(v-if="authStore.isAuthenticated && stats.myPrinters !== undefined") ({{ stats.myPrinters }})
           el-alert(v-if="statsError" :title="statsError" type="error" style="margin-top: 10px")
       el-col(:span="6")
         el-card.stat-card
           el-statistic(title="Заказов" :value="stats.orders")
+            template(#suffix)
+              span(v-if="authStore.isAuthenticated && stats.myOrders !== undefined") ({{ stats.myOrders }})
       el-col(:span="6")
         el-card.stat-card
           el-statistic(title="Пользователей" :value="stats.users")
       el-col(:span="6")
         el-card.stat-card
           el-statistic(title="Кластеров" :value="stats.clusters")
+            template(#suffix)
+              span(v-if="authStore.isAuthenticated && stats.myClusters !== undefined") ({{ stats.myClusters }})
     
     // Активные кластеры
     el-card.dashboard-section
@@ -78,6 +84,7 @@ import ClusterCard from '../components/ClusterCard.vue';
 import PrinterCard from '../components/PrinterCard.vue';
 import OrderCard from '../components/OrderCard.vue';
 import ClusterFilter from '../components/ClusterFilter.vue';
+import Breadcrumbs from '../components/Breadcrumbs.vue';
 import api from '../services/api';
 
 const authStore = useAuthStore();
@@ -91,6 +98,9 @@ const stats = ref({
   orders: 0,
   users: 0,
   clusters: 0,
+  myPrinters: undefined as number | undefined,
+  myOrders: undefined as number | undefined,
+  myClusters: undefined as number | undefined,
 });
 
 const statsError = ref('');
@@ -152,8 +162,9 @@ onMounted(async () => {
 
   // Загружаем только завершенные заказы
   try {
-    const result = await ordersStore.fetchOrders({ state: 'completed', limit: 6 });
-    recentOrders.value = result.data || result;
+    // const result = await ordersStore.fetchOrders({ state: 'completed', limit: 6 });
+    // recentOrders.value = result.data || result;
+    // recentOrders.value = await ordersStore.fetchRecentOrders(6);
     ordersError.value = '';
   } catch (error: any) {
     ordersError.value = error.response?.data?.error || 'Не удалось загрузить заказы';

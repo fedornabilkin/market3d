@@ -1,17 +1,28 @@
 import pool from '../config/database.js';
 
 class Printer {
-  static async create({ userId, modelName, manufacturer, pricePerHour, state, materialIds, colorIds }) {
+  static async create({ userId, modelName, manufacturer, pricePerHour, state, materialIds, colorIds, maxSizeX, maxSizeY, maxSizeZ, description, quantity }) {
     // Валидация цены - только целые числа
     if (pricePerHour === undefined || pricePerHour === null || typeof pricePerHour !== 'number' || pricePerHour < 1 || !Number.isInteger(pricePerHour)) {
       throw new Error('Price per hour must be a positive integer (minimum 1)');
     }
 
+    // Валидация обязательных полей максимального размера - только целые числа
+    if (maxSizeX === undefined || maxSizeX === null || typeof maxSizeX !== 'number' || maxSizeX <= 0 || !Number.isInteger(maxSizeX)) {
+      throw new Error('Max size X must be a positive integer (in millimeters)');
+    }
+    if (maxSizeY === undefined || maxSizeY === null || typeof maxSizeY !== 'number' || maxSizeY <= 0 || !Number.isInteger(maxSizeY)) {
+      throw new Error('Max size Y must be a positive integer (in millimeters)');
+    }
+    if (maxSizeZ === undefined || maxSizeZ === null || typeof maxSizeZ !== 'number' || maxSizeZ <= 0 || !Number.isInteger(maxSizeZ)) {
+      throw new Error('Max size Z must be a positive integer (in millimeters)');
+    }
+
     const result = await pool.query(
-      `INSERT INTO printers (user_id, model_name, manufacturer, price_per_hour, state, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+      `INSERT INTO printers (user_id, model_name, manufacturer, price_per_hour, state, max_size_x, max_size_y, max_size_z, description, quantity, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())
        RETURNING *`,
-      [userId, modelName, manufacturer, pricePerHour, state || 'available']
+      [userId, modelName, manufacturer, pricePerHour, state || 'available', maxSizeX, maxSizeY, maxSizeZ, description || null, quantity || 1]
     );
     
     const printer = this.formatPrinter(result.rows[0]);
@@ -180,6 +191,38 @@ class Printer {
     if (updates.state) {
       fields.push(`state = $${paramCount++}`);
       values.push(updates.state);
+    }
+    if (updates.maxSizeX !== undefined) {
+      if (typeof updates.maxSizeX !== 'number' || updates.maxSizeX <= 0 || !Number.isInteger(updates.maxSizeX)) {
+        throw new Error('Max size X must be a positive integer (in millimeters)');
+      }
+      fields.push(`max_size_x = $${paramCount++}`);
+      values.push(updates.maxSizeX);
+    }
+    if (updates.maxSizeY !== undefined) {
+      if (typeof updates.maxSizeY !== 'number' || updates.maxSizeY <= 0 || !Number.isInteger(updates.maxSizeY)) {
+        throw new Error('Max size Y must be a positive integer (in millimeters)');
+      }
+      fields.push(`max_size_y = $${paramCount++}`);
+      values.push(updates.maxSizeY);
+    }
+    if (updates.maxSizeZ !== undefined) {
+      if (typeof updates.maxSizeZ !== 'number' || updates.maxSizeZ <= 0 || !Number.isInteger(updates.maxSizeZ)) {
+        throw new Error('Max size Z must be a positive integer (in millimeters)');
+      }
+      fields.push(`max_size_z = $${paramCount++}`);
+      values.push(updates.maxSizeZ);
+    }
+    if (updates.description !== undefined) {
+      fields.push(`description = $${paramCount++}`);
+      values.push(updates.description);
+    }
+    if (updates.quantity !== undefined) {
+      if (typeof updates.quantity !== 'number' || updates.quantity < 1 || !Number.isInteger(updates.quantity)) {
+        throw new Error('Quantity must be a positive integer (minimum 1)');
+      }
+      fields.push(`quantity = $${paramCount++}`);
+      values.push(updates.quantity);
     }
 
     if (fields.length === 0) return null;
@@ -354,6 +397,11 @@ class Printer {
       clusterName: row.cluster_name,
       pricePerHour: parseFloat(row.price_per_hour),
       state: row.state,
+      maxSizeX: row.max_size_x ? parseFloat(row.max_size_x) : null,
+      maxSizeY: row.max_size_y ? parseFloat(row.max_size_y) : null,
+      maxSizeZ: row.max_size_z ? parseFloat(row.max_size_z) : null,
+      description: row.description,
+      quantity: row.quantity || 1,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };

@@ -43,10 +43,18 @@ export const getPrinterById = async (req, res) => {
       name: printer.clusterName,
     } : null;
 
-    res.json({
+    // Скрываем описание для неавторов
+    const isAuthor = req.user && printer.userId === req.user.id;
+    const response = {
       ...printer,
       cluster,
-    });
+    };
+    
+    if (!isAuthor) {
+      delete response.description;
+    }
+
+    res.json(response);
   } catch (error) {
     console.error('Get printer error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -62,6 +70,11 @@ export const savePrinter = async (req, res) => {
       state,
       materialIds,
       colorIds,
+      maxSizeX,
+      maxSizeY,
+      maxSizeZ,
+      description,
+      quantity,
     } = req.body;
 
     const printerId = req.params.id;
@@ -87,6 +100,11 @@ export const savePrinter = async (req, res) => {
         updates.pricePerHour = parseInt(pricePerHour);
       }
       if (state) updates.state = state;
+      if (maxSizeX !== undefined) updates.maxSizeX = parseFloat(maxSizeX);
+      if (maxSizeY !== undefined) updates.maxSizeY = parseFloat(maxSizeY);
+      if (maxSizeZ !== undefined) updates.maxSizeZ = parseFloat(maxSizeZ);
+      if (description !== undefined) updates.description = description;
+      if (quantity !== undefined) updates.quantity = parseInt(quantity);
 
       const updatedPrinter = await Printer.update(printerId, updates, req.user.id);
       if (!updatedPrinter) {
@@ -132,6 +150,11 @@ export const savePrinter = async (req, res) => {
         state: state || 'available',
         materialIds: materialIds || [],
         colorIds: colorIds || [],
+        maxSizeX: parseFloat(maxSizeX),
+        maxSizeY: parseFloat(maxSizeY),
+        maxSizeZ: parseFloat(maxSizeZ),
+        description: description || null,
+        quantity: quantity || 1,
       });
 
       return res.status(201).json(printer);

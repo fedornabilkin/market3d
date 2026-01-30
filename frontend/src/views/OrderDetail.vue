@@ -1,5 +1,6 @@
 <template lang="pug">
 .container
+  Breadcrumbs
   div(v-if="ordersStore.loading")
     el-skeleton(:rows="10" animated)
   el-alert(v-else-if="ordersStore.error" :title="ordersStore.error" type="error")
@@ -13,11 +14,28 @@
           router-link(v-if="canEdit" :to="`/orders/${ordersStore.currentOrder.id}/edit`")
             el-button(type="primary") Редактировать
       el-descriptions(v-if="ordersStore.currentOrder" :column="2" border)
-        el-descriptions-item(label="Заказчик") {{ ordersStore.currentOrder.userEmail }}
-        el-descriptions-item(label="Материал") {{ ordersStore.currentOrder.material }}
-        el-descriptions-item(label="Цвет") {{ ordersStore.currentOrder.color || 'Не указан' }}
+        el-descriptions-item(label="Заказчик")
+          span {{ ordersStore.currentOrder.userId }}
+          el-icon(v-if="isMyOrder" style="margin-left: 5px; color: #409EFF")
+            User
+        el-descriptions-item(v-if="ordersStore.currentOrder.clusterName" label="Кластер")
+          router-link(:to="`/clusters/${ordersStore.currentOrder.clusterId}`") {{ ordersStore.currentOrder.clusterName }}
+        el-descriptions-item(v-if="ordersStore.currentOrder.material" label="Материал")
+          el-tag {{ ordersStore.currentOrder.material }}
+        el-descriptions-item(v-if="ordersStore.currentOrder.colorName || ordersStore.currentOrder.color" label="Цвет")
+          el-tag {{ ordersStore.currentOrder.colorName || ordersStore.currentOrder.color }}
         el-descriptions-item(label="Количество") {{ ordersStore.currentOrder.quantity }}
-        el-descriptions-item(label="Стоимость") {{ ordersStore.currentOrder.totalPrice }} ₽
+        el-descriptions-item(label="Стоимость")
+          span(v-if="!canSetPrice") {{ ordersStore.currentOrder.totalPrice }} ₽
+          el-input-number(
+            v-else
+            v-model="priceInput"
+            :min="0"
+            :precision="2"
+            style="width: 200px"
+            @change="updatePrice"
+          )
+        el-descriptions-item(v-if="ordersStore.currentOrder.deliveryMethodName" label="Способ доставки") {{ ordersStore.currentOrder.deliveryMethodName }}
         el-descriptions-item(label="Срок выполнения") {{ formatDate(ordersStore.currentOrder.deadline) }}
         el-descriptions-item(label="Создан") {{ formatDate(ordersStore.currentOrder.createdAt) }}
         el-descriptions-item(v-if="ordersStore.currentOrder.description" label="Описание" :span="2") {{ ordersStore.currentOrder.description }}
@@ -71,7 +89,9 @@ import { useRoute } from 'vue-router';
 import { useOrdersStore } from '../stores/orders';
 import { useAuthStore } from '../stores/auth';
 import FileUpload from '../components/FileUpload.vue';
+import { User } from '@element-plus/icons-vue';
 import type { Order, OrderFile } from '../stores/orders';
+import Breadcrumbs from '../components/Breadcrumbs.vue';
 
 const route = useRoute();
 const ordersStore = useOrdersStore();
@@ -81,6 +101,7 @@ const newMessage = ref('');
 const orderFiles = ref<OrderFile[]>([]);
 const messagesError = ref('');
 const filesError = ref('');
+const priceInput = ref<number>(0);
 
 const getStatusText = (status: string): string => {
   const statusMap: Record<string, string> = {
@@ -120,8 +141,19 @@ const getNextStateText = (currentState: string): string => {
   return getStatusText(nextState);
 };
 
+const isMyOrder = computed(() => {
+  return ordersStore.currentOrder && ordersStore.currentOrder.userId === authStore.user?.id;
+});
+
 const canEdit = computed(() => {
   return ordersStore.currentOrder && ordersStore.currentOrder.userId === authStore.user?.id && ordersStore.currentOrder.state === 'draft';
+});
+
+const canSetPrice = computed(() => {
+  if (!ordersStore.currentOrder || !authStore.user) return false;
+  // Исполнитель (владелец кластера) может установить цену на этапе pending
+  const isExecutor = (ordersStore.currentOrder as any).clusterOwnerId === authStore.user.id;
+  return isExecutor && ordersStore.currentOrder.state === 'pending';
 });
 
 const canUpdateState = computed(() => {
@@ -198,6 +230,17 @@ const loadFiles = async () => {
   }
 };
 
+const updatePrice = async () => {
+  if (!ordersStore.currentOrder || !priceInput.value) return;
+  try {
+    await ordersStore.updateOrder(ordersStore.currentOrder.id, {
+      totalPrice: priceInput.value,
+    });
+  } catch (error) {
+    console.error('Failed to update price:', error);
+  }
+};
+
 const formatDate = (dateString: string): string => {
   return new Date(dateString).toLocaleDateString('ru-RU', {
     year: 'numeric',
@@ -211,6 +254,9 @@ const formatDate = (dateString: string): string => {
 onMounted(async () => {
   const orderId = parseInt(route.params.id as string);
   await ordersStore.fetchOrderById(orderId);
+  if (ordersStore.currentOrder) {
+    priceInput.value = ordersStore.currentOrder.totalPrice || 0;
+  }
   await loadFiles();
   // Загружаем сообщения только если можно их просматривать
   if (canViewMessages.value) {

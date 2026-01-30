@@ -1,5 +1,6 @@
 <template lang="pug">
 .container
+  Breadcrumbs
   h1 {{ isEditMode ? 'Редактирование принтера' : 'Регистрация принтера' }}
   el-card.form-card
     el-form(@submit.prevent="handleSubmit" :model="form" :rules="rules" ref="formRef")
@@ -21,6 +22,16 @@
           )
       el-form-item(label="Цена за час (₽)" prop="pricePerHour")
         el-input-number(v-model="form.pricePerHour" :min="1" :precision="0" style="width: 100%")
+      el-form-item(label="Максимальный размер X (мм)" prop="maxSizeX")
+        el-input-number(v-model="form.maxSizeX" :min="1" :precision="0" style="width: 100%")
+      el-form-item(label="Максимальный размер Y (мм)" prop="maxSizeY")
+        el-input-number(v-model="form.maxSizeY" :min="1" :precision="0" style="width: 100%")
+      el-form-item(label="Максимальный размер Z (мм)" prop="maxSizeZ")
+        el-input-number(v-model="form.maxSizeZ" :min="1" :precision="0" style="width: 100%")
+      el-form-item(label="Количество" prop="quantity")
+        el-input-number(v-model="form.quantity" :min="1" :precision="0" style="width: 100%")
+      el-form-item(label="Описание")
+        el-input(v-model="form.description" type="textarea" :rows="4" placeholder="Описание принтера (видно только вам)")
       el-form-item(label="Материалы" prop="materialIds")
         el-select(
           v-model="form.materialIds"
@@ -70,6 +81,7 @@ import { useRouter, useRoute } from 'vue-router';
 import { usePrintersStore } from '../stores/printers';
 import { useDictionariesStore } from '../stores/dictionaries';
 import type { FormInstance, FormRules } from 'element-plus';
+import Breadcrumbs from '../components/Breadcrumbs.vue';
 
 const router = useRouter();
 const route = useRoute();
@@ -88,6 +100,11 @@ const form = reactive({
   modelName: '',
   manufacturer: '',
   pricePerHour: 1,
+  maxSizeX: null as number | null,
+  maxSizeY: null as number | null,
+  maxSizeZ: null as number | null,
+  quantity: 1,
+  description: '',
   state: 'available' as 'available' | 'busy' | 'maintenance' | 'inactive',
   materialIds: [] as number[],
   colorIds: [] as number[],
@@ -119,6 +136,43 @@ const rules = reactive<FormRules>({
     { required: true, message: 'Пожалуйста, введите цену', trigger: 'blur' },
     { type: 'number', min: 1, message: 'Цена должна быть положительным целым числом (минимум 1)', trigger: 'blur' },
   ],
+  maxSizeX: [
+    { required: true, message: 'Пожалуйста, введите максимальный размер по оси X', trigger: 'blur' },
+    { type: 'number', min: 1, message: 'Размер должен быть положительным целым числом (в миллиметрах)', trigger: 'blur' },
+    { validator: (rule, value, callback) => {
+        if (value !== null && value !== undefined && !Number.isInteger(value)) {
+          callback(new Error('Размер должен быть целым числом'));
+        } else {
+          callback();
+        }
+      }, trigger: 'blur' },
+  ],
+  maxSizeY: [
+    { required: true, message: 'Пожалуйста, введите максимальный размер по оси Y', trigger: 'blur' },
+    { type: 'number', min: 1, message: 'Размер должен быть положительным целым числом (в миллиметрах)', trigger: 'blur' },
+    { validator: (rule, value, callback) => {
+        if (value !== null && value !== undefined && !Number.isInteger(value)) {
+          callback(new Error('Размер должен быть целым числом'));
+        } else {
+          callback();
+        }
+      }, trigger: 'blur' },
+  ],
+  maxSizeZ: [
+    { required: true, message: 'Пожалуйста, введите максимальный размер по оси Z', trigger: 'blur' },
+    { type: 'number', min: 1, message: 'Размер должен быть положительным целым числом (в миллиметрах)', trigger: 'blur' },
+    { validator: (rule, value, callback) => {
+        if (value !== null && value !== undefined && !Number.isInteger(value)) {
+          callback(new Error('Размер должен быть целым числом'));
+        } else {
+          callback();
+        }
+      }, trigger: 'blur' },
+  ],
+  quantity: [
+    { required: true, message: 'Пожалуйста, введите количество', trigger: 'blur' },
+    { type: 'number', min: 1, message: 'Количество должно быть не менее 1', trigger: 'blur' },
+  ],
   state: [
     { required: true, message: 'Пожалуйста, выберите статус', trigger: 'change' },
   ],
@@ -139,6 +193,11 @@ const handleSubmit = async () => {
           modelName: form.modelName,
           manufacturer: form.manufacturer,
           pricePerHour: form.pricePerHour,
+          maxSizeX: form.maxSizeX,
+          maxSizeY: form.maxSizeY,
+          maxSizeZ: form.maxSizeZ,
+          quantity: form.quantity,
+          description: form.description || null,
           state: form.state,
           materialIds: form.materialIds || [],
           colorIds: form.colorIds || [],
@@ -205,6 +264,11 @@ onMounted(async () => {
         form.modelName = printer.value.model_name;
         form.manufacturer = printer.value.manufacturer;
         form.pricePerHour = parseInt(printer.value.price_per_hour);
+        form.maxSizeX = printer.value.maxSizeX || null;
+        form.maxSizeY = printer.value.maxSizeY || null;
+        form.maxSizeZ = printer.value.maxSizeZ || null;
+        form.quantity = printer.value.quantity || 1;
+        form.description = printer.value.description || '';
         form.state = printer.value.state;
         if (printer.value.materials && Array.isArray(printer.value.materials)) {
           form.materialIds = printer.value.materials.map((m: any) => m.id || m);

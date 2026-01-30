@@ -69,6 +69,7 @@ export const saveOrder = async (req, res) => {
       quantity,
       deadline,
       description,
+      deliveryMethodId,
     } = req.body;
 
     const orderId = req.params.id;
@@ -95,6 +96,7 @@ export const saveOrder = async (req, res) => {
       if (quantity !== undefined) updates.quantity = parseInt(quantity);
       if (deadline) updates.deadline = deadline;
       if (description !== undefined) updates.description = description;
+      if (deliveryMethodId !== undefined) updates.deliveryMethodId = deliveryMethodId;
 
       const updatedOrder = await Order.update(orderId, updates, req.user.id);
       if (!updatedOrder) {
@@ -160,6 +162,7 @@ export const saveOrder = async (req, res) => {
           deadline,
           totalPrice: 0,
           description: description || '',
+          deliveryMethodId: deliveryMethodId || null,
         }, clusterId);
       } else {
         // Обычное создание заказа
@@ -172,6 +175,7 @@ export const saveOrder = async (req, res) => {
           deadline,
           totalPrice: 0,
           description: description || '',
+          deliveryMethodId: deliveryMethodId || null,
         });
       }
 

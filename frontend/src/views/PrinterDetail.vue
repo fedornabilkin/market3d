@@ -1,21 +1,28 @@
 <template lang="pug">
 .container
+  Breadcrumbs
   div(v-if="printersStore.loading")
     el-skeleton(:rows="5" animated)
   el-alert(v-else-if="printersStore.error" :title="printersStore.error" type="error")
   el-card(v-else-if="printer")
     template(#header)
       .header-section
-        h1 {{ printer.model_name }}
+        div
+          .status-header
+            el-tag(:type="getStatusType(printer.state)" style="margin-bottom: 10px") {{ getStatusText(printer.state) }}
+          h1 {{ printer.model_name }}
         router-link(v-if="canEdit" :to="`/printers/${printer.id}/edit`")
           el-button(type="primary") Редактировать
     el-descriptions(title="Информация о принтере" :column="2" border)
       el-descriptions-item(label="Производитель") {{ printer.manufacturer }}
       el-descriptions-item(label="Цена за час") {{ printer.price_per_hour }} ₽
-      el-descriptions-item(label="Статус")
-        el-tag(:type="getStatusType(printer.state)") {{ getStatusText(printer.state) }}
       el-descriptions-item(v-if="printer.cluster" label="Кластер")
         router-link(:to="`/clusters/${printer.cluster.id}`") {{ printer.cluster.name }}
+      el-descriptions-item(label="Максимальный размер X") {{ printer.maxSizeX ? `${Math.round(printer.maxSizeX)} мм` : 'Не указан' }}
+      el-descriptions-item(label="Максимальный размер Y") {{ printer.maxSizeY ? `${Math.round(printer.maxSizeY)} мм` : 'Не указан' }}
+      el-descriptions-item(label="Максимальный размер Z") {{ printer.maxSizeZ ? `${Math.round(printer.maxSizeZ)} мм` : 'Не указан' }}
+      el-descriptions-item(label="Количество") {{ printer.quantity || 1 }}
+      el-descriptions-item(v-if="canEdit && printer.description" label="Описание" :span="2") {{ printer.description }}
       el-descriptions-item(label="Материалы" :span="2")
         div(v-if="printer.materials && printer.materials.length > 0")
           el-tag(
@@ -53,9 +60,6 @@
     div(v-if="printer.specifications && Object.keys(printer.specifications).length > 0" style="margin-top: 20px")
       h3 Характеристики
       pre {{ JSON.stringify(printer.specifications, null, 2) }}
-    div(v-if="printer.maxBuildVolume && Object.keys(printer.maxBuildVolume).length > 0" style="margin-top: 20px")
-      h3 Максимальный объем печати
-      pre {{ JSON.stringify(printer.maxBuildVolume, null, 2) }}
 </template>
 
 <script setup lang="ts">
@@ -64,6 +68,7 @@ import { useRoute } from 'vue-router';
 import { usePrintersStore } from '../stores/printers';
 import { useAuthStore } from '../stores/auth';
 import { ElMessage, ElMessageBox } from 'element-plus';
+import Breadcrumbs from '../components/Breadcrumbs.vue';
 
 const route = useRoute();
 const printersStore = usePrintersStore();

@@ -16,6 +16,9 @@ el-card.printer-card(:class="{ 'my-printer': isMine }" style="margin-bottom: 20p
     p
       strong Статус: 
       el-tag(:type="getStatusType(printer.state)") {{ getStatusText(printer.state) }}
+    p(v-if="printer.maxSizeX && printer.maxSizeY && printer.maxSizeZ")
+      strong Макс. размер: 
+      | {{ printer.maxSizeX }}×{{ printer.maxSizeY }}×{{ printer.maxSizeZ }} мм
     div(v-if="printer.materials && printer.materials.length > 0" style="margin-top: 10px")
       strong Материалы: 
       el-tag(
@@ -52,6 +55,9 @@ interface Printer {
   price_per_hour: number;
   state: string;
   userId: number;
+  maxSizeX?: number;
+  maxSizeY?: number;
+  maxSizeZ?: number;
   materials?: Material[];
 }
 

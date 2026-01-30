@@ -1,5 +1,6 @@
 <template lang="pug">
 .container
+  Breadcrumbs
   h1 {{ isEditMode ? 'Редактирование кластера' : 'Создание кластера' }}
   el-card.form-card
     el-form(@submit.prevent="handleSubmit" :model="form" :rules="rules" ref="formRef")
@@ -96,6 +97,7 @@ import { useDictionariesStore } from '../stores/dictionaries';
 import { useAuthStore } from '../stores/auth';
 import { ElMessage } from 'element-plus';
 import type { FormInstance, FormRules } from 'element-plus';
+import Breadcrumbs from '../components/Breadcrumbs.vue';
 
 const router = useRouter();
 const route = useRoute();

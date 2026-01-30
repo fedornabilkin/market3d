@@ -18,6 +18,12 @@ interface Printer {
   colors?: Material[];
   specifications?: Record<string, any>;
   maxBuildVolume?: Record<string, any>;
+  maxSizeX?: number;
+  maxSizeY?: number;
+  maxSizeZ?: number;
+  description?: string;
+  quantity?: number;
+  cluster?: { id: number; name: string } | null;
   createdAt?: string;
   updatedAt?: string;
 }

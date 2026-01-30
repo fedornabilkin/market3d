@@ -195,6 +195,7 @@ class Cluster {
     const result = await pool.query(
       `SELECT c.*, 
               u.email as user_email,
+              u.last_activity_at as owner_last_activity_at,
               r.name as region_name,
               city.name as city_name,
               m.name as metro_name,
@@ -326,21 +327,24 @@ class Cluster {
 
   static async getPrintersCount(id) {
     const result = await pool.query(
-      'SELECT COUNT(*) as total FROM cluster_printers WHERE cluster_id = $1',
+      `SELECT COALESCE(SUM(p.quantity), 0) as total 
+       FROM cluster_printers cp
+       INNER JOIN printers p ON cp.printer_id = p.id
+       WHERE cp.cluster_id = $1`,
       [id]
     );
-    return parseInt(result.rows[0].total);
+    return parseInt(result.rows[0].total) || 0;
   }
 
   static async getAvailablePrintersCount(id) {
     const result = await pool.query(
-      `SELECT COUNT(*) as total 
+      `SELECT COALESCE(SUM(p.quantity), 0) as total 
        FROM cluster_printers cp
        INNER JOIN printers p ON cp.printer_id = p.id
        WHERE cp.cluster_id = $1 AND p.state IN ('available', 'busy')`,
       [id]
     );
-    return parseInt(result.rows[0].total);
+    return parseInt(result.rows[0].total) || 0;
   }
 
   static async getCompletedOrdersCount(id) {
@@ -473,6 +477,7 @@ class Cluster {
       id: row.id,
       userId: row.user_id,
       userEmail: row.user_email,
+      ownerLastActivityAt: row.owner_last_activity_at,
       name: row.name,
       description: row.description || '',
       regionId: row.region_id,

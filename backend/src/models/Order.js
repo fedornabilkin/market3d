@@ -1,17 +1,17 @@
 import pool from '../config/database.js';
 
 class Order {
-  static async create({ userId, material, colorId, quantity, dimensions, deadline, totalPrice, description }) {
+  static async create({ userId, material, colorId, quantity, dimensions, deadline, totalPrice, description, deliveryMethodId }) {
     const result = await pool.query(
-      `INSERT INTO orders (user_id, material, color_id, quantity, dimensions, deadline, state, total_price, description, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, 'draft', $7, $8, NOW(), NOW())
+      `INSERT INTO orders (user_id, material, color_id, quantity, dimensions, deadline, state, total_price, description, delivery_method_id, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, 'draft', $7, $8, $9, NOW(), NOW())
        RETURNING *`,
-      [userId, material, colorId || null, quantity, JSON.stringify(dimensions || {}), deadline, totalPrice || 0, description || '']
+      [userId, material || null, colorId || null, quantity, JSON.stringify(dimensions || {}), deadline, totalPrice || 0, description || '', deliveryMethodId || null]
     );
     return this.formatOrder(result.rows[0]);
   }
 
-  static async createWithCluster({ userId, material, colorId, quantity, dimensions, deadline, totalPrice, description }, clusterId) {
+  static async createWithCluster({ userId, material, colorId, quantity, dimensions, deadline, totalPrice, description, deliveryMethodId }, clusterId) {
     // Проверяем существование кластера
     const clusterCheck = await pool.query('SELECT id, user_id FROM clusters WHERE id = $1', [clusterId]);
     if (clusterCheck.rows.length === 0) {
@@ -24,7 +24,7 @@ class Order {
     }
 
     // Создаем заказ
-    const order = await this.create({ userId, material, colorId, quantity, dimensions, deadline, totalPrice, description });
+    const order = await this.create({ userId, material, colorId, quantity, dimensions, deadline, totalPrice, description, deliveryMethodId });
 
     // Привязываем заказ к кластеру
     await pool.query(
@@ -145,10 +145,13 @@ class Order {
       `SELECT o.*, 
               u.email as user_email,
               di_color.id as color_id,
-              di_color.name as color_name
+              di_color.name as color_name,
+              di_delivery.id as delivery_method_id,
+              di_delivery.name as delivery_method_name
        FROM orders o
        LEFT JOIN users u ON o.user_id = u.id
        LEFT JOIN dictionary_items di_color ON o.color_id = di_color.id
+       LEFT JOIN dictionary_items di_delivery ON o.delivery_method_id = di_delivery.id
        WHERE o.id = $1`,
       [id]
     );
@@ -196,9 +199,9 @@ class Order {
     const values = [];
     let paramCount = 1;
 
-    if (updates.material) {
+    if (updates.material !== undefined) {
       fields.push(`material = $${paramCount++}`);
-      values.push(updates.material);
+      values.push(updates.material || null);
     }
     if (updates.colorId !== undefined) {
       fields.push(`color_id = $${paramCount++}`);
@@ -223,6 +226,10 @@ class Order {
     if (updates.description !== undefined) {
       fields.push(`description = $${paramCount++}`);
       values.push(updates.description);
+    }
+    if (updates.deliveryMethodId !== undefined) {
+      fields.push(`delivery_method_id = $${paramCount++}`);
+      values.push(updates.deliveryMethodId);
     }
 
     if (fields.length === 0) return order;
@@ -316,6 +323,8 @@ class Order {
       state: row.state,
       totalPrice: parseFloat(row.total_price),
       description: row.description || '',
+      deliveryMethodId: row.delivery_method_id,
+      deliveryMethodName: row.delivery_method_name,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       completedAt: row.completed_at,
