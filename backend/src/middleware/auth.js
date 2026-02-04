@@ -86,5 +86,12 @@ export const updateLastActivity = async (req, res, next) => {
   next();
 };
 
+// Комбинированный middleware: аутентификация + обновление активности
+// Используется для всех защищенных маршрутов
+export const authenticateJWTWithActivity = [
+  authenticateJWT,
+  updateLastActivity
+];
+
 export default passport;
 

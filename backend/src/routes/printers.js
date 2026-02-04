@@ -11,20 +11,20 @@ import {
   removePrinterColors,
 } from '../controllers/printerController.js';
 import { printerValidation, validate } from '../utils/validators/index.js';
-import { authenticateJWT } from '../middleware/auth.js';
+import { authenticateJWTWithActivity } from '../middleware/auth.js';
 
 const router = express.Router();
 
-router.get('/', authenticateJWT, getAllPrinters);
+router.get('/', authenticateJWTWithActivity, getAllPrinters);
 router.get('/recent', getRecentPrinters);
-router.get('/:id', authenticateJWT, getPrinterById);
-router.post('/', authenticateJWT, printerValidation, validate, savePrinter);
-router.put('/:id', authenticateJWT, printerValidation, validate, savePrinter);
-router.post('/:id/archive', authenticateJWT, archivePrinter);
-router.post('/:id/materials', authenticateJWT, addPrinterMaterials);
-router.delete('/:id/materials', authenticateJWT, removePrinterMaterials);
-router.post('/:id/colors', authenticateJWT, addPrinterColors);
-router.delete('/:id/colors', authenticateJWT, removePrinterColors);
+router.get('/:id', authenticateJWTWithActivity, getPrinterById);
+router.post('/', authenticateJWTWithActivity, printerValidation, validate, savePrinter);
+router.put('/:id', authenticateJWTWithActivity, printerValidation, validate, savePrinter);
+router.post('/:id/archive', authenticateJWTWithActivity, archivePrinter);
+router.post('/:id/materials', authenticateJWTWithActivity, addPrinterMaterials);
+router.delete('/:id/materials', authenticateJWTWithActivity, removePrinterMaterials);
+router.post('/:id/colors', authenticateJWTWithActivity, addPrinterColors);
+router.delete('/:id/colors', authenticateJWTWithActivity, removePrinterColors);
 
 export default router;
 
