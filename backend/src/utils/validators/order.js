@@ -25,7 +25,16 @@ const deadlineValidation = (value) => {
 
 export const orderValidation = [
   body('material').optional().notEmpty().withMessage('Material cannot be empty if provided'),
-  body('colorId').optional().isInt({ min: 1 }).withMessage('Color ID must be a positive integer'),
+  body('colorId').optional({ nullable: true, checkFalsy: true }).custom((value) => {
+    if (value === null || value === undefined || value === '') {
+      return true; // Allow null, undefined, or empty string
+    }
+    const numValue = parseInt(value);
+    if (isNaN(numValue) || numValue < 1) {
+      throw new Error('Color ID must be a positive integer');
+    }
+    return true;
+  }),
   body('quantity').isInt({ min: 1 }).withMessage('Quantity must be at least 1'),
   body('deadline').custom(deadlineValidation),
   body('description').optional().isString().withMessage('Description must be a string'),
@@ -33,7 +42,16 @@ export const orderValidation = [
 
 export const orderUpdateValidation = [
   body('material').optional().notEmpty().withMessage('Material cannot be empty if provided'),
-  body('colorId').optional().isInt({ min: 1 }).withMessage('Color ID must be a positive integer'),
+  body('colorId').optional({ nullable: true, checkFalsy: true }).custom((value) => {
+    if (value === null || value === undefined || value === '') {
+      return true; // Allow null, undefined, or empty string
+    }
+    const numValue = parseInt(value);
+    if (isNaN(numValue) || numValue < 1) {
+      throw new Error('Color ID must be a positive integer');
+    }
+    return true;
+  }),
   body('quantity').optional().isInt({ min: 1 }).withMessage('Quantity must be at least 1'),
   body('deadline').optional().custom(deadlineValidation),
   body('description').optional().isString().withMessage('Description must be a string'),

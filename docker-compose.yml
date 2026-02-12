@@ -8,7 +8,7 @@ services:
     env_file:
       - ./backend/.env
     ports:
-      - ${PORT}:${PORT}
+      - ${PORT}:3000
     volumes:
       - ./backend/uploads:/app/uploads
 

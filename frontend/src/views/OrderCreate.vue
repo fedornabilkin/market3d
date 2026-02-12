@@ -80,6 +80,7 @@ import { useOrdersStore } from '../stores/orders';
 import { useDictionariesStore } from '../stores/dictionaries';
 import { ElMessageBox } from 'element-plus';
 import type { FormInstance, FormRules } from 'element-plus';
+import type { Order } from '../stores/orders';
 import Breadcrumbs from '../components/Breadcrumbs.vue';
 
 const router = useRouter();
@@ -88,10 +89,8 @@ const ordersStore = useOrdersStore();
 const dictionariesStore = useDictionariesStore();
 
 const isEditMode = computed(() => !!route.params.id);
-const clusterId = computed(() => {
-  const queryClusterId = route.query.clusterId;
-  return queryClusterId ? parseInt(queryClusterId as string) : null;
-});
+const queryClusterId = route.query.clusterId;
+const clusterId = ref<number | null>(queryClusterId ? parseInt(queryClusterId as string) : null);
 
 const formRef = ref<FormInstance>();
 const form = reactive({
@@ -107,9 +106,9 @@ const successMessage = ref('');
 
 const materialItems = ref([]);
 const colorItems = ref([]);
-const availableMaterials = ref([]);
-const availableColors = ref([]);
-const availableDeliveryMethods = ref([]);
+const availableMaterials = ref<Array<{ id: number; name: string }>>([]);
+const availableColors = ref<Array<{ id: number; name: string }>>([]);
+const availableDeliveryMethods = ref<Array<{ id: number; name: string; dictionaryId?: number }>>([]);
 const clusterData = ref<any>(null);
 
 const rules = reactive<FormRules>({
@@ -165,7 +164,7 @@ const handleSubmit = async () => {
           orderData.deliveryMethodId = form.deliveryMethodId;
         }
 
-        let order;
+        let order: Order;
         if (isEditMode.value) {
           order = await ordersStore.updateOrder(parseInt(route.params.id as string), orderData);
           successMessage.value = 'Заказ успешно обновлен!';
@@ -247,14 +246,14 @@ onMounted(async () => {
       await ordersStore.fetchOrderById(orderId);
       const order = ordersStore.currentOrder;
       if (order && order.userId === ordersStore.currentOrder?.userId) {
-        form.material = order.material;
+        form.material = order.material || '';
         form.colorId = order.colorId || null;
         form.quantity = order.quantity;
         form.description = order.description || '';
         form.deadline = order.deadline;
         form.deliveryMethodId = (order as any).deliveryMethodId || null;
         
-        // Если есть clusterId, загружаем доступные материалы и цвета
+        // Если есть clusterId в заказе, используем его для загрузки данных кластера
         if (order.clusterId) {
           clusterId.value = order.clusterId;
           await loadAvailableMaterialsAndColors();

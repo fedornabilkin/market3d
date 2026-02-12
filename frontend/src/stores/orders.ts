@@ -10,7 +10,7 @@ interface OrderFile {
   fileType?: string;
 }
 
-interface Order {
+export interface Order {
   id: number;
   userId: number;
   userEmail?: string;
