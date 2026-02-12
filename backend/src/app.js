@@ -80,7 +80,7 @@ async function startApp() {
     await applyMigrations();
 
     // 3. Запускаем сервер
-    const PORT = process.env.PORT || 3000;
+    const PORT = 3000;
     app.listen(PORT, () => {
       console.log(`🚀 Server running: http://localhost:${PORT}`);
       console.log(`📊 Health check: http://localhost:${PORT}/health`);
