@@ -9,17 +9,24 @@ import {SVGLoader} from "three/examples/jsm/loaders/SVGLoader";
 
 const lineSpacing = 2
 
-export default class BaseGenerator {
-
+/**
+ * Unified generator class for creating 3D models with or without QR code
+ */
+export default class ModelGenerator {
   collectMesh = {}
+  finalBlock = null
+  blockGeometry = null
+  process = (percent) => {return percent}
 
-  constructor(options) {
+  constructor(options, qrCodeBitMask = null) {
     const defaultOptions = {
       baseColor: 0xffffff,
       qrcodeColor: 0x000000,
     };
 
     this.options = { ...defaultOptions, ...options }
+    this.bitMask = qrCodeBitMask
+    this.hasQRCode = qrCodeBitMask !== null && qrCodeBitMask !== undefined
 
     // default material for the base
     this.materialBase = new THREE.MeshPhongMaterial({
@@ -366,6 +373,170 @@ export default class BaseGenerator {
 
     this.iconMesh = svgGroup
     return svgGroup
+  }
+
+  /**
+   * @return {THREE.Mesh|undefined} the mesh of the actual QR-Code segment
+   */
+  getQRCodeMesh() {
+    if (!this.hasQRCode || !this.options.code.active) {
+      return undefined
+    }
+
+    this.maskWidth = Math.sqrt(this.bitMask.length)
+    this.xCountPosition = this.maskWidth
+    this.yCountPosition = this.maskWidth
+    this.blockWidth = (this.availableWidth / this.maskWidth) * (this.options.code.block.ratio / 100)
+
+    const qrSystem = new THREE.Object3D()
+
+    // if icon
+    this.safetyMargin = Math.min(this.blockWidth * 1.5, 4)
+    this.iconSize = {x: 20, y: 20}
+    if (this.options.icon.active && this.iconMesh) {
+      this.iconSize = getBoundingBoxSize(this.iconMesh)
+    }
+
+    const rotationBlock = this.options.code.block.shape === 'rotation'
+    const roundBlock = this.options.code.block.shape === 'round'
+    let etoQr = this
+    let x = 0
+
+    function iterateBitMask() {
+      do {
+        for (let y = 0; y < etoQr.maskWidth; y++) {
+
+          const isBlack = !!etoQr.bitMask[y * etoQr.maskWidth + x]
+          if (isBlack) {
+            // if pixel is black create a block
+            let blockDepth = etoQr.options.code.depth;
+            if (etoQr.options.code.block.cityMode) {
+              blockDepth = Math.min(etoQr.options.code.depth, etoQr.options.code.block.depth) + Math.random() * Math.abs(etoQr.options.code.block.depth - etoQr.options.code.depth)
+            }
+
+            const meshBlock = etoQr.createMeshBlock(etoQr.blockWidth, etoQr.blockWidth, blockDepth, roundBlock)
+
+            const posX = etoQr.correctPositionX(etoQr.availableWidth, etoQr.xCountPosition, etoQr.blockWidth, x)
+            let posY = etoQr.correctPositionY(etoQr.availableWidth, etoQr.yCountPosition, etoQr.blockWidth, y)
+            const posZ = etoQr.correctPositionZ(etoQr.options.base.depth, blockDepth)
+
+            if (etoQr.options.code.emptyCenter === true && etoQr.iconMesh) {
+              if ((posX > -etoQr.iconSize.x / 2 - etoQr.safetyMargin
+                  && posX < etoQr.iconSize.x / 2 + etoQr.safetyMargin)
+                && (posY > -etoQr.iconSize.y / 2 - etoQr.safetyMargin
+                  && posY < +etoQr.iconSize.y / 2 + etoQr.safetyMargin)
+              ) {
+                continue
+              }
+            }
+
+            // add qr code blocks to qrcode and combined model
+            meshBlock.position.set(posX, posY, posZ)
+            if(rotationBlock) {
+              meshBlock.rotation.z = Math.PI / 4
+            }else if(roundBlock) {
+              meshBlock.rotation.x = Math.PI / 2
+            }
+            if (etoQr.options.base.width < etoQr.options.base.height) {
+              meshBlock.position.y += (etoQr.options.base.height - etoQr.options.base.width) / 2
+            }
+            meshBlock.updateMatrix()
+            qrSystem.add(meshBlock)
+
+          } // if block
+        } // for two
+
+        x++
+        etoQr.process(x * 100 / (etoQr.maskWidth))
+      } while (x % 2 !== 0 && x < etoQr.maskWidth) // for one
+
+      if (x < etoQr.maskWidth) {
+        setTimeout(iterateBitMask)
+      }
+
+    } // func
+
+    iterateBitMask()
+
+    this.finalBlock = qrSystem
+
+    // return finalBlockMesh
+  }
+
+  /**
+   * @param w
+   * @param h
+   * @param d
+   * @param isRound bool
+   * @returns {THREE.Mesh}
+   */
+  createMeshBlock(w, h, d, isRound = false) {
+    if (!this.blockGeometry) {
+      this.blockGeometry = !isRound ? new THREE.BoxGeometry(w, h, d) : new THREE.CylinderGeometry(w/2, h/2, d, 64)
+    }
+    return new THREE.Mesh(this.blockGeometry, this.materialDetail)
+  }
+
+  /**
+   * @param width {number}
+   * @param countPosition {number}
+   * @param widthBlock {float}
+   * @param current {number}
+   * @returns {number}
+   */
+  correctPositionX(width, countPosition, widthBlock, current) {
+    // Допустимую ширину делим на количество позиций в маске и умножаем на текущую позицию
+    let position = width / countPosition * current
+    // Смещаем влево на половину допустимой ширины и еще на половину ширины блока
+    position -= width / 2 - widthBlock / 2
+    return position
+  }
+
+  /**
+   * @param height {number}
+   * @param countPosition {number}
+   * @param widthBlock {float}
+   * @param current {number}
+   * @returns {number}
+   */
+  correctPositionY(height, countPosition, widthBlock, current) {
+    // От допустимой высоты отнимаем допустимую высоту, деленную на количество позиций в маске и умноженную на текущую позицию
+    let position = height - height / countPosition * current
+    // Смещаем вниз на половину допустимой высоты и поднимаем вверх на половину ширины блока
+    position -= height / 2 + widthBlock / 2
+    return position
+  }
+
+  /**
+   * @param depth {number}
+   * @param addon {number}
+   * @returns {number}
+   */
+  correctPositionZ(depth, addon = 0) {
+    return depth + addon / 2
+  }
+
+  /**
+   * Get all meshes based on the current mode (with or without QR code)
+   * @return {Object} Object with all generated meshes
+   */
+  getAllMeshes() {
+    const meshes = {}
+
+    // Base meshes (always available)
+    meshes.base = this.getBaseMesh()
+    meshes.border = this.getBorderMesh()
+    meshes.keychain = this.getKeychainMesh()
+    meshes.icon = this.getIconMesh()
+    meshes.text = this.getTextMesh()
+
+    // QR code mesh (only if QR code is active)
+    if (this.hasQRCode && this.options.code.active) {
+      this.getQRCodeMesh()
+      meshes.qr = this.finalBlock
+    }
+
+    return meshes
   }
 
 }

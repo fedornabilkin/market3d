@@ -1,10 +1,7 @@
 import { markRaw } from 'vue';
 import { Box } from "@/v3d/box";
 import { Director } from "@/v3d/director";
-import { Model3D } from "@/v3d/create/model3D.js";
-import { TextModel, QRCodeModel } from "@/v3d/create/base";
-import BaseGenerator from "@/v3d/generator/baseGenerator.js";
-import QRCodeGenerator from "@/v3d/generator/QRCodeGenerator.js";
+import ModelGenerator from "@/v3d/generator/ModelGenerator.js";
 import { BaseRotation } from "@/v3d/animation/baseRotation";
 import { STLExporter } from 'three/examples/jsm/exporters/STLExporter';
 import { OBJExporter } from 'three/examples/jsm/exporters/OBJExporter';
@@ -27,7 +24,6 @@ export class V3DFacade {
     this.box = null;
     this.director = null;
     this.currentGenerator = null;
-    this.currentModel3D = null;
     this.entitiesData = null;
     this.qrCodeBitMask = null;
   }
@@ -111,19 +107,18 @@ export class V3DFacade {
     // Определяем тип модели и создаем генератор
     const hasQRCode = entities.code && entities.code.active;
     
+    // Для QR кода нужен битмаск
+    if (hasQRCode && !this.qrCodeBitMask) {
+      throw new Error('QR code bitmask is required. Call setQRCodeBitMask() first.');
+    }
+    
+    // Создаем единый генератор с опциональным QR битмаском
+    this.currentGenerator = new ModelGenerator(entities, this.qrCodeBitMask || null);
+    
+    // Настраиваем callback для прогресса перед генерацией (только для QR кода)
+    let generationComplete = false;
     if (hasQRCode) {
-      // Для QR кода нужен битмаск
-      if (!this.qrCodeBitMask) {
-        throw new Error('QR code bitmask is required. Call setQRCodeBitMask() first.');
-      }
-      
-      this.currentGenerator = new QRCodeGenerator(this.qrCodeBitMask, entities);
-      this.currentModel3D = new Model3D();
-      this.currentModel3D.setStrategy(new QRCodeModel());
-      
-      // Настраиваем callback для прогресса перед генерацией
       const originalProcess = this.currentGenerator.process;
-      let generationComplete = false;
       
       this.currentGenerator.process = (percent) => {
         if (progressCallback) {
@@ -136,17 +131,28 @@ export class V3DFacade {
           originalProcess(percent);
         }
       };
-      
-      // Генерируем модель
-      this.currentModel3D.create(this.currentGenerator);
+    }
+    
+    // Генерируем базовые меши
+    const meshes = {
+      base: this.currentGenerator.getBaseMesh(),
+      border: this.currentGenerator.getBorderMesh(),
+      keychain: this.currentGenerator.getKeychainMesh(),
+      icon: this.currentGenerator.getIconMesh(),
+      text: this.currentGenerator.getTextMesh(),
+    };
+    
+    // Генерируем QR код если нужно
+    if (hasQRCode) {
+      this.currentGenerator.getQRCodeMesh();
       
       // Ждем завершения генерации QR кода
       await new Promise((resolve) => {
         const checkComplete = () => {
           if (this.currentGenerator.finalBlock || generationComplete) {
-            // Добавляем QR меш в стратегию если он есть
+            // Добавляем QR меш если он есть
             if (this.currentGenerator.finalBlock) {
-              this.currentModel3D.strategy.addMesh('qr', this.currentGenerator.finalBlock);
+              meshes.qr = this.currentGenerator.finalBlock;
             }
             if (progressCallback && !generationComplete) {
               progressCallback(100);
@@ -159,23 +165,11 @@ export class V3DFacade {
         // Начинаем проверку через небольшую задержку
         setTimeout(checkComplete, 100);
       });
-      
     } else {
-      // Для текстовой модели
-      this.currentGenerator = new BaseGenerator(entities);
-      this.currentModel3D = new Model3D();
-      this.currentModel3D.setStrategy(new TextModel());
-      
-      // Генерируем модель
-      this.currentModel3D.create(this.currentGenerator);
-      
       if (progressCallback) {
         progressCallback(100);
       }
     }
-    
-    // Получаем коллекцию мешей
-    const meshes = this.currentModel3D.collection();
     
     // Добавляем меши на сцену
     // Помечаем все меши как markRaw для предотвращения реактивности Vue 3
@@ -373,7 +367,6 @@ export class V3DFacade {
       this.box.clear();
     }
     this.currentGenerator = null;
-    this.currentModel3D = null;
     this.entitiesData = null;
   }
 
