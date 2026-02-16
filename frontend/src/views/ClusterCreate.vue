@@ -92,12 +92,12 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted, computed, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
-import { useClustersStore } from '../stores/clusters';
-import { useDictionariesStore } from '../stores/dictionaries';
-import { useAuthStore } from '../stores/auth';
+import { useClustersStore } from '../store/clusters';
+import { useDictionariesStore } from '../store/dictionaries';
+import { useAuthStore } from '../store/auth';
 import { ElMessage } from 'element-plus';
 import type { FormInstance, FormRules } from 'element-plus';
-import Breadcrumbs from '../components/Breadcrumbs.vue';
+import Breadcrumbs from '../components/registry/Breadcrumbs.vue';
 
 const router = useRouter();
 const route = useRoute();
@@ -153,7 +153,7 @@ const handleCityChange = async () => {
 
 const handleSubmit = async () => {
   if (!formRef.value) return;
-  
+
   await formRef.value.validate(async (valid) => {
     if (valid) {
       try {
@@ -175,7 +175,7 @@ const handleSubmit = async () => {
           result = await clustersStore.createCluster(clusterData);
           successMessage.value = 'Кластер успешно создан!';
         }
-        
+
         setTimeout(() => {
           router.push(`/clusters/${result.id}`);
         }, 2000);
@@ -270,19 +270,19 @@ onMounted(async () => {
       const id = parseInt(route.params.id as string);
       await clustersStore.fetchClusterById(id);
       cluster.value = clustersStore.currentCluster;
-      
+
       if (cluster.value) {
         form.name = cluster.value.name;
         form.description = cluster.value.description || '';
         form.regionId = cluster.value.regionId;
         form.metroId = cluster.value.metroId || null;
         form.parentClusterId = cluster.value.parentClusterId || null;
-        
+
         // Загружаем способы доставки
         if (cluster.value.deliveryMethods && Array.isArray(cluster.value.deliveryMethods)) {
           form.deliveryMethodIds = cluster.value.deliveryMethods.map((d: any) => d.id);
         }
-        
+
         // Загружаем города перед установкой cityId
         if (form.regionId) {
           await loadCities();

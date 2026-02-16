@@ -76,12 +76,12 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted, computed } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
-import { useOrdersStore } from '../stores/orders';
-import { useDictionariesStore } from '../stores/dictionaries';
+import { useOrdersStore } from '../store/orders';
+import { useDictionariesStore } from '../store/dictionaries';
 import { ElMessageBox } from 'element-plus';
 import type { FormInstance, FormRules } from 'element-plus';
-import type { Order } from '../stores/orders';
-import Breadcrumbs from '../components/Breadcrumbs.vue';
+import type { Order } from '../store/orders';
+import Breadcrumbs from '../components/registry/Breadcrumbs.vue';
 
 const router = useRouter();
 const route = useRoute();
@@ -148,7 +148,7 @@ const rules = reactive<FormRules>({
 
 const handleSubmit = async () => {
   if (!formRef.value) return;
-  
+
   await formRef.value.validate(async (valid) => {
     if (valid) {
       try {
@@ -159,7 +159,7 @@ const handleSubmit = async () => {
           deadline: form.deadline,
           description: form.description,
         };
-        
+
         if (form.deliveryMethodId) {
           orderData.deliveryMethodId = form.deliveryMethodId;
         }
@@ -175,7 +175,7 @@ const handleSubmit = async () => {
             order = await ordersStore.createOrder(orderData);
           }
           successMessage.value = 'Заказ успешно создан!';
-          
+
           // Предлагаем загрузить файлы
           await ElMessageBox.confirm(
             'Хотите загрузить файлы для заказа?',
@@ -192,7 +192,7 @@ const handleSubmit = async () => {
           });
           return;
         }
-        
+
         setTimeout(() => {
           router.push(`/orders/${order.id}`);
         }, 2000);
@@ -205,14 +205,14 @@ const handleSubmit = async () => {
 
 const loadAvailableMaterialsAndColors = async () => {
   if (!clusterId.value) return;
-  
+
   try {
     // Загружаем информацию о кластере для получения доступных материалов и цветов
-    const { useClustersStore } = await import('../stores/clusters');
+    const { useClustersStore } = await import('../store/clusters');
     const clustersStore = useClustersStore();
     await clustersStore.fetchClusterById(clusterId.value);
     const cluster = clustersStore.currentCluster;
-    
+
     if (cluster) {
       clusterData.value = cluster;
       // Используем материалы и цвета из активных принтеров кластера
@@ -252,7 +252,7 @@ onMounted(async () => {
         form.description = order.description || '';
         form.deadline = order.deadline;
         form.deliveryMethodId = (order as any).deliveryMethodId || null;
-        
+
         // Если есть clusterId в заказе, используем его для загрузки данных кластера
         if (order.clusterId) {
           clusterId.value = order.clusterId;

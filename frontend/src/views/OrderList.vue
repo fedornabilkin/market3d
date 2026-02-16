@@ -35,10 +35,10 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { useOrdersStore } from '../stores/orders';
-import { useAuthStore } from '../stores/auth';
-import OrderCard from '../components/OrderCard.vue';
-import Breadcrumbs from '../components/Breadcrumbs.vue';
+import { useOrdersStore } from '../store/orders';
+import { useAuthStore } from '../store/auth';
+import OrderCard from '../components/registry/OrderCard.vue';
+import Breadcrumbs from '../components/registry/Breadcrumbs.vue';
 
 const route = useRoute();
 const router = useRouter();

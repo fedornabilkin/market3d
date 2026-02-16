@@ -30,12 +30,12 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { usePrintersStore } from '../stores/printers';
-import { useAuthStore } from '../stores/auth';
-import PrinterFilter from '../components/PrinterFilter.vue';
-import PrinterCard from '../components/PrinterCard.vue';
-import Pagination from '../components/Pagination.vue';
-import Breadcrumbs from '../components/Breadcrumbs.vue';
+import { usePrintersStore } from '../store/printers';
+import { useAuthStore } from '../store/auth';
+import PrinterFilter from '../components/registry/PrinterFilter.vue';
+import PrinterCard from '../components/registry/PrinterCard.vue';
+import Pagination from '../components/registry/Pagination.vue';
+import Breadcrumbs from '../components/registry/Breadcrumbs.vue';
 
 const route = useRoute();
 const router = useRouter();

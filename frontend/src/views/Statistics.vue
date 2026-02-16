@@ -23,7 +23,7 @@
           el-statistic(title="Кластеров" :value="stats.clusters")
             template(#suffix)
               span(v-if="authStore.isAuthenticated && stats.myClusters !== undefined") ({{ stats.myClusters }})
-    
+
     // Активные кластеры
     el-card.dashboard-section
       template(#header)
@@ -43,7 +43,7 @@
         el-row(:gutter="20")
           el-col(v-for="cluster in recentClusters" :key="cluster.id" :span="8" :xs="24" :sm="12" :md="8")
             ClusterCard(:cluster="cluster" :userId="authStore.user?.id")
-    
+
     // Последние принтеры
     el-card.dashboard-section
       template(#header)
@@ -57,7 +57,7 @@
         el-row(:gutter="20")
           el-col(v-for="printer in recentPrinters" :key="printer.id" :span="8" :xs="24" :sm="12" :md="8")
             PrinterCard(:printer="printer" :userId="authStore.user?.id")
-    
+
     // Последние заказы
     el-card.dashboard-section
       template(#header)
@@ -75,17 +75,17 @@
 
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue';
-import { useAuthStore } from '../stores/auth';
-import { usePrintersStore } from '../stores/printers';
-import { useOrdersStore } from '../stores/orders';
-import { useClustersStore } from '../stores/clusters';
-import { useDictionariesStore } from '../stores/dictionaries';
-import ClusterCard from '../components/ClusterCard.vue';
-import PrinterCard from '../components/PrinterCard.vue';
-import OrderCard from '../components/OrderCard.vue';
-import ClusterFilter from '../components/ClusterFilter.vue';
-import Breadcrumbs from '../components/Breadcrumbs.vue';
-import api from '../services/api';
+import { useAuthStore } from '../store/auth';
+import { usePrintersStore } from '../store/printers';
+import { useOrdersStore } from '../store/orders';
+import { useClustersStore } from '../store/clusters';
+import { useDictionariesStore } from '../store/dictionaries';
+import ClusterCard from '../components/registry/ClusterCard.vue';
+import PrinterCard from '../components/registry/PrinterCard.vue';
+import OrderCard from '../components/registry/OrderCard.vue';
+import ClusterFilter from '../components/registry/ClusterFilter.vue';
+import Breadcrumbs from '../components/registry/Breadcrumbs.vue';
+import api from '../service/api';
 
 const authStore = useAuthStore();
 const printersStore = usePrintersStore();

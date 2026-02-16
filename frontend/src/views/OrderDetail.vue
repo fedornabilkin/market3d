@@ -86,12 +86,12 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
 import { useRoute } from 'vue-router';
-import { useOrdersStore } from '../stores/orders';
-import { useAuthStore } from '../stores/auth';
-import FileUpload from '../components/FileUpload.vue';
+import { useOrdersStore } from '../store/orders';
+import { useAuthStore } from '../store/auth';
+import FileUpload from '../components/registry/FileUpload.vue';
 import { User } from '@element-plus/icons-vue';
-import type { Order, OrderFile } from '../stores/orders';
-import Breadcrumbs from '../components/Breadcrumbs.vue';
+import type { Order, OrderFile } from '../store/orders';
+import Breadcrumbs from '../components/registry/Breadcrumbs.vue';
 
 const route = useRoute();
 const ordersStore = useOrdersStore();

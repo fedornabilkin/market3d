@@ -43,7 +43,7 @@
         el-descriptions-item(label="Регион") {{ cluster.regionName }}
         el-descriptions-item(label="Город") {{ cluster.cityName }}
         el-descriptions-item(v-if="cluster.metroName" label="Метро") {{ cluster.metroName }}
-        el-descriptions-item(label="Автор") 
+        el-descriptions-item(label="Автор")
           span {{ cluster.userEmail }}
           span(v-if="cluster.ownerLastActivityAt" style="margin-left: 10px; color: #999; font-size: 12px")
             | (активен: {{ formatLastActivity(cluster.ownerLastActivityAt) }})
@@ -70,7 +70,7 @@
             :key="method.id"
             style="margin-right: 5px; margin-top: 5px"
           ) {{ method.name }}
-    
+
     el-card.printers-section(style="margin-top: 20px")
       template(#header)
         h2 Привязанные принтеры
@@ -107,7 +107,7 @@
               size="small"
               style="margin-right: 5px; margin-top: 5px"
             ) {{ color.name }}
-    
+
     el-card.available-printers-section(v-if="canEdit" style="margin-top: 20px")
       template(#header)
         h2 Мои доступные принтеры
@@ -151,7 +151,7 @@
               size="small"
               type="primary"
             ) Привязать
-    
+
     el-card.other-printers-section(v-if="otherPrinters.length > 0" style="margin-top: 20px")
       template(#header)
         h2 Другие активные принтеры
@@ -182,7 +182,7 @@
               size="small"
               style="margin-right: 5px; margin-top: 5px"
             ) {{ color.name }}
-    
+
     el-card.requests-section(v-if="canEdit && activeRequests.length > 0" style="margin-top: 20px")
       template(#header)
         h2 Запросы на привязку
@@ -209,13 +209,13 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { useClustersStore } from '../stores/clusters';
-import { useClusterPrintersStore } from '../stores/clusterPrinters';
-import { useClusterPrinterRequestsStore } from '../stores/clusterPrinterRequests';
-import { usePrintersStore } from '../stores/printers';
-import { useAuthStore } from '../stores/auth';
+import { useClustersStore } from '../store/clusters';
+import { useClusterPrintersStore } from '../store/clusterPrinters';
+import { useClusterPrinterRequestsStore } from '../store/clusterPrinterRequests';
+import { usePrintersStore } from '../store/printers';
+import { useAuthStore } from '../store/auth';
 import { ElMessage, ElMessageBox } from 'element-plus';
-import Breadcrumbs from '../components/Breadcrumbs.vue';
+import Breadcrumbs from '../components/registry/Breadcrumbs.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -429,12 +429,12 @@ const loadOtherPrinters = async () => {
     // Получаем список всех активных принтеров, не привязанных к кластеру
     const allPrintersResult = await printersStore.fetchPrinters({ state: 'available', clusterId: 0 });
     const allPrinters = allPrintersResult.data || [];
-    
+
     // Получаем список ID привязанных принтеров
     const attachedPrinterIds = printers.value.map((p: any) => p.printerId);
-    
+
     // Фильтруем: только чужие принтеры (не мои), не привязанные к кластеру
-    otherPrinters.value = allPrinters.filter((p: any) => 
+    otherPrinters.value = allPrinters.filter((p: any) =>
       p.userId !== authStore.user?.id && !attachedPrinterIds.includes(p.id)
     );
   } catch (error) {

@@ -65,10 +65,10 @@
 <script setup lang="ts">
 import { computed, onMounted } from 'vue';
 import { useRoute } from 'vue-router';
-import { usePrintersStore } from '../stores/printers';
-import { useAuthStore } from '../stores/auth';
+import { usePrintersStore } from '../store/printers';
+import { useAuthStore } from '../store/auth';
 import { ElMessage, ElMessageBox } from 'element-plus';
-import Breadcrumbs from '../components/Breadcrumbs.vue';
+import Breadcrumbs from '../components/registry/Breadcrumbs.vue';
 
 const route = useRoute();
 const printersStore = usePrintersStore();

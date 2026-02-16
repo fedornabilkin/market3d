@@ -34,14 +34,14 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue';
 import { useRoute } from 'vue-router';
-import { useClustersStore } from '../stores/clusters';
-import { useDictionariesStore } from '../stores/dictionaries';
-import { useAuthStore } from '../stores/auth';
+import { useClustersStore } from '../store/clusters';
+import { useDictionariesStore } from '../store/dictionaries';
+import { useAuthStore } from '../store/auth';
 import { ElMessage } from 'element-plus';
-import ClusterFilter from '../components/ClusterFilter.vue';
-import ClusterList from '../components/ClusterList.vue';
-import Pagination from '../components/Pagination.vue';
-import Breadcrumbs from '../components/Breadcrumbs.vue';
+import ClusterFilter from '../components/registry/ClusterFilter.vue';
+import ClusterList from '../components/registry/ClusterList.vue';
+import Pagination from '../components/registry/Pagination.vue';
+import Breadcrumbs from '../components/registry/Breadcrumbs.vue';
 
 const route = useRoute();
 const clustersStore = useClustersStore();

@@ -78,10 +78,10 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted, computed } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
-import { usePrintersStore } from '../stores/printers';
-import { useDictionariesStore } from '../stores/dictionaries';
+import { usePrintersStore } from '../store/printers';
+import { useDictionariesStore } from '../store/dictionaries';
 import type { FormInstance, FormRules } from 'element-plus';
-import Breadcrumbs from '../components/Breadcrumbs.vue';
+import Breadcrumbs from '../components/registry/Breadcrumbs.vue';
 
 const router = useRouter();
 const route = useRoute();
@@ -120,7 +120,7 @@ const filteredModels = computed(() => {
   if (!form.manufacturer) return [];
   // Фильтруем модели по выбранному производителю
   // Модели хранятся как "Производитель Модель", поэтому проверяем начало названия
-  return models.value.filter((model: any) => 
+  return models.value.filter((model: any) =>
     model.name.toLowerCase().startsWith(form.manufacturer.toLowerCase())
   );
 });
@@ -185,7 +185,7 @@ const handleManufacturerChange = async () => {
 
 const handleSubmit = async () => {
   if (!formRef.value) return;
- 
+
   await formRef.value.validate(async (valid) => {
     if (valid) {
       try {
@@ -202,7 +202,7 @@ const handleSubmit = async () => {
           materialIds: form.materialIds || [],
           colorIds: form.colorIds || [],
         };
-        
+
         if (form.maxBuildVolumeJson) {
           try {
             printerData.maxBuildVolume = JSON.parse(form.maxBuildVolumeJson);
@@ -211,7 +211,7 @@ const handleSubmit = async () => {
             return;
           }
         }
-        
+
         if (form.specificationsJson) {
           try {
             printerData.specifications = JSON.parse(form.specificationsJson);
@@ -229,7 +229,7 @@ const handleSubmit = async () => {
           result = await printersStore.createPrinter(printerData);
           successMessage.value = 'Принтер успешно зарегистрирован!';
         }
-        
+
         setTimeout(() => {
           router.push(`/printers/${result.id}`);
         }, 700);
@@ -248,7 +248,7 @@ onMounted(async () => {
     models.value = await dictionariesStore.fetchItemsByDictionaryName('printer_models');
 
     materials.value = await dictionariesStore.fetchItemsByDictionaryName('materials');
-    
+
     colors.value = await dictionariesStore.fetchItemsByDictionaryName('colors');
   } catch (error) {
     console.error('Failed to load dictionaries:', error);
