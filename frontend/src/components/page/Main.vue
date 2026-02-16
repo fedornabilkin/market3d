@@ -1,5 +1,5 @@
 <template lang="pug">
-.px-1.py-0.button.is-warning.is-small.share-button-shake(v-if='expSettings.active' @click="shareModalVisible=true")
+//.px-1.py-0.button.is-warning.is-small.share-button-shake(v-if='expSettings.active' @click="shareModalVisible=true")
   i.fa.fa-arrow-up.shake-vertical
   span.mx-2 {{$t('g.shareUrlNotice')}}
   i.fa.fa-arrow-up.shake-vertical
@@ -9,8 +9,8 @@
     .column
       //h1.title {{ $t('g.title') }}
       //h2.subtitle {{ $t('g.subtitle') }}
-      .container-settings(v-if="!isRecovery")
-        QRCodeMenu(:box="box" :initData="shareData" @generating="generating" @exportReady="exportReady")
+      .container-settings(v-if="qrMenuVisible()")
+        QRCodeMenu(:v3dFacade="v3dFacade" :initData="shareData" @generating="generating" @exportReady="exportReady")
 
         button.button(v-if="hasGenerateList" @click="historyModalVisible=true")
           span.icon
@@ -85,7 +85,7 @@
 
 
 ExportModal(v-if="exportModalVisible" :isActive="exportModalVisible" @close="exportModalVisible=false")
-ShareModal(v-if="shareModalVisible" :isActive="shareModalVisible" @close="shareModalVisible=false")
+//ShareModal(v-if="shareModalVisible" :isActive="shareModalVisible" @close="shareModalVisible=false")
 
 HistoryModal(
   v-if="historyModalVisible"
@@ -108,8 +108,8 @@ HistoryModal(
 
 <script>
 import * as THREE from 'three';
-import {Box} from "@/v3d/box";
-import {BaseRotation} from "@/v3d/animation/baseRotation";
+import {markRaw} from 'vue';
+import {V3DFacade} from "@/v3d/V3DFacade";
 import {useShareHash} from "@/service/shareHash";
 import {useUrlCreator} from "@/service/urlCreator.js";
 import {useExportList} from "@/store/exportList";
@@ -120,19 +120,14 @@ import ExportModal from '@/components/generator/ExportModal.vue';
 import HistoryModal from "@/components/generator/HistoryModal.vue";
 import ShareModal from "@/components/generator/ShareModal.vue";
 import SbpMoney from "@/components/monetisation/SbpMoney.vue";
-import { STLExporter } from 'three/examples/jsm/exporters/STLExporter';
-import {OBJExporter} from "three/examples/jsm/exporters/OBJExporter";
 import {Share} from "@/entity/share";
 import {TooltipBuilder} from "@/entity/builder";
-import JSZip from "jszip";
-import {dataURItoBlob, save, saveAsArrayBuffer, saveAsString, trimCanvas} from '@/utils';
+import {dataURItoBlob, trimCanvas} from '@/utils';
 import YoomoneyWidget from "@/components/monetisation/YoomoneyWidget.vue";
 
 const shareHash = useShareHash()
 const exportList = useExportList()
 const generateList = useGenerateList()
-const box = new Box({debug: false, animation: new BaseRotation()})
-box.createScene()
 
 export default {
   name: 'Main',
@@ -153,7 +148,7 @@ export default {
         multiple: false,
       },
       options: {},
-      box: undefined,
+      v3dFacade: null,
       autoRotation: false,
       changelogModalVisible: false, // remove
       changelog: '', // remove
@@ -173,15 +168,14 @@ export default {
       scene: null,
       grid: null,
       isRecovery: false,
-      //exporter: null, // remove
-      //addedMeshes: [], // remove
     };
   },
   created() {
     // this.parseUrlShareHash()
     this.fillExportList()
     this.fillGenerateList()
-    this.box = box
+    // Используем markRaw для предотвращения реактивности Vue 3
+    this.v3dFacade = markRaw(new V3DFacade({ debug: true }))
     this.storeExport = exportList
     this.storeGenerate = generateList
   },
@@ -191,6 +185,9 @@ export default {
     this.getTooltip()
   },
   methods: {
+    qrMenuVisible() {
+      return !this.isRecovery && this.v3dFacade.initialized
+    },
     getTooltip() {
       let endpointApi = `/api/tooltip`
 
@@ -212,37 +209,30 @@ export default {
     },
     initScene() {
       const container = document.getElementById('container3d')
+      this.v3dFacade.initialize(container)
 
-      this.camera = box.createCamera(container.clientWidth, container.clientHeight)
-      this.renderer = box.createRenderer(container.clientWidth, container.clientHeight, window.devicePixelRatio)
-
-      box.createControl()
-      container.appendChild(this.renderer.domElement)
-
+      // Используем markRaw для предотвращения реактивности Vue 3
+      this.camera = markRaw(this.v3dFacade.getCamera())
+      this.renderer = markRaw(this.v3dFacade.getRenderer())
+      this.scene = markRaw(this.v3dFacade.getScene())
+      this.grid = markRaw(this.v3dFacade.getBox().grid)
     },
     generating() {
       this.isGenerating = true
     },
     startAnimation() {
-      const animate = (time) => {
-        time *= 0.001
-        box.animate(this.autoRotation, time)
-        box.render()
-        requestAnimationFrame(animate)
-      };
-      requestAnimationFrame(animate)
+      this.v3dFacade.startAnimation((time) => {
+        this.v3dFacade.getBox().animate(this.autoRotation, time)
+      })
     },
     exportOBJ() {
       this.exportModalVisible = true
       this.autoRotation = false
 
-      setTimeout(() => {
-        const exporter = new OBJExporter()
-        const result = exporter.parse(box.getScene())
-        const filename = `${this.fileName()}.obj`
-        saveAsArrayBuffer(result, filename)
+      setTimeout(async () => {
+        await this.v3dFacade.exportOBJ(`${this.fileName()}.obj`)
 
-        const image = this.box.imgDataUrl()
+        const image = this.v3dFacade.getImageDataUrl()
         exportList.add(this.createShare(shareHash.create(this.options), image))
         exportList.downloadAllUpdate()
         window.localStorage.setItem(exportList.keyStoreAll, exportList.getDownloadAll())
@@ -253,43 +243,19 @@ export default {
       this.exportModalVisible = true
       this.autoRotation = false
 
-      setTimeout(() => {
-        const exporter = new STLExporter()
+      setTimeout(async () => {
+        await this.v3dFacade.exportSTL({
+          binary: !this.expSettings.ascii,
+          multiple: this.expSettings.multiple,
+          filename: `${this.fileName()}.stl`
+        })
 
-        const exportAsBinary = !this.expSettings.ascii
-        const expConfig = {binary: exportAsBinary}
-
-        if (this.expSettings.multiple) {
-          const parts = this.box.getNodes()
-          const zip = new JSZip()
-
-          for(const key in parts) {
-            const data = exporter.parse(parts[key], expConfig)
-            zip.file(`${this.fileName(key)}.stl`, data.buffer)
-          }
-
-          zip.generateAsync({ type: 'blob' }).then((content) => {
-            save(new Blob([content]), `${this.fileName()}.zip`)
-          })
-        } else {
-          const filename = `${this.fileName()}.stl`
-          const result = exporter.parse(this.box.combinedNodes(), expConfig)
-
-          if (exportAsBinary) {
-            saveAsArrayBuffer(result, filename)
-          } else {
-            saveAsString(result, filename)
-          }
-        }
-
-        const image = this.box.imgDataUrl()
-
+        const image = this.v3dFacade.getImageDataUrl()
         exportList.add(this.createShare(shareHash.create(this.options), image))
         exportList.downloadAllUpdate()
         window.localStorage.setItem(exportList.keyStoreAll, exportList.getDownloadAll())
 
         this.sendImage(image)
-
       }, this.exportTimer)
     },
     fileName(key = '') {

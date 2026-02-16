@@ -50,8 +50,6 @@ import vcardjs from 'vcards-js';
 import { diff } from 'deep-object-diff';
 import merge from 'deepmerge';
 import ScannerModal from './ScannerModal.vue';
-import {QRCodeModel, TextModel} from "@/v3d/create/base";
-import {Model3D} from "@/v3d/create/model3D.js";
 import {useShareHash} from "@/service/shareHash";
 import {Share} from "@/entity/share";
 import Base from "@/components/forms/Base.vue";
@@ -73,8 +71,6 @@ import {
 import {useGenerateList} from "@/store/generateList";
 import {Director} from "@/v3d/director";
 import ReaderModal from "@/components/generator/ReaderModal.vue";
-import BaseGenerator from "@/v3d/generator/baseGenerator.js";
-import QRCodeGenerator from "@/v3d/generator/QRCodeGenerator.js";
 
 const shareHash = useShareHash()
 const director = new Director()
@@ -134,7 +130,7 @@ export default {
   name: 'QRCodeMenu',
   props: {
     initData: Object,
-    box: Object,
+    v3dFacade: Object,
   },
   components: {
     ReaderModal,
@@ -159,10 +155,6 @@ export default {
     generateError: undefined,
     scannerModalVisible: false,
     readModalVisible: false,
-    mesh: null, // remove
-    addedMeshes: [], // remove
-    generator: undefined,
-    model3d: undefined, // local variable?
   }),
   mounted() {
     if (this.initData) {
@@ -181,58 +173,38 @@ export default {
   },
 
   methods: {
-    render3d() {
-      this.box.clear()
-      this.model3d = new Model3D()
+    async render3d() {
+      if (!this.v3dFacade) {
+        this.generateError = 'V3D Facade not initialized'
+        this.isGenerating = false
+        return
+      }
 
-      const addPromise = new Promise((resolve) => {
-
-        if (this.options.code.active) {
-          this.generator = new QRCodeGenerator(this.qrCodeBitMask, this.options)
-          this.model3d.setStrategy(new QRCodeModel())
-          this.model3d.create(this.generator)
-
-          this.generator.process = (percent) => {
-            this.progressGenerating = percent
-            if (percent >= 100) {
-              this.model3d.strategy.addMesh('qr', this.generator.finalBlock)
-              resolve(this.model3d.collection())
-            }
-          }
-        } else {
-          this.generator = new BaseGenerator(this.options)
-          this.model3d.setStrategy(new TextModel())
-          this.model3d.create(this.generator)
-
-          this.progressGenerating = 95
-          setTimeout(() => {
-            resolve(this.model3d.collection())
-          }, 50)
+      try {
+        // Устанавливаем битмаск QR кода если он есть
+        if (this.qrCodeBitMask) {
+          this.v3dFacade.setQRCodeBitMask(this.qrCodeBitMask)
         }
-      })
 
-      addPromise
-          .then((result) => {
-            for(const key in result) {
-              this.box.addNode(key, result[key])
-            }
-          })
-          .then(() => {
-            // this.diffOptions = diff(defaultOptions, toRaw(this.options))
-            // console.log(defaultOptions, toRaw(this.options), this.diffOptions)
-            // console.log(this.options)
-            // this.$emit('exportReady', this.diffOptions)
-            this.$emit('exportReady', this.options)
-            setTimeout(() => {
-              this.addLastGenerate()
-            }, 500)
-          })
-          .finally(() => {
-            this.needGenerating = false
-            this.isGenerating = false
-            this.generateError = ''
-            this.progressGenerating = 0
-          })
+        // Генерируем модель через фасад
+        await this.v3dFacade.generateModel(this.options, (percent) => {
+          this.progressGenerating = percent
+        })
+
+        this.$emit('exportReady', this.options)
+        setTimeout(() => {
+          this.addLastGenerate()
+        }, 500)
+      } catch (error) {
+        this.generateError = `Error during generation: ${error.message}`
+        console.error(error)
+      } finally {
+        this.needGenerating = false
+        this.isGenerating = false
+        if (!this.generateError) {
+          this.progressGenerating = 0
+        }
+      }
     },
     prepareData() {
       this.generateError = ''
@@ -272,7 +244,8 @@ export default {
     },
     addLastGenerate() {
       const generateList = useGenerateList()
-      generateList.add(this.createShare(shareHash.create(this.options), this.box.imgDataUrl()))
+      const imageUrl = this.v3dFacade ? this.v3dFacade.getImageDataUrl() : ''
+      generateList.add(this.createShare(shareHash.create(this.options), imageUrl))
     },
     createShare(hash, src) {
       const opt = JSON.stringify(this.options)

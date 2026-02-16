@@ -40,4 +40,8 @@ export class Director {
   getEntities() {
     return this.entities
   }
+
+  reset() {
+    this.entities = {}
+  }
 }

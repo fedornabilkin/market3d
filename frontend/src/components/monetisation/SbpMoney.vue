@@ -35,8 +35,8 @@ getSponsor()
           .tag(v-for="item in sponsors")
             | {{ item.name}}
       .dm
-        | СБП по номеру +79264686392 на ВТБ
-        .is-small Самая малая благодарность вдохновляет
+        | Скинь на кофе разработчику
+        .is-small СБП +79264686392 на ВТБ
 </template>
 
 <style scoped>
