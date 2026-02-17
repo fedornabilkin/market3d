@@ -1,0 +1,13 @@
+---
+description: Для frontend/src/v3d использовать threejs-skills при работе с 3D/WebGL
+globs: frontend/src/v3d/**
+alwaysApply: false
+---
+
+# Frontend: Three.js Skills
+
+При работе с файлами в директории **frontend/src/v3d** используй навык **threejs-skills**.
+
+- 3D сцены, визуализации и интерактивные сцены — по гайдам threejs-skills.
+- WebGL, Three.js, анимации, частицы, загрузка моделей — следовать паттернам и ограничениям из навыка (например, r128 на CDN или актуальный стек с npm при наличии сборки).
+- Перед реализацией 3D-фичи прочитай актуальное содержимое навыка по пути `.cursor/skills/threejs-skills/SKILL.md` и применяй описанные там практики.

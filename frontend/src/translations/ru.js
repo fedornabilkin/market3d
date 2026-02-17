@@ -165,6 +165,8 @@ export default {
       active: 'Брелок',
       activeLabel: 'Добавить отверстие.',
       placement: 'Расположить',
+      height: 'Длина',
+      borderWidth: 'Толщина',
       mirror: 'Зеркально',
       mirrorLabel: 'Отразить зеркально.',
       holeDiameter: 'Диаметр',

@@ -21,7 +21,7 @@ footer.footer
     .box
       .is-pulled-right
         a(href="/") vsqr.ru
-        | &nbsp;&copy; 2025
+        | &nbsp;&copy; {{ (new Date()).getFullYear() }}
       .button.is-light
         a(href="https://t.me/+dSgck2GM29syZTQ6" target="_blank")
           i.fab.fa-telegram

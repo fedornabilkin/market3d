@@ -28,6 +28,16 @@ const props = defineProps(['options', 'unit'])
                   option(value='top') {{ $t('form.top') }}
                   option(value='left') {{ $t('form.left') }}
                   option(value='topLeft') {{ $t('form.top') }}-{{ $t('form.left') }}
+                  option(value='topRight') {{ $t('form.top') }}-{{ $t('form.right') }}
+      .field.is-horizontal
+        .field-label.is-small
+          label.label {{ $t('form.keychain.height') }}
+        .field-body
+          .field.has-addons
+            .control
+              input.input.is-small(type='number' v-model.number='props.options.keychain.height')
+            p.control
+              a.button.is-static.is-small {{ unit }}
       .field.is-horizontal
         .field-label.is-small
           label.label {{ $t('form.keychain.mirror') }}
@@ -48,6 +58,39 @@ const props = defineProps(['options', 'unit'])
               input.input.is-small(type='number' v-model.number='props.options.keychain.holeDiameter')
             p.control
               a.button.is-static.is-small {{ unit }}
+      .field.is-horizontal
+        .field-label.is-small
+          label.label {{ $t('form.keychain.borderWidth') }}
+        .field-body
+          .field.has-addons
+            .control
+              input.input.is-small(type='number' v-model.number='props.options.keychain.borderWidth')
+            p.control
+              a.button.is-static.is-small {{ unit }}
+
+      .field.is-horizontal
+        .field-body
+          .field.has-addons
+            p.control(:title="$t('form.icon.offsetX')")
+              .button.is-static.is-small
+                span
+                  i.fa.fa-arrow-right
+            .control
+              input.input.is-small(type='number' v-model.number='props.options.keychain.offsetX')
+            p.control
+              a.button.is-static.is-small {{unit}}
+
+      .field.is-horizontal
+        .field-body
+          .field.has-addons
+            p.control(:title="$t('form.icon.offsetY')")
+              .button.is-static.is-small
+                span
+                  i.fa.fa-arrow-up
+            .control
+              input.input.is-small(type='number' v-model.number='props.options.keychain.offsetY')
+            p.control
+              a.button.is-static.is-small {{unit}}
     //.field.is-horizontal
     //  .field-label.is-small
     //    label.label {{ $t("color") }}

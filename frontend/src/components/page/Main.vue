@@ -175,7 +175,7 @@ export default {
     this.fillExportList()
     this.fillGenerateList()
     // Используем markRaw для предотвращения реактивности Vue 3
-    this.v3dFacade = markRaw(new V3DFacade({ debug: true }))
+    this.v3dFacade = markRaw(new V3DFacade({ debug: false }))
     this.storeExport = exportList
     this.storeGenerate = generateList
   },

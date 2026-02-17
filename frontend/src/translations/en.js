@@ -165,6 +165,8 @@ export default {
       active: 'Keychain',
       activeLabel: 'Add hole.',
       placement: 'Placement',
+      height: 'Length',
+      borderWidth: 'Depth',
       mirror: 'Mirror',
       mirrorLabel: 'Mirror placement.',
       holeDiameter: 'Diameter',

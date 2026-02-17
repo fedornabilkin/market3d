@@ -171,6 +171,8 @@ export class Icon extends Entity {
 export class Keychain extends Entity {
   placement = 'left'
   holeDiameter = 6
+  borderWidth = 3
+  height = 3
   mirror = false
 
   constructor(config = {}) {

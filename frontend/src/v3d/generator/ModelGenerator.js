@@ -3,7 +3,7 @@ import fontInterSemiBold from '@/assets/fonts/Inter_SemiBold.json';
 import fontInterSemiBoldItalic from '@/assets/fonts/Inter_SemiBold_Italic.json';
 import fontInterExtraBold from '@/assets/fonts/Inter_ExtraBold.json';
 import fontInterExtraBoldItalic from '@/assets/fonts/Inter_ExtraBold_Italic.json';
-import {subtractMesh, unionMesh, getBoundingBoxSize} from '@/utils';
+import BaseGenerator from '@/v3d/generator/base';
 import {RectangleRoundedCornerShape, RectangleRoundedShape} from "@/v3d/primitives/shape";
 import {SVGLoader} from "three/examples/jsm/loaders/SVGLoader";
 
@@ -12,13 +12,14 @@ const lineSpacing = 2
 /**
  * Unified generator class for creating 3D models with or without QR code
  */
-export default class ModelGenerator {
+export default class ModelGenerator extends BaseGenerator {
   collectMesh = {}
   finalBlock = null
   blockGeometry = null
   process = (percent) => {return percent}
 
   constructor(options, qrCodeBitMask = null) {
+    super();
     const defaultOptions = {
       baseColor: 0xffffff,
       qrcodeColor: 0x000000,
@@ -55,12 +56,6 @@ export default class ModelGenerator {
     this.combinedMesh = null;
     this.exportedMeshes = {}
     this.collectMesh = {}
-  }
-
-  createMaterial(color) {
-    return new THREE.MeshBasicMaterial({
-      color: color,
-    })
   }
 
   /**
@@ -112,7 +107,7 @@ export default class ModelGenerator {
       holeMesh.position.x = baseMesh.position.x
       holeMesh.updateMatrix()
 
-      baseMesh = subtractMesh(baseMesh, holeMesh)
+      baseMesh = this.subtractMesh(baseMesh, holeMesh)
       baseMesh.updateMatrix()
     }
 
@@ -158,7 +153,7 @@ export default class ModelGenerator {
         height: this.options.text.depth,
       })
       const subtitleMesh = new THREE.Mesh(tempTextGeometry, this.materialDetail)
-      const textSize = getBoundingBoxSize(subtitleMesh)
+      const textSize = this.getBoundingBoxSize(subtitleMesh)
 
       const lineSpacingCurrent = (i < numLines && numLines > 1 ) ? lineSpacing : 0
       const oneHeight = this.options.text.size + lineSpacingCurrent
@@ -207,7 +202,8 @@ export default class ModelGenerator {
     const shapeHole = new RectangleRoundedShape({
       x: -(this.options.base.width - this.options.border.width * 2) / 2,
       y: -(this.options.base.height - this.options.border.width * 2) / 2,
-      r: this.options.base.cornerRadius,
+      // sin 90 градусов
+      r: this.options.base.cornerRadius - this.options.border.width * Math.sin(Math.PI / 4),
       w: (this.options.base.width - this.options.border.width * 2),
       h: (this.options.base.height - this.options.border.width * 2),
     })
@@ -220,7 +216,7 @@ export default class ModelGenerator {
 
     const meshHole = new THREE.Mesh(modelHole, this.materialDetail)
 
-    const meshFrame = subtractMesh(mesh, meshHole)
+    const meshFrame = this.subtractMesh(mesh, meshHole)
     meshFrame.position.z = this.options.base.depth
     meshFrame.updateMatrix()
 
@@ -235,7 +231,7 @@ export default class ModelGenerator {
       return undefined
     }
     const holeRadius = this.options.keychain.holeDiameter / 2
-    const keyChainBorder = 3
+    const keyChainBorder = this.options.keychain.borderWidth
     const height = this.options.keychain.holeDiameter + keyChainBorder
     const width = this.options.keychain.holeDiameter + keyChainBorder
 
@@ -247,7 +243,7 @@ export default class ModelGenerator {
       rC: height / 2,
       rD: height / 2,
       w: width,
-      h: height,
+      h: height + this.options.keychain.height,
     })
 
     const model = new THREE.ExtrudeGeometry(shape.create(), {
@@ -269,7 +265,7 @@ export default class ModelGenerator {
     meshHole.position.y = 0
     meshHole.updateMatrix()
 
-    let finalMesh = subtractMesh(mesh, meshHole)
+    let finalMesh = this.subtractMesh(mesh, meshHole)
     let x = -this.options.base.width / 2 - width / 2 + keyChainBorder / 2
     let y = finalMesh.position.y
     let zR = -Math.PI / 2
@@ -284,24 +280,35 @@ export default class ModelGenerator {
       x = -this.options.base.width / 2 - width / 2 + keyChainBorder * 1.5
       zR = -Math.PI / 4 + -Math.PI / 2
     }
+    if (this.options.keychain.placement === 'topRight') {
+      y = this.options.base.height / 2 + height / 2 - keyChainBorder * 1.5
+      x = this.options.base.width / 2 - width / 2 + keyChainBorder * 1.5
+      zR = Math.PI / 4 + Math.PI / 2
+    }
 
-    finalMesh.position.y = y
-    finalMesh.position.x = x
+    finalMesh.position.y = y + this.options.keychain.offsetY
+    finalMesh.position.x = x + this.options.keychain.offsetX
     finalMesh.rotation.z = zR
     finalMesh.updateMatrix()
 
     if (this.options.keychain.mirror) {
-      const mirror = subtractMesh(mesh, meshHole)
+      const mirror = this.subtractMesh(mesh, meshHole)
       if (this.options.keychain.placement === 'left') {
-        x = -x
+        x = -x - this.options.keychain.offsetX
+        y = y + this.options.keychain.offsetY
         zR = zR + Math.PI
       } else if (this.options.keychain.placement === 'top') {
-        y = -y
+        x = x + this.options.keychain.offsetX
+        y = -y - this.options.keychain.offsetY
         zR = zR + Math.PI
       } else if (this.options.keychain.placement === 'topLeft') {
-        x = -x
-        y = -y
+        x = -x - this.options.keychain.offsetX
+        y = -y - this.options.keychain.offsetY
         zR = zR + Math.PI
+      } else if (this.options.keychain.placement === 'topRight') {
+        x = -x - this.options.keychain.offsetX
+        y = -y - this.options.keychain.offsetY
+        zR = zR - Math.PI
       }
 
       mirror.position.y = y
@@ -309,7 +316,7 @@ export default class ModelGenerator {
       mirror.rotation.z = zR
       mirror.updateMatrix()
 
-      finalMesh = unionMesh(finalMesh, mirror)
+      finalMesh = this.unionMesh(finalMesh, mirror)
     }
 
     return finalMesh
@@ -394,7 +401,7 @@ export default class ModelGenerator {
     this.safetyMargin = Math.min(this.blockWidth * 1.5, 4)
     this.iconSize = {x: 20, y: 20}
     if (this.options.icon.active && this.iconMesh) {
-      this.iconSize = getBoundingBoxSize(this.iconMesh)
+      this.iconSize = this.getBoundingBoxSize(this.iconMesh)
     }
 
     const rotationBlock = this.options.code.block.shape === 'rotation'
