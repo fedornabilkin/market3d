@@ -34,7 +34,14 @@
         .tag {{$t('t.create')}}
         .tag {{$t('t.check')}}
         .tag {{$t('t.download')}}
-      sbp-money
+      .message.is-warning
+        .message-body
+          .is-pulled-right
+            SponsorList
+          | Скинь на кофе разработчику
+          br
+          PaymentMethodsButton
+          //sbp-money
       .container-3d
         .mb-0(id="container3d" :class="{ 'is-loading': isGenerating }")
 
@@ -81,7 +88,7 @@
                 i.fa.fa-arrow-circle-down(aria-hidden="true")
               span {{$t('e.downloadAll')}} ({{ storeExport.getDownloadAll() }})
 
-      YoomoneyWidget
+      //YoomoneyWidget
 
 
 ExportModal(v-if="exportModalVisible" :isActive="exportModalVisible" @close="exportModalVisible=false")
@@ -119,11 +126,13 @@ import ExportList from "@/components/generator/ExportList.vue";
 import ExportModal from '@/components/generator/ExportModal.vue';
 import HistoryModal from "@/components/generator/HistoryModal.vue";
 import ShareModal from "@/components/generator/ShareModal.vue";
+import PaymentMethodsButton from "@/components/monetisation/PaymentMethodsButton.vue";
 import SbpMoney from "@/components/monetisation/SbpMoney.vue";
 import {Share} from "@/entity/share";
 import {TooltipBuilder} from "@/entity/builder";
 import {dataURItoBlob, trimCanvas} from '@/utils';
 import YoomoneyWidget from "@/components/monetisation/YoomoneyWidget.vue";
+import SponsorList from "@/components/monetisation/SponsorList.vue";
 
 const shareHash = useShareHash()
 const exportList = useExportList()
@@ -132,6 +141,8 @@ const generateList = useGenerateList()
 export default {
   name: 'Main',
   components: {
+    SponsorList,
+    PaymentMethodsButton,
     YoomoneyWidget,
     SbpMoney,
     ShareModal,
@@ -150,8 +161,8 @@ export default {
       options: {},
       v3dFacade: null,
       autoRotation: false,
-      changelogModalVisible: false, // remove
-      changelog: '', // remove
+      //changelogModalVisible: false, // remove
+      //changelog: '', // remove
       historyModalVisible: false,
       historyDownloadModalVisible: false,
       exportModalVisible: false,

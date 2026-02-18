@@ -28,6 +28,7 @@ const items = computed<BreadcrumbItem[]>(() => {
     '/profile': 'Профиль',
     '/login': 'Вход',
     '/register': 'Регистрация',
+    '/payment-methods': 'Способы оплаты',
   };
 
   const path = route.path;

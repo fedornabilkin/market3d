@@ -229,6 +229,22 @@ export default {
   m: {
     supportProject: 'Support project',
     thankYou: 'Thank you.',
+    sponsorList: 'Sponsor',
+    paymentMethods: 'Payment methods',
+    viewAllMethods: 'View all payment methods',
+    paymentMethodsPageTitle: 'Payment methods',
+    sbp: 'SBP',
+    yoomoney: 'YooMoney',
+    yookassa: 'ЮKassa',
+    sberpay: 'SberPay',
+    card: 'Card',
+    otherMethods: 'Other',
+    sbpDescription: 'Faster Payments System — transfer by phone number from your bank app.',
+    yoomoneyDescription: 'YooMoney (formerly Yandex.Money) — e-wallet and card payments.',
+    yookassaDescription: 'Yookassa — a service for payment acceptance',
+    sberpayDescription: 'SberPay — pay via SberBank app by QR or link.',
+    cardDescription: 'By card - specify card details for payment.',
+    otherMethodsDescription: 'Bank cards, PayPal and other payment systems.',
   },
 
 

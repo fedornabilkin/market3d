@@ -229,6 +229,22 @@ export default {
   m: {
     supportProject: 'Поддержать проект',
     thankYou: 'Спасибо.',
+    sponsorList: 'Спонсоры',
+    paymentMethods: 'Способы оплаты',
+    viewAllMethods: 'Все способы оплаты',
+    paymentMethodsPageTitle: 'Способы оплаты',
+    sbp: 'СБП',
+    yoomoney: 'Юмани',
+    yookassa: 'ЮKassa',
+    sberpay: 'Сберпэй',
+    card: 'Карта',
+    otherMethods: 'Другие',
+    sbpDescription: 'Система быстрых платежей — перевод по номеру телефона из приложения банка.',
+    yoomoneyDescription: 'ЮMoney (бывший Яндекс.Деньги) — кошелёк и оплата картой.',
+    yookassaDescription: 'ЮKassa — сервис для приёма платежей',
+    sberpayDescription: 'СберПэй — оплата через приложение СберБанка по QR или ссылке.',
+    cardDescription: 'Картой - указать реквизиты карты для оплаты.',
+    otherMethodsDescription: 'Банковские карты, PayPal и другие платёжные системы.',
   },
 
 

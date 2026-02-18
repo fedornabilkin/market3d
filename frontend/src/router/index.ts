@@ -18,6 +18,12 @@ const routes: RouteRecordRaw[] = [
       meta: { requiresAuth: false },
     },
   {
+    path: '/payment-methods',
+    name: 'PaymentMethods',
+    component: () => import('../views/PaymentMethods.vue'),
+    meta: { requiresAuth: false },
+  },
+  {
     path: '/login',
     name: 'Login',
     component: () => import('../views/Login.vue'),

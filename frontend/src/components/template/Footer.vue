@@ -2,6 +2,7 @@
 import ShareButtons from './ShareButtons.vue';
 import Yoomoney from "@/components/monetisation/Yoomoney.vue";
 import LanguageSelector from "@/components/template/LanguageSelector.vue";
+import PaymentMethodsButton from "@/components/monetisation/PaymentMethodsButton.vue";
 </script>
 
 <template lang="pug">
@@ -9,7 +10,8 @@ footer.footer
   .container
     .columns
       .column
-        Yoomoney
+        PaymentMethodsButton
+        //Yoomoney
       .column
         a.button.is-info(href="/examples") {{ $t('t.exampleButton') }}
 

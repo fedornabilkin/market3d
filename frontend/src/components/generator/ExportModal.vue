@@ -11,12 +11,12 @@ div(:class="{'modal': true, 'is-active': isActive}")
         span(v-if="seconds === 0") {{ $t('e.downloadStarted') }}
         progress.progress.is-small.is-primary(max="100" :value="progress")
 
-      .mb-2
-        sbp-money
+      .my-2
+        p Проект разрабатывает один человек на энтузиазме
+        p Кнопка для передачи энтузиазмов
+        PaymentMethodsButton
       .cross
-      .isd
-        | Сканируй, поддержи проект
-        br
+      //.isd
         img(src="/monetisation/qr/yookassa-qr.png")
         //Yoomoney
         //YoomoneyWidget
@@ -32,10 +32,11 @@ div(:class="{'modal': true, 'is-active': isActive}")
 import Yoomoney from "@/components/monetisation/Yoomoney.vue";
 import SbpMoney from "@/components/monetisation/SbpMoney.vue";
 import YoomoneyWidget from "@/components/monetisation/YoomoneyWidget.vue";
+import PaymentMethodsButton from "@/components/monetisation/PaymentMethodsButton.vue";
 
 export default {
   name: 'ExportModal',
-  components: {YoomoneyWidget, SbpMoney, Yoomoney},
+  components: {PaymentMethodsButton, YoomoneyWidget, SbpMoney, Yoomoney},
   props: {
     isActive: {
       type: Boolean,
