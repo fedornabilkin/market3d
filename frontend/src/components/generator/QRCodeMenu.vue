@@ -44,6 +44,19 @@ a.ml-2.button.is-warning.is-pulled-right(href="https://t.me/+W4Rsqz4svmBkZmMy" t
     progress.progress.is-success(v-if="isGenerating" :value="progressGenerating" max='100')
       | {{ progressGenerating }}
 
+.columns.mt-2
+  .column
+    button.button.is-info.is-light(@click="exportSettingsAsJson")
+      span.icon
+        i.fa.fa-download
+      span {{ $t('form.exportSettings') }}
+  .column
+    button.button.is-info.is-light(@click="$refs.importFileInput?.click()")
+      span.icon
+        i.fa.fa-upload
+      span {{ $t('form.importSettings') }}
+    input(ref="importFileInput" type="file" accept=".json" style="display: none" @change="importSettingsFromFile")
+
 ScannerModal(v-if="scannerModalVisible" :isActive="scannerModalVisible" @decode="onDecode" @close="scannerModalVisible=false")
 ReaderModal(v-if="readModalVisible" :isActive="readModalVisible" @decode="onDecode" @close="readModalVisible=false")
 </template>
@@ -331,6 +344,70 @@ export default {
       }
 
       return ret
+    },
+    getEntityPayload(entity) {
+      if (entity && typeof entity.toJSON === 'function') return entity.toJSON()
+      return { ...entity }
+    },
+    exportOptions() {
+      return {
+        base: this.getEntityPayload(this.options.base),
+        border: this.getEntityPayload(this.options.border),
+        code: this.getEntityPayload(this.options.code),
+        text: this.getEntityPayload(this.options.text),
+        icon: this.getEntityPayload(this.options.icon),
+        keychain: this.getEntityPayload(this.options.keychain),
+        magnet: this.getEntityPayload(this.options.magnet),
+        content: this.options.content,
+        wifi: this.options.wifi,
+        email: this.options.email,
+        contact: this.options.contact,
+        sms: this.options.sms,
+        activeTabIndex: this.options.activeTabIndex,
+      }
+    },
+    exportSettingsAsJson() {
+      const payload = this.exportOptions()
+      const json = JSON.stringify(payload, null, 2)
+      const blob = new Blob([json], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `model-settings-${Date.now()}.json`
+      a.click()
+      URL.revokeObjectURL(url)
+    },
+    importSettingsFromFile(event) {
+      const file = event.target.files?.[0]
+      if (!file) return
+      const reader = new FileReader()
+      reader.onload = () => {
+        try {
+          const parsed = JSON.parse(reader.result)
+          director.buildGroupBuilder(parsed)
+          const entities = director.getEntities()
+          this.options.base = entities.base
+          this.options.border = entities.border
+          this.options.code = entities.code
+          this.options.text = entities.text
+          this.options.icon = entities.icon
+          this.options.keychain = entities.keychain
+          this.options.magnet = entities.magnet
+          if (entities.content !== undefined) this.options.content = entities.content
+          if (parsed.wifi !== undefined) this.options.wifi = { ...this.options.wifi, ...parsed.wifi }
+          if (parsed.email !== undefined) this.options.email = { ...this.options.email, ...parsed.email }
+          if (parsed.contact !== undefined) this.options.contact = { ...this.options.contact, ...parsed.contact }
+          if (parsed.sms !== undefined) this.options.sms = { ...this.options.sms, ...parsed.sms }
+          if (parsed.activeTabIndex !== undefined) this.options.activeTabIndex = parsed.activeTabIndex
+          this.needGenerating = true
+          this.prepareData()
+        } catch (e) {
+          this.generateError = `Import failed: ${e.message}`
+          console.error(e)
+        }
+        event.target.value = ''
+      }
+      reader.readAsText(file)
     },
   },
 };

@@ -91,15 +91,13 @@ const props = defineProps(['options', 'unit'])
               input.input.is-small(type='number' v-model.number='props.options.keychain.offsetY')
             p.control
               a.button.is-static.is-small {{unit}}
-    //.field.is-horizontal
-    //  .field-label.is-small
-    //    label.label {{ $t("color") }}
-    //  .field-body
-    //    .field
-    //      .control.has-icons-left
-    //        input.input.is-small(type='color' v-model='props.options.keychain.color')
-    //        span.icon.is-small.is-left
-    //          i.fas.fa-palette
+      .field.is-horizontal
+        .field-label.is-small
+          label.label {{ $t('form.color') }}
+        .field-body
+          .field
+            .control
+              input.input.is-small(type='color' :value='props.options.keychain.color || "#ffffff"' @input='props.options.keychain.color = $event.target.value')
 </template>
 
 <style scoped>

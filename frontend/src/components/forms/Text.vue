@@ -69,7 +69,13 @@ const props = defineProps(['options', 'unit'])
               input.input.is-small(type='number' v-model.number='props.options.text.margin')
             p.control
               a.button.is-static.is-small {{unit}}
-
+      .field.is-horizontal
+        .field-label.is-small
+          label.label {{ $t('form.color') }}
+        .field-body
+          .field
+            .control
+              input.input.is-small(type='color' :value='props.options.text.color || "#000000"' @input='props.options.text.color = $event.target.value')
       .field.is-horizontal
         .field-body
           .field.has-addons

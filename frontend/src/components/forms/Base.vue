@@ -58,7 +58,13 @@ const props = defineProps(['options', 'unit'])
               input.input.is-small(type='number' v-model.number='options.base.cornerRadius')
             p.control
               a.button.is-static.is-small {{ unit }}
-
+      .field.is-horizontal
+        .field-label.is-small
+          label.label {{ $t('form.color') }}
+        .field-body
+          .field
+            .control
+              input.input.is-small(type='color' :value='options.base.color || "#ffffff"' @input='options.base.color = $event.target.value')
 
   .field.is-horizontal
     .field-label.is-small

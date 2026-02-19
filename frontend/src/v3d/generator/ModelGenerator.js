@@ -10,6 +10,19 @@ import {SVGLoader} from "three/examples/jsm/loaders/SVGLoader";
 const lineSpacing = 2
 
 /**
+ * Parse hex color string (#rrggbb) to Three.js color number (0xrrggbb).
+ * @param {string|undefined|null} hexStr - Hex string or undefined/null
+ * @param {number} defaultNum - Default color number if hexStr invalid
+ * @returns {number}
+ */
+function parseHexColor(hexStr, defaultNum) {
+  if (hexStr == null || typeof hexStr !== 'string') return defaultNum
+  const hex = hexStr.replace(/^#/, '')
+  if (!/^[0-9a-fA-F]{6}$/.test(hex)) return defaultNum
+  return parseInt(hex, 16)
+}
+
+/**
  * Unified generator class for creating 3D models with or without QR code
  */
 export default class ModelGenerator extends BaseGenerator {
@@ -80,7 +93,9 @@ export default class ModelGenerator extends BaseGenerator {
       bevelEnabled: false,
     })
 
-    let baseMesh = new THREE.Mesh(model, this.materialBase)
+    const baseColor = parseHexColor(this.options.base?.color, 0xffffff)
+    const materialBase = new THREE.MeshPhongMaterial({ color: baseColor })
+    let baseMesh = new THREE.Mesh(model, materialBase)
     baseMesh.updateMatrix()
 
     if (this.options.magnet.active) {
@@ -144,6 +159,9 @@ export default class ModelGenerator extends BaseGenerator {
     let numLines = textLines.length
     this.options.text.height = (this.options.text.size + this.options.text.margin) * numLines + lineSpacing * (numLines - 1) - this.options.text.margin
 
+    const textColor = parseHexColor(this.options.text?.color, 0x000000)
+    const materialText = new THREE.MeshPhongMaterial({ color: textColor })
+
     for (let i = 0; i < numLines; i++) {
       const {text, font} = correctText(textLines[i])
 
@@ -152,7 +170,7 @@ export default class ModelGenerator extends BaseGenerator {
         size: this.options.text.size,
         height: this.options.text.depth,
       })
-      const subtitleMesh = new THREE.Mesh(tempTextGeometry, this.materialDetail)
+      const subtitleMesh = new THREE.Mesh(tempTextGeometry, materialText)
       const textSize = this.getBoundingBoxSize(subtitleMesh)
 
       const lineSpacingCurrent = (i < numLines && numLines > 1 ) ? lineSpacing : 0
@@ -197,7 +215,9 @@ export default class ModelGenerator extends BaseGenerator {
       bevelEnabled: false,
     })
 
-    const mesh = new THREE.Mesh(model, this.materialDetail)
+    const borderColor = parseHexColor(this.options.border?.color, 0x000000)
+    const materialBorder = new THREE.MeshPhongMaterial({ color: borderColor })
+    const mesh = new THREE.Mesh(model, materialBorder)
 
     const shapeHole = new RectangleRoundedShape({
       x: -(this.options.base.width - this.options.border.width * 2) / 2,
@@ -214,7 +234,7 @@ export default class ModelGenerator extends BaseGenerator {
       bevelEnabled: false,
     })
 
-    const meshHole = new THREE.Mesh(modelHole, this.materialDetail)
+    const meshHole = new THREE.Mesh(modelHole, materialBorder)
 
     const meshFrame = this.subtractMesh(mesh, meshHole)
     meshFrame.position.z = this.options.base.depth
@@ -252,12 +272,14 @@ export default class ModelGenerator extends BaseGenerator {
       bevelEnabled: false,
     })
 
-    const mesh = new THREE.Mesh(model, this.materialBase)
+    const keychainColor = parseHexColor(this.options.keychain?.color, 0xffffff)
+    const materialKeychain = new THREE.MeshPhongMaterial({ color: keychainColor })
+    const mesh = new THREE.Mesh(model, materialKeychain)
     mesh.position.z = 0
     mesh.updateMatrix()
 
     const modelHole = new THREE.CylinderGeometry(holeRadius, holeRadius, this.options.base.depth, 32)
-    const meshHole = new THREE.Mesh(modelHole, this.materialBase)
+    const meshHole = new THREE.Mesh(modelHole, materialKeychain)
 
     meshHole.rotation.x = -Math.PI / 2
     meshHole.position.z = this.options.base.depth / 2
@@ -335,6 +357,9 @@ export default class ModelGenerator extends BaseGenerator {
     const svgLoader = new SVGLoader()
     const svgData = svgLoader.parse(data)
 
+    const iconColor = parseHexColor(this.options.icon?.color, 0x000000)
+    const materialIcon = new THREE.MeshPhongMaterial({ color: iconColor })
+
     svgData.paths.forEach((path) => {
       const shapes = path.toShapes(!this.options.icon.inverted)
       shapes.forEach((shape) => {
@@ -343,7 +368,7 @@ export default class ModelGenerator extends BaseGenerator {
           bevelEnabled: false
         })
 
-        const mesh = new THREE.Mesh(geometry, this.materialDetail)
+        const mesh = new THREE.Mesh(geometry, materialIcon)
 
         svgGroup.add(mesh)
       })
@@ -394,6 +419,9 @@ export default class ModelGenerator extends BaseGenerator {
     this.xCountPosition = this.maskWidth
     this.yCountPosition = this.maskWidth
     this.blockWidth = (this.availableWidth / this.maskWidth) * (this.options.code.block.ratio / 100)
+
+    const codeColor = parseHexColor(this.options.code?.color, 0x000000)
+    this._codeBlockMaterial = new THREE.MeshPhongMaterial({ color: codeColor })
 
     const qrSystem = new THREE.Object3D()
 
@@ -481,7 +509,8 @@ export default class ModelGenerator extends BaseGenerator {
     if (!this.blockGeometry) {
       this.blockGeometry = !isRound ? new THREE.BoxGeometry(w, h, d) : new THREE.CylinderGeometry(w/2, h/2, d, 64)
     }
-    return new THREE.Mesh(this.blockGeometry, this.materialDetail)
+    const material = this._codeBlockMaterial || this.materialDetail
+    return new THREE.Mesh(this.blockGeometry, material)
   }
 
   /**

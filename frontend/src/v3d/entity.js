@@ -6,6 +6,11 @@ export class Entity extends DefaultEntity{
   offsetX = 0
   offsetY = 0
   offsetZ = 0
+  /** Optional entity color (hex string #rrggbb). If null/undefined, generator uses default. */
+  color = null
+  depth = undefined
+  width = undefined
+  height = undefined
 
   constructor(config = {}) {
     super(config)

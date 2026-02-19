@@ -34,6 +34,7 @@ export class BaseBuilder extends MainBuilder {
     this.entity.height = data.height
     this.entity.depth = data.depth
     this.entity.cornerRadius = data.cornerRadius
+    if (data.color !== undefined) this.entity.color = data.color
   }
 }
 
@@ -47,6 +48,7 @@ export class BorderBuilder extends MainBuilder {
     super.build(data)
     this.entity.width = data.width
     this.entity.depth = data.depth
+    if (data.color !== undefined) this.entity.color = data.color
   }
 }
 
@@ -66,6 +68,7 @@ export class CodeBuilder extends MainBuilder {
     this.entity.invert = data.invert
     this.entity.block = data.block
     this.entity.preview = data.preview
+    if (data.color !== undefined) this.entity.color = data.color
   }
 }
 
@@ -84,6 +87,7 @@ export class TextBuilder extends MainBuilder {
     this.entity.size = data.size
     this.entity.height = data.height
     this.entity.depth = data.depth
+    if (data.color !== undefined) this.entity.color = data.color
   }
 }
 
@@ -104,6 +108,7 @@ export class IconBuilder extends MainBuilder {
     this.entity.src = data.src
     this.entity.srcCustom = data.srcCustom
     this.entity.htmlId = data.htmlId
+    if (data.color !== undefined) this.entity.color = data.color
   }
 }
 
@@ -118,6 +123,7 @@ export class KeychainBuilder extends MainBuilder {
     this.entity.placement = data.placement
     this.entity.holeDiameter = data.holeDiameter
     this.entity.mirror = data.mirror
+    if (data.color !== undefined) this.entity.color = data.color
   }
 }
 
@@ -133,5 +139,6 @@ export class MagnetBuilder extends MainBuilder {
     this.entity.size = data.size
     this.entity.depth = data.depth
     this.entity.hidden = data.hidden
+    if (data.color !== undefined) this.entity.color = data.color
   }
 }
