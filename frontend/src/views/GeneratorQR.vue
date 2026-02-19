@@ -13,7 +13,7 @@
     .column
       .message.is-warning
         .message-body
-          .is-pulled-right
+          .is-pulled-right.is-hidden-mobile
             SponsorList
           | Скинь на кофе разработчику
           br
@@ -35,10 +35,10 @@
                 input.checkbox(type='checkbox' v-model='expSettings.multiple')
             .control
               span.button.is-static.is-small {{ $t("e.multipleLabel") }}
-            .control
+            .control.is-hidden-mobile
               span.button
                 input.checkbox(type='checkbox' v-model='expSettings.ascii')
-            .control
+            .control.is-hidden-mobile
               span.button.is-static.is-small ASCII
 
           .field.has-addons

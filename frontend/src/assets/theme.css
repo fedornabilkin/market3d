@@ -1,0 +1,489 @@
+/* Dark theme overrides for Bulma and layout when html.dark */
+
+/* Base */
+html.dark body {
+  background-color: #1d1e1f;
+  color: #e5e7eb;
+}
+
+html.dark .hero,
+html.dark .hero-body {
+  background-color: #1d1e1f;
+  color: #e5e7eb;
+}
+
+/* Navbar: светлый контраст, логотип и иконки читаемые */
+html.dark .navbar {
+  background-color: #252529;
+  border-bottom: 1px solid #374151;
+}
+
+html.dark .navbar .navbar-brand .navbar-item img {
+  filter: brightness(0) invert(1);
+  opacity: 0.95;
+}
+
+html.dark .navbar-item,
+html.dark .navbar-link {
+  color: #f3f4f6;
+}
+
+html.dark .navbar-item:hover,
+html.dark .navbar-link:hover {
+  background-color: #374151;
+  color: #fff;
+}
+
+/* Кнопка темы в шапке — явно светлая */
+html.dark .navbar .el-button {
+  color: #f3f4f6;
+  border-color: #4b5563;
+  background-color: #374151;
+}
+html.dark .navbar .el-button:hover {
+  color: #fff;
+  border-color: #6b7280;
+  background-color: #4b5563;
+}
+
+html.dark .footer {
+  background-color: #252529;
+  color: #9ca3af;
+}
+
+/* Cards & boxes */
+html.dark .card {
+  background-color: #252529;
+  color: #e5e7eb;
+}
+
+html.dark .card-header {
+  background-color: #2d2d32;
+  color: #e5e7eb;
+}
+
+html.dark .card-content {
+  color: #e5e7eb;
+}
+
+html.dark .box {
+  background-color: #252529;
+  color: #e5e7eb;
+  border: 1px solid #374151;
+}
+
+/* Секции QR, Текст, Рамка, Брелок, Иконка — переопределяем scoped светлые фоны (aliceblue, azure, lightyellow и т.д.) */
+html.dark .form-bg-diff {
+  background-color: #252529 !important;
+  background: #252529 !important;
+  color: #e5e7eb;
+  border-color: #374151;
+}
+html.dark .option-pane {
+  background-color: transparent;
+  color: #e5e7eb;
+}
+html.dark .form-bg-diff .tags .tag.is-light {
+  background-color: #374151;
+  color: #e5e7eb;
+}
+
+html.dark .section {
+  background-color: #1d1e1f;
+  color: #e5e7eb;
+}
+
+/* Panel (левая панель настроек) */
+html.dark .panel {
+  background-color: #252529;
+  border-color: #374151;
+}
+
+html.dark .panel-heading {
+  background-color: #2d2d32;
+  color: #f3f4f6;
+  border-color: #374151;
+}
+
+html.dark .panel-block {
+  color: #e5e7eb;
+  border-color: #374151;
+}
+
+html.dark .panel-block:hover {
+  background-color: #2d2d32;
+}
+
+/* Tabs (Text/URL, Wifi, E-Mail) — читаемые неактивные вкладки */
+html.dark .panel-tabs.tabs a {
+  color: #9ca3af;
+  border-bottom-color: #374151;
+}
+html.dark .panel-tabs.tabs a:hover {
+  color: #e5e7eb;
+}
+html.dark .panel-tabs.tabs li.is-active a {
+  color: #60a5fa;
+  border-bottom-color: #60a5fa;
+}
+
+/* Поля ввода: контрастный фон и текст */
+html.dark .input,
+html.dark .textarea,
+html.dark .select select {
+  background-color: #374151;
+  border-color: #4b5563;
+  color: #f3f4f6;
+}
+html.dark .input::placeholder,
+html.dark .textarea::placeholder {
+  color: #9ca3af;
+}
+html.dark .input:focus,
+html.dark .textarea:focus,
+html.dark .select select:focus {
+  border-color: #60a5fa;
+  box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.2);
+}
+
+/* Подписи и единицы измерения (mm) */
+html.dark .label {
+  color: #e5e7eb;
+}
+html.dark .button.is-static {
+  background-color: #374151;
+  border-color: #4b5563;
+  color: #d1d5db;
+}
+
+/* Кнопки: обычные и малые */
+html.dark .button:not(.is-primary):not(.is-info):not(.is-success):not(.is-warning):not(.is-danger) {
+  background-color: #374151;
+  border-color: #4b5563;
+  color: #e5e7eb;
+}
+html.dark .button:not(.is-primary):not(.is-info):not(.is-success):not(.is-warning):not(.is-danger):hover {
+  background-color: #4b5563;
+  border-color: #6b7280;
+  color: #fff;
+}
+
+/* Блок доната и спонсоров — тёмный, в духе темы (приоритет над bulma-prefers-dark) */
+html.dark .message {
+  background-color: #252529 !important;
+  border-color: #374151;
+}
+html.dark .message.is-warning {
+  background-color: #292524 !important;
+  border-color: #57534e;
+}
+html.dark .message-body {
+  background-color: transparent !important;
+  color: #e5e7eb !important;
+}
+/* Кнопка способов оплаты и блоки внутри доната — тёмный фон вместо белого */
+html.dark .message .boxb,
+html.dark .message-body .boxb,
+html.dark .boxb.b {
+  background: #252529 !important;
+  border-color: #374151;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.4);
+}
+html.dark .message .boxb a.button,
+html.dark .message-body .payment-methods-button {
+  color: #e5e7eb;
+}
+
+/* SbpMoney / донат блок */
+html.dark .dm {
+  color: #e5e7eb;
+}
+
+/* Спонсоры */
+html.dark .sponsor {
+  color: #e5e7eb;
+}
+html.dark .sponsor .tag {
+  background-color: #374151;
+  color: #e5e7eb;
+}
+
+/* Чекбоксы и подписи */
+html.dark .checkbox {
+  color: #e5e7eb;
+}
+
+/* Progress bar */
+html.dark .progress {
+  background-color: #374151;
+}
+html.dark .progress::-webkit-progress-bar {
+  background-color: #374151;
+}
+html.dark .progress::-webkit-progress-value {
+  background-color: #10b981;
+}
+
+/* Notification */
+html.dark .notification.is-danger.is-light {
+  background-color: #451a1a;
+  color: #fecaca;
+  border-color: #7f1d1d;
+}
+
+/* Контейнер 3D и подсказки */
+html.dark .container-3d,
+html.dark .container-settings {
+  color: #e5e7eb;
+}
+html.dark .help {
+  color: #9ca3af;
+  background-color: transparent;
+}
+/* Текст подсказки (например «Ниже уровень коррекции QR...») и контент — без белого фона */
+html.dark .content,
+html.dark .help.content {
+  background-color: transparent !important;
+  color: #e5e7eb;
+}
+html.dark .field .help {
+  color: #9ca3af;
+}
+
+/* Главная страница */
+html.dark .hero-section .title,
+html.dark .hero-section .subtitle {
+  color: #e5e7eb;
+}
+html.dark .slide-content,
+html.dark .slide-description,
+html.dark .slide-description p {
+  color: #e5e7eb;
+}
+html.dark .examples-section .title {
+  color: #e5e7eb;
+}
+html.dark .slide-settings summary {
+  background-color: #374151;
+  color: #e5e7eb;
+}
+html.dark .slide-settings pre {
+  background-color: #252529;
+  color: #e5e7eb;
+  border: 1px solid #374151;
+}
+
+/* Страница примеров: карточки с цветными шапками и сообщения */
+html.dark .card-header.has-background-info {
+  background-color: #0f81cc !important;
+  color: #fff;
+}
+html.dark .card-header.has-background-success {
+  background-color: #1ca64c !important;
+  color: #fff;
+}
+html.dark .card-header.has-background-warning {
+  background-color: #b8860b !important;
+  color: #1d1e1f;
+}
+html.dark .message.is-info {
+  background-color: #1e3a5f !important;
+  border-color: #2563eb;
+}
+html.dark .message.is-info .message-body {
+  color: #e5e7eb !important;
+}
+
+/* Страница оплаты */
+html.dark .payment-methods-page__title {
+  color: #e5e7eb;
+}
+html.dark .payment-methods-page .no-decoration {
+  color: inherit;
+}
+html.dark .payment-methods-tile__name {
+  color: #e5e7eb;
+}
+html.dark .payment-methods-tile__description {
+  color: #9ca3af;
+}
+html.dark .sponsors-section__title {
+  color: #e5e7eb;
+}
+html.dark .sponsors-section {
+  border-top-color: #374151;
+}
+
+/* Модальные окна (Bulma .modal) */
+html.dark .modal-background {
+  background-color: rgba(0, 0, 0, 0.7);
+}
+html.dark .modal-card {
+  background-color: #252529;
+  border-color: #374151;
+}
+html.dark .modal-card-head {
+  background-color: #2d2d32;
+  border-color: #374151;
+  color: #e5e7eb;
+}
+html.dark .modal-card-title {
+  color: #e5e7eb;
+}
+html.dark .modal-card-body {
+  background-color: #252529;
+  border-color: #374151;
+  color: #e5e7eb;
+}
+html.dark .modal-card-foot {
+  background-color: #2d2d32;
+  border-color: #374151;
+  color: #e5e7eb;
+}
+html.dark .modal-card-foot .button {
+  color: #e5e7eb;
+}
+
+/* Футер: ссылки и бокс */
+html.dark .footer a {
+  color: #60a5fa;
+}
+html.dark .footer a:hover {
+  color: #93c5fd;
+}
+html.dark .footer .box {
+  background-color: #2d2d32;
+  border-color: #374151;
+  color: #e5e7eb;
+}
+html.dark .footer .box a {
+  color: #60a5fa;
+}
+html.dark .footer .button.is-light {
+  background-color: #374151;
+  border-color: #4b5563;
+  color: #e5e7eb;
+}
+html.dark .footer .button.is-light a {
+  color: #60a5fa;
+}
+
+/* Выпадающее меню смены языка (Bulma .dropdown) */
+html.dark .dropdown-content {
+  background-color: #252529 !important;
+  border-color: #374151;
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.4);
+}
+html.dark .dropdown-item {
+  color: #e5e7eb !important;
+}
+html.dark .dropdown-item:hover,
+html.dark .dropdown-item:focus {
+  background-color: #374151 !important;
+  color: #fff !important;
+}
+html.dark .dropdown .dropdown-trigger .button {
+  background-color: #374151;
+  border-color: #4b5563;
+  color: #e5e7eb;
+}
+html.dark .dropdown .dropdown-trigger .button:hover {
+  background-color: #4b5563;
+  border-color: #6b7280;
+  color: #fff;
+}
+
+/* Принудительная светлая тема: переопределяем bulma-prefers-dark, когда пользователь выбрал "Светлая" */
+html.theme-light {
+  background-color: #fff;
+}
+html.theme-light body {
+  background-color: #fff;
+  color: #363636;
+}
+html.theme-light .hero,
+html.theme-light .hero-body {
+  background-color: #fff;
+  color: #363636;
+}
+html.theme-light .navbar {
+  background-color: #fff;
+  border-bottom: 1px solid #dbdbdb;
+}
+html.theme-light .navbar .navbar-brand .navbar-item img {
+  filter: none;
+  opacity: 1;
+}
+html.theme-light .navbar-item,
+html.theme-light .navbar-link {
+  color: #363636;
+}
+html.theme-light .box,
+html.theme-light .panel,
+html.theme-light .panel-heading,
+html.theme-light .panel-block {
+  background-color: #fff;
+  border-color: #dbdbdb;
+  color: #363636;
+}
+html.theme-light .input,
+html.theme-light .textarea,
+html.theme-light .select select {
+  background-color: #fff;
+  border-color: #dbdbdb;
+  color: #363636;
+}
+html.theme-light .label,
+html.theme-light .button.is-static {
+  color: #363636;
+  background-color: #f5f5f5;
+  border-color: #dbdbdb;
+}
+html.theme-light .button:not(.is-primary):not(.is-info):not(.is-success):not(.is-warning):not(.is-danger) {
+  background-color: #fff;
+  border-color: #dbdbdb;
+  color: #363636;
+}
+html.theme-light .message,
+html.theme-light .message.is-warning {
+  background-color: #fff9e6;
+  border-color: #ffdd57;
+}
+html.theme-light .message-body {
+  color: #363636;
+}
+html.theme-light .panel-tabs.tabs a {
+  color: #4a4a4a;
+}
+html.theme-light .panel-tabs.tabs li.is-active a {
+  color: #3273dc;
+  border-bottom-color: #3273dc;
+}
+html.theme-light .footer {
+  background-color: #f5f5f5;
+  color: #363636;
+}
+html.theme-light .card,
+html.theme-light .section {
+  background-color: #fff;
+  color: #363636;
+}
+html.theme-light .sponsor,
+html.theme-light .dm {
+  color: #363636;
+}
+html.theme-light .sponsor .tag {
+  background-color: #f5f5f5;
+  color: #363636;
+}
+html.theme-light .checkbox {
+  color: #363636;
+}
+html.theme-light .progress {
+  background-color: #f5f5f5;
+}
+html.theme-light .container-3d,
+html.theme-light .container-settings,
+html.theme-light .help {
+  color: #363636;
+}
