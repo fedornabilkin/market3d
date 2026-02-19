@@ -19,6 +19,7 @@ export default {
     controlsHint: 'Можно вращать',
     autoRotation: 'Автоповорот',
     generateButton: 'Создать 3D модель',
+    goToGenerator: 'Перейти к генератору',
     historyButton: 'История',
     scanModalTitle: 'Код должен быть перед камерой',
     readModalTitle: 'Загрузите файл с QR-кодом',
@@ -41,6 +42,7 @@ export default {
   t: {
     exampleButton: 'Смотреть примеры',
     discussionButton: 'Обсудить',
+    tgChannelButton: 'Подпишись',
     setting: 'Настроить',
     create: 'Создать',
     check: 'Проверить',

@@ -7,6 +7,10 @@ button.button.is-info(@click="readModalVisible=true")
   span.icon
     i.fa.fa-file
   span.is-hidden-mobile {{$t('form.readQRButton')}}
+a.ml-2.button.is-warning.is-pulled-right(href="https://t.me/+W4Rsqz4svmBkZmMy" target="_blank")
+  span.icon
+    i.fab.fa-telegram
+  span.is-hidden-mobile {{$t('t.tgChannelButton')}}
 
 .panel.mt-1
   p.panel-heading {{$t('form.optionsTitle')}}

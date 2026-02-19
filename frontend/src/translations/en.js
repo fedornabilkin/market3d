@@ -19,6 +19,7 @@ export default {
     controlsHint: 'Can be rotated',
     autoRotation: 'Auto-rotate',
     generateButton: 'Create 3D model',
+    goToGenerator: 'Go to generator',
     historyButton: 'History',
     scanModalTitle: 'The code must be in front of the camera',
     readModalTitle: 'Load QR code from file',
@@ -41,6 +42,7 @@ export default {
   t: {
     exampleButton: 'See examples',
     discussionButton: 'Discuss',
+    tgChannelButton: 'Subscribe',
     setting: 'Setting',
     create: 'Create',
     check: 'Check',

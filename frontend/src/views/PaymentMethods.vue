@@ -14,11 +14,31 @@
             .mt-2
               span.logo-method.mr-1(v-for="tag in item.logoMethods" )
                 img(:src="tag" :alt="$t(item.nameKey)" loading="lazy")
+    
+    .sponsors-section(v-if="sponsorsStore.hasSponsors || sponsorsStore.loading")
+      h2.sponsors-section__title {{ $t('m.sponsorList') }}
+      .sponsors-loading(v-if="sponsorsStore.loading")
+        el-skeleton(:rows="1" animated)
+      .sponsors-list(v-else-if="sponsorsStore.hasSponsors")
+        el-tag.sponsor-tag(
+          v-for="sponsor in sponsorsStore.list"
+          :key="sponsor.id"
+          type="info"
+          size="large"
+        )
+          | {{ sponsor.name }}
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, onMounted } from 'vue';
 import Breadcrumbs from '../components/registry/Breadcrumbs.vue';
+import { useSponsorsStore } from '../store/sponsors';
+
+const sponsorsStore = useSponsorsStore();
+
+onMounted(() => {
+  sponsorsStore.fetchSponsors();
+});
 
 const paymentMethods = computed(() => [
   // {
@@ -109,5 +129,26 @@ const paymentMethods = computed(() => [
   font-size: 0.9rem;
   color: var(--el-text-color-regular);
   line-height: 1.4;
+}
+
+.sponsors-section {
+  margin-top: 3rem;
+  padding-top: 2rem;
+  border-top: 1px solid var(--el-border-color-light);
+}
+
+.sponsors-section__title {
+  margin-bottom: 1.5rem;
+  font-size: 1.5rem;
+}
+
+.sponsors-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.sponsor-tag {
+  margin: 0;
 }
 </style>

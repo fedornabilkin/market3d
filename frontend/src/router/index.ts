@@ -17,6 +17,12 @@ const routes: RouteRecordRaw[] = [
       component: () => import('../components/page/Example.vue'),
       meta: { requiresAuth: false },
     },
+    {
+      path: '/generator/qr',
+      name: 'GeneratorQR',
+      component: () => import('../views/GeneratorQR.vue'),
+      meta: { requiresAuth: false },
+    },
   {
     path: '/payment-methods',
     name: 'PaymentMethods',
