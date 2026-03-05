@@ -5,7 +5,7 @@ import vue from "@vitejs/plugin-vue";
 export default defineConfig(({mode}) => {
 
   const env = loadEnv(mode, process.cwd(), 'VITE_');
-  const apiHost = env.VITE_API_HOST || 'http://localhost';
+  const apiHost = env.VITE_API_HOST || 'localhost';
   const apiPort = env.VITE_API_PORT || 3000;
 
   return {

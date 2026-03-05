@@ -3,7 +3,7 @@ import passport from 'passport';
 import User from '../models/User.js';
 import { generateToken } from '../middleware/auth.js';
 import { generateVerificationCode, generateExpirationDate, isCodeExpired } from '../utils/verification.js';
-import { sendEmailNotification } from '../services/notification.js';
+import { sendTemplatedEmail } from '../services/notification.js';
 
 export const register = async (req, res) => {
   try {
@@ -40,8 +40,7 @@ export const register = async (req, res) => {
       emailVerified: false,
     });
 
-    // Выводим код в console.log для разработки
-    console.log(`[EMAIL VERIFICATION] User ${email} verification code: ${verificationCode}`);
+    await sendTemplatedEmail(email, 'registration', { code: verificationCode, email });
 
     // Генерируем токен
     const token = generateToken(user);
@@ -195,10 +194,9 @@ export const requestNewVerificationCode = async (req, res) => {
       lastCodeRequestAt: new Date(),
     });
 
-    // Выводим код в console.log для разработки
-    console.log(`[EMAIL VERIFICATION] User ${user.email} new verification code: ${verificationCode}`);
+    await sendTemplatedEmail(user.email, 'verification_code', { code: verificationCode, email: user.email });
 
-    res.json({ message: 'New verification code sent to console (development mode)' });
+    res.json({ message: 'New verification code sent to your email' });
   } catch (error) {
     console.error('Request new verification code error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -234,10 +232,9 @@ export const requestEmailChange = async (req, res) => {
       newEmailVerificationCode: verificationCode,
     });
 
-    // Выводим код в console.log для разработки
-    console.log(`[EMAIL CHANGE] User ${user.email} -> ${newEmail} verification code: ${verificationCode}`);
+    await sendTemplatedEmail(newEmail, 'email_change_request', { code: verificationCode, newEmail });
 
-    res.json({ message: 'Verification code sent to console (development mode)' });
+    res.json({ message: 'Verification code sent to your new email' });
   } catch (error) {
     console.error('Request email change error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -275,12 +272,7 @@ export const confirmEmailChange = async (req, res) => {
       newEmailVerificationCode: null,
     });
 
-    // Отправляем уведомление на старый email
-    await sendEmailNotification(
-      oldEmail,
-      'Email изменен',
-      `Ваш email был изменен на ${user.new_email}. Если это были не вы, пожалуйста, свяжитесь с поддержкой.`
-    );
+    await sendTemplatedEmail(oldEmail, 'email_changed', { oldEmail, newEmail: user.new_email });
 
     res.json({ message: 'Email changed successfully' });
   } catch (error) {
@@ -365,12 +357,7 @@ export const changePassword = async (req, res) => {
       passwordSalt: newPasswordSalt,
     });
 
-    // Отправляем уведомление на email
-    await sendEmailNotification(
-      user.email,
-      'Пароль изменен',
-      'Ваш пароль был успешно изменен. Если это были не вы, пожалуйста, свяжитесь с поддержкой.'
-    );
+    await sendTemplatedEmail(user.email, 'password_changed', { email: user.email });
 
     res.json({ message: 'Password changed successfully' });
   } catch (error) {
