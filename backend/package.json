@@ -30,10 +30,10 @@
     "dotenv": "^16.3.1",
     "db-migrate": "0.11.14",
     "db-migrate-pg": "1.5.2",
+    "tsx": "^4.19.2",
     "handlebars": "^4.7.8"
   },
   "devDependencies": {
-    "tsx": "^4.19.2",
     "nodemon": "^3.0.2",
     "eslint": "^8.55.0",
     "eslint-config-standard": "^17.1.0",

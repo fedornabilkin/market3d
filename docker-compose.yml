@@ -1,16 +1,41 @@
 services:
+  db:
+    image: postgres:16-alpine
+    container_name: vsqr-db
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    ports:
+      - ${DB_PORT}:5432
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
   backend:
     restart: unless-stopped
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: 3d-market-backend
+    container_name: vsqr-backend
     env_file:
       - ./backend/.env
+    environment:
+      DB_HOST: db
     ports:
       - ${PORT}:3000
     volumes:
       - ./backend/uploads:/app/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
 
 #  nginx:
 #    restart: unless-stopped
