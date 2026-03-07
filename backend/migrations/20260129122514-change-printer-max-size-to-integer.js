@@ -11,8 +11,14 @@ export async function setup(options, seedLink) {
 }
 
 export async function up(db) {
+  const r = await db.runSql(`
+    SELECT data_type FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'printers' AND column_name = 'max_size_x';
+  `);
+  if (r?.rows?.[0]?.data_type === 'integer') return;
+
   return db.runSql(`
-    ALTER TABLE printers 
+    ALTER TABLE printers
     ALTER COLUMN max_size_x TYPE INTEGER USING ROUND(max_size_x)::INTEGER,
     ALTER COLUMN max_size_y TYPE INTEGER USING ROUND(max_size_y)::INTEGER,
     ALTER COLUMN max_size_z TYPE INTEGER USING ROUND(max_size_z)::INTEGER

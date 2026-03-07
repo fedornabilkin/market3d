@@ -12,8 +12,8 @@ export async function setup(options, seedLink) {
 
 export async function up(db) {
   return db.runSql(`
-    ALTER TABLE users 
-    ADD COLUMN last_activity_at TIMESTAMP
+    ALTER TABLE users
+    ADD COLUMN IF NOT EXISTS last_activity_at TIMESTAMP
   `);
 }
 

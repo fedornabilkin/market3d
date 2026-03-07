@@ -12,12 +12,12 @@ export async function setup(options, seedLink) {
 
 export async function up(db) {
   return db.runSql(`
-    ALTER TABLE printers 
-    ADD COLUMN max_size_x DECIMAL(10, 2),
-    ADD COLUMN max_size_y DECIMAL(10, 2),
-    ADD COLUMN max_size_z DECIMAL(10, 2),
-    ADD COLUMN description TEXT,
-    ADD COLUMN quantity INTEGER DEFAULT 1
+    ALTER TABLE printers
+    ADD COLUMN IF NOT EXISTS max_size_x DECIMAL(10, 2),
+    ADD COLUMN IF NOT EXISTS max_size_y DECIMAL(10, 2),
+    ADD COLUMN IF NOT EXISTS max_size_z DECIMAL(10, 2),
+    ADD COLUMN IF NOT EXISTS description TEXT,
+    ADD COLUMN IF NOT EXISTS quantity INTEGER DEFAULT 1
   `).then(function() {
     return db.runSql(`
       UPDATE printers 

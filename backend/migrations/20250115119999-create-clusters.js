@@ -15,14 +15,6 @@ export async function setup(options, seedLink) {
 }
 
 export async function up(db) {
-  const result = await db.runSql(`
-    SELECT EXISTS (
-      SELECT 1 FROM information_schema.tables
-      WHERE table_schema = 'public' AND table_name = 'clusters'
-    ) as "exists";
-  `);
-  if (result?.rows?.[0]?.exists) return;
-
   return db.createTable('clusters', {
     id: {
       type: 'int',
@@ -113,14 +105,12 @@ export async function up(db) {
       defaultValue: new String('CURRENT_TIMESTAMP')
     }
   }).then(function () {
-    // Добавляем CHECK constraint для state
     return db.runSql(`
-      ALTER TABLE clusters 
-      ADD CONSTRAINT clusters_state_check 
+      ALTER TABLE clusters
+      ADD CONSTRAINT clusters_state_check
       CHECK (state IN ('draft', 'active', 'inactive', 'archived'));
     `);
   }).then(function () {
-    // Добавляем индексы
     return db.addIndex('clusters', 'idx_clusters_user_id', ['user_id']);
   }).then(function () {
     return db.addIndex('clusters', 'idx_clusters_state', ['state']);
@@ -154,5 +144,3 @@ export async function _meta() {
     version: 1
   };
 }
-
-

@@ -12,8 +12,8 @@ export async function setup(options, seedLink) {
 
 export async function up(db) {
   return db.runSql(`
-    ALTER TABLE orders 
-    ADD COLUMN delivery_method_id INTEGER REFERENCES dictionary_items(id)
+    ALTER TABLE orders
+    ADD COLUMN IF NOT EXISTS delivery_method_id INTEGER REFERENCES dictionary_items(id)
   `);
 }
 

@@ -15,6 +15,12 @@ export async function setup(options, seedLink) {
 }
 
 export async function up(db) {
+  const col = await db.runSql(`
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'orders' AND column_name = 'completed_at';
+  `);
+  if (col?.rows?.length) return;
+
   return db.addColumn('orders', 'completed_at', {
     type: 'timestamp',
     notNull: false

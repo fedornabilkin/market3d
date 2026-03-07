@@ -15,14 +15,6 @@ export async function setup(options, seedLink) {
 }
 
 export async function up(db) {
-  const result = await db.runSql(`
-    SELECT EXISTS (
-      SELECT 1 FROM information_schema.tables
-      WHERE table_schema = 'public' AND table_name = 'dictionaries'
-    ) as "exists";
-  `);
-  if (result && result.rows && result.rows[0] && result.rows[0].exists) return;
-
   return db.createTable('dictionaries', {
     id: {
       type: 'int',
@@ -91,7 +83,7 @@ export async function up(db) {
     });
   }).then(function () {
     return db.runSql(`
-      ALTER TABLE dictionary_items ADD CONSTRAINT dictionary_items_unique_name 
+      ALTER TABLE dictionary_items ADD CONSTRAINT dictionary_items_unique_name
       UNIQUE (dictionary_id, name);
     `);
   }).then(function () {
@@ -118,4 +110,3 @@ export async function _meta() {
     version: 1
   };
 }
-

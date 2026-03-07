@@ -21,7 +21,7 @@ export async function up(db) {
       WHERE table_schema = 'public' AND table_name = 'dictionaries'
     ) as "exists";
   `);
-  if (result && result.rows && result.rows[0] && result.rows[0].exists) return;
+  if (result?.rows?.[0]?.exists) return;
 
   return db.createTable('dictionaries', {
     id: {
@@ -118,4 +118,3 @@ export async function _meta() {
     version: 1
   };
 }
-

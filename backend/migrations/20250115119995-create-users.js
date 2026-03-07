@@ -15,14 +15,6 @@ export async function setup(options, seedLink) {
 };
 
 export async function up (db) {
-  const result = await db.runSql(`
-    SELECT EXISTS (
-      SELECT 1 FROM information_schema.tables
-      WHERE table_schema = 'public' AND table_name = 'users'
-    ) as "exists";
-  `);
-  if (result?.rows?.[0]?.exists) return;
-
   return db.createTable('users', {
     id: {
       type: 'int',
@@ -69,4 +61,3 @@ export async function _meta () {
     version: 1
   }
 };
-

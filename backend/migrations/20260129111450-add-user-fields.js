@@ -12,10 +12,10 @@ export async function setup(options, seedLink) {
 
 export async function up(db) {
   return db.runSql(`
-    ALTER TABLE users 
-    ADD COLUMN name VARCHAR(255),
-    ADD COLUMN description TEXT,
-    ADD COLUMN avatar_url VARCHAR(500)
+    ALTER TABLE users
+    ADD COLUMN IF NOT EXISTS name VARCHAR(255),
+    ADD COLUMN IF NOT EXISTS description TEXT,
+    ADD COLUMN IF NOT EXISTS avatar_url VARCHAR(500)
   `);
 }
 

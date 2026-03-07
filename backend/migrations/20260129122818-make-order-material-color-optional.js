@@ -11,8 +11,14 @@ export async function setup(options, seedLink) {
 }
 
 export async function up(db) {
+  const r = await db.runSql(`
+    SELECT is_nullable FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'orders' AND column_name = 'material';
+  `);
+  if (r?.rows?.[0]?.is_nullable === 'YES') return;
+
   return db.runSql(`
-    ALTER TABLE orders 
+    ALTER TABLE orders
     ALTER COLUMN material DROP NOT NULL
   `);
 }

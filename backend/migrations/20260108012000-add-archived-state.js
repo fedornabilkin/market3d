@@ -15,6 +15,14 @@ export async function setup(options, seedLink) {
 }
 
 export async function up(db) {
+  const r = await db.runSql(`
+    SELECT pg_get_constraintdef(c.oid) as def
+    FROM pg_constraint c
+    JOIN pg_class t ON c.conrelid = t.oid
+    WHERE t.relname = 'printers' AND c.conname = 'printers_state_check';
+  `);
+  if (r?.rows?.[0]?.def?.includes?.('archived')) return;
+
   // Добавляем состояние 'archived' в таблицу printers
   return db.runSql(`
     ALTER TABLE printers DROP CONSTRAINT IF EXISTS printers_state_check;

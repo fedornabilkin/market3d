@@ -15,6 +15,12 @@ export async function setup(options, seedLink) {
 }
 
 export async function up(db) {
+  const col = await db.runSql(`
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'orders' AND column_name = 'color_id';
+  `);
+  if (col?.rows?.length) return;
+
   // Добавляем колонку color_id
   return db.addColumn('orders', 'color_id', {
     type: 'int',
