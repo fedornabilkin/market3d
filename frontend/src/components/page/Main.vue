@@ -3,10 +3,15 @@
   .hero-section
     h1.title.is-1 {{ $t('g.title') }}
     h2.subtitle.is-4 {{ $t('g.subtitle') }}
-    router-link.button.is-primary.is-large(:to="{ name: 'GeneratorQR' }")
-      span.icon
-        i.fa.fa-cube
-      span {{ $t('g.goToGenerator') }}
+    .hero-buttons
+      router-link.button.is-primary.is-large(:to="{ name: 'GeneratorQR' }")
+        span.icon
+          i.fa.fa-cube
+        span {{ $t('g.goToGenerator') }}
+      router-link.button.is-info.is-large(:to="{ name: 'Constructor' }")
+        span.icon
+          i.fa.fa-cubes
+        span 3D Конструктор
 
   .examples-section
     h2.title.is-3 Примеры моделей
@@ -133,6 +138,14 @@ export default {
 
 .hero-section .subtitle {
   margin-bottom: 2rem;
+}
+
+.hero-buttons {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
 }
 
 .examples-section {
