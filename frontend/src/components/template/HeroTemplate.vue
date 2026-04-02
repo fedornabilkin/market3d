@@ -1,20 +1,45 @@
 <script setup>
 import Header from "@/components/template/Header.vue";
 import Footer from "@/components/template/Footer.vue";
+import { useRoute } from 'vue-router';
+
+const route = useRoute();
+
+const isConstructor = () => route.name === 'Constructor';
 </script>
 
 <template lang="pug">
-  .hero.is-fullheight
-    .hero-head
+  .app-layout(:class="{ 'is-constructor': isConstructor() }")
+    .app-header
       Header
-    .hero-body.custom
+    .app-body
       router-view
-    .hero-foot
+    .app-footer(v-if="!isConstructor()")
       Footer
 </template>
 
 <style scoped>
-.hero .hero-body.custom {
-  padding-top: 0;
+.app-layout {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+.app-header {
+  flex-shrink: 0;
+}
+.app-body {
+  flex: 1;
+  padding: 1rem 0;
+}
+.app-footer {
+  flex-shrink: 0;
+}
+
+/* Constructor: body fills all remaining space, no padding */
+.app-layout.is-constructor .app-body {
+  padding: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 </style>

@@ -12,13 +12,15 @@ export abstract class ModelNode {
   children: ModelNode[] = [];
   operation: CSGType = 'union';
   params: NodeParams = {};
-  uuidMesh: string = ''
+  uuidMesh: string = '';
+  /** Human-readable label shown in the node tree. */
+  name: string = '';
 
   abstract clone(): ModelNode;
   abstract getMesh(): THREE.Mesh;
   abstract getMemento(): ModelMemento;
 
-  setUuid(uuid: string) {
-    this.uuidMesh = uuid
+  setUuid(uuid: string): void {
+    this.uuidMesh = uuid;
   }
 }

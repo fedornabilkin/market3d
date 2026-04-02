@@ -8,28 +8,41 @@ import PaymentMethodsButton from "@/components/monetisation/PaymentMethodsButton
 <template lang="pug">
 footer.footer
   .container
-    .columns
-      .column
+    .columns.is-vcentered.is-multiline
+      .column.is-narrow
         PaymentMethodsButton
-        //Yoomoney
-      .column
+      .column.is-narrow
         a.button.is-info(href="/examples") {{ $t('t.exampleButton') }}
-
-      .column
+      .column.is-narrow
         ShareButtons
-      .column
+      .column.is-narrow
         LanguageSelector
 
-    .box
-      .is-pulled-right
-        a(href="/") vsqr.ru
-        | &nbsp;&copy; {{ (new Date()).getFullYear() }}
-      .button.is-light
-        a(href="https://t.me/+dSgck2GM29syZTQ6" target="_blank")
+    .footer-bottom
+      .footer-left
+        a.button.is-light(href="https://t.me/+dSgck2GM29syZTQ6" target="_blank")
           i.fab.fa-telegram
           | &nbsp;{{ $t('t.discussionButton') }}
+      .footer-right
+        a(href="/") vsqr.ru
+        | &nbsp;&copy; {{ (new Date()).getFullYear() }}
 </template>
 
 <style scoped>
-footer.footer {padding-bottom: .5rem}
+footer.footer {
+  padding: 1.5rem 1.5rem 1rem;
+}
+.footer-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid rgba(128, 128, 128, 0.2);
+}
+.footer-right {
+  font-size: 0.9rem;
+}
 </style>
