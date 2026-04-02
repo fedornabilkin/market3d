@@ -44,7 +44,7 @@ export class GroupNode extends ModelNode {
   getMesh(): THREE.Mesh {
     const groupColor = this.params?.color as string | undefined;
     const defaultMaterial = new THREE.MeshPhongMaterial({
-      color: groupColor ? new THREE.Color(groupColor) : 0xcccccc,
+      color: groupColor ? new THREE.Color(groupColor) : 0x00a5a4,
       shininess: 30,
       specular: 0x444444,
     });

@@ -38,8 +38,8 @@ export class GridService {
     const positions: number[] = [];
     const colors: number[] = [];
 
-    const baseColor = new THREE.Color(0xdddddd);
-    const boldColor = new THREE.Color(0xaaaaaa);
+    const baseColor = new THREE.Color(0xbfe8e8); // #00a5a4 lightened 75%
+    const boldColor = new THREE.Color(0x80d2d2); // #00a5a4 lightened 50%
 
     // Lines parallel to Z axis (varying X)
     for (let i = -halfWidth; i <= halfWidth; i++) {

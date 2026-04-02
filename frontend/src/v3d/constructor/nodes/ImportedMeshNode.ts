@@ -4,16 +4,16 @@ import type { ModelMemento } from '../memento/ModelMemento';
 import type { ImportedMeshNodeJSON } from '../types';
 import { ModelNode } from './ModelNode';
 import { ModelMemento as ModelMementoClass } from '../memento/ModelMemento';
+import { applyHoleStyle } from '../holeMaterial';
 
 function createMaterial(color?: string, isHole?: boolean): THREE.MeshPhongMaterial {
   const mat = new THREE.MeshPhongMaterial({
-    color: color ? new THREE.Color(color) : 0xcccccc,
+    color: color ? new THREE.Color(color) : 0x00a5a4,
     shininess: 30,
     specular: 0x444444,
   });
   if (isHole) {
-    mat.transparent = true;
-    mat.opacity = 0.35;
+    applyHoleStyle(mat);
   }
   return mat;
 }

@@ -12,6 +12,7 @@ import { ModificationGizmo, type HandleMesh } from './ModificationGizmo';
 import { MirrorGizmo, type MirrorHandleMesh } from './MirrorGizmo';
 import { ViewCubeNavigator } from './ViewCubeNavigator';
 import { GridService } from './services/GridService';
+import { applyHoleStyle, removeHoleStyle } from './holeMaterial';
 
 // ─── Tuning constants ────────────────────────────────────────────────────────
 
@@ -147,6 +148,11 @@ export class ConstructorSceneService {
   private cruiseThreshold = 5; // snap distance in mm
   private cruiseGuides: THREE.Line[] = [];
 
+  // ─── Middle-button camera cruise ─────────────────────────────────────────
+  private middleDragging = false;
+  private middleLastX = 0;
+  private middleLastY = 0;
+
   // ─── Scene settings (applied before mount or via setters) ──────────────���───
   private snapStep = 1;
   private backgroundColor: number | string = 0xf0f0f0;
@@ -237,6 +243,7 @@ export class ConstructorSceneService {
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enableDamping = true;
     this.controls.mouseButtons.LEFT = null as unknown as MOUSE;
+    this.controls.mouseButtons.MIDDLE = null as unknown as MOUSE; // middle button used for camera cruise
     this.controls.mouseButtons.RIGHT = MOUSE.ROTATE;
     this.controls.zoomSpeed = this.zoomSpeed;
     // Disable arrow key camera movement — arrows are used to move objects
@@ -345,9 +352,10 @@ export class ConstructorSceneService {
   // ─── Scene management ──────────────────────────────────────────────────────
 
   setSelection(nodes: ModelNode[], node: ModelNode | null): void {
+    const prevNodes = this.selectedNodes;
     this.selectedNodes = nodes.length ? [...nodes] : [];
     this.selectedNode = node;
-    this.updateGizmoTarget();
+    this.updateGizmoTarget(prevNodes);
   }
 
   // ─── Mirror mode ──────────────────────────────────────────────────────────
@@ -406,12 +414,14 @@ export class ConstructorSceneService {
     const color = (node.params?.color) as string | undefined;
     // Apply to all meshes in the object (handles groups with multiple children)
     obj.traverse((child) => {
-      if (child instanceof THREE.Mesh && child.material) {
+      if (child instanceof THREE.Mesh && child.material && !child.userData.isEdgeLine) {
         const mat = child.material as THREE.MeshPhongMaterial;
         if (color) mat.color.setStyle(color);
-        mat.transparent = isHole;
-        mat.opacity = isHole ? 0.35 : 1.0;
-        mat.needsUpdate = true;
+        if (isHole) {
+          applyHoleStyle(mat);
+        } else {
+          removeHoleStyle(mat);
+        }
       }
     });
   }
@@ -497,6 +507,7 @@ export class ConstructorSceneService {
       const mesh = node.getMesh();
       node.setUuid(mesh.uuid);
       mesh.userData.node = node;
+      ConstructorSceneService.addEdgeLines(mesh);
       return mesh;
     }
     if (node instanceof Primitive) {
@@ -504,6 +515,7 @@ export class ConstructorSceneService {
       const mesh = node.getMesh();
       node.setUuid(mesh.uuid);
       mesh.userData.node = node;
+      ConstructorSceneService.addEdgeLines(mesh);
       return mesh;
     }
     if (node instanceof GroupNode) {
@@ -538,12 +550,10 @@ export class ConstructorSceneService {
       const mesh = node.getMesh();
       node.setUuid(mesh.uuid);
       mesh.userData.node = node;
-      // Apply transparency if group is marked as hole
+      ConstructorSceneService.addEdgeLines(mesh);
+      // Apply zebra + transparency if group is marked as hole
       if (node.params?.isHole) {
-        const mat = mesh.material as THREE.MeshPhongMaterial;
-        mat.transparent = true;
-        mat.opacity = 0.35;
-        mat.needsUpdate = true;
+        applyHoleStyle(mesh.material as THREE.MeshPhongMaterial);
       }
       return mesh;
     }
@@ -579,8 +589,41 @@ export class ConstructorSceneService {
     this.mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
   }
 
-  private updateGizmoTarget(): void {
+  private static readonly NEON_EMISSIVE = new THREE.Color(0x00a5a4);
+  private static readonly NEON_INTENSITY = 0.15;
+
+  private clearSelectionGlow(nodes: ModelNode[]): void {
+    if (!this.modelRootGroup) return;
+    for (const node of nodes) {
+      const obj = this.findObjectByNode(this.modelRootGroup, node);
+      if (!obj) continue;
+      obj.traverse((child) => {
+        if (child instanceof THREE.Mesh && child.material && !child.userData.isEdgeLine) {
+          const mat = child.material as THREE.MeshPhongMaterial;
+          mat.emissive.setScalar(0);
+          mat.needsUpdate = true;
+        }
+      });
+    }
+  }
+
+  private applySelectionGlow(obj: THREE.Object3D): void {
+    obj.traverse((child) => {
+      if (child instanceof THREE.Mesh && child.material && !child.userData.isEdgeLine) {
+        const mat = child.material as THREE.MeshPhongMaterial;
+        mat.emissive.copy(ConstructorSceneService.NEON_EMISSIVE);
+        mat.emissiveIntensity = ConstructorSceneService.NEON_INTENSITY;
+        mat.needsUpdate = true;
+      }
+    });
+  }
+
+  private updateGizmoTarget(prevNodes?: ModelNode[]): void {
     if (!this.modificationGizmo || !this.modelRootGroup) return;
+
+    // Clear glow from previous selection
+    this.clearSelectionGlow(prevNodes ?? this.selectedNodes);
+
     if (this.selectedNodes.length === 0) {
       this.selectedObject3D = null;
       this.modificationGizmo.clearTarget();
@@ -593,6 +636,11 @@ export class ConstructorSceneService {
     if (obj && this.selectedNode) {
       this.modificationGizmo.setTarget(obj, this.selectedNode as unknown as Parameters<ModificationGizmo['setTarget']>[1]);
       if (this.mirrorMode && this.mirrorGizmo) this.mirrorGizmo.show(obj);
+      // Apply glow to all selected objects
+      for (const node of this.selectedNodes) {
+        const selObj = this.findObjectByNode(this.modelRootGroup!, node);
+        if (selObj) this.applySelectionGlow(selObj);
+      }
     } else {
       this.modificationGizmo.clearTarget();
       this.mirrorGizmo?.hide();
@@ -605,6 +653,28 @@ export class ConstructorSceneService {
    * Updates a primitive mesh's geometry in-place after a geometry-param change
    * (width/height/depth/radius via handles). Avoids rebuilding the entire scene.
    */
+  /** Edge outline material shared across all meshes */
+  private static edgeLineMaterial = new THREE.LineBasicMaterial({
+    color: 0x222222,
+    transparent: true,
+    opacity: 0.25,
+  });
+
+  /** Adds or updates dark edge lines on a mesh */
+  private static addEdgeLines(mesh: THREE.Mesh): void {
+    // Remove existing edge lines
+    const existing = mesh.children.filter(c => c.userData.isEdgeLine);
+    existing.forEach(c => {
+      (c as THREE.LineSegments).geometry.dispose();
+      mesh.remove(c);
+    });
+    const edges = new THREE.EdgesGeometry(mesh.geometry, 20);
+    const lines = new THREE.LineSegments(edges, ConstructorSceneService.edgeLineMaterial);
+    lines.userData.isEdgeLine = true;
+    lines.raycast = () => {}; // not pickable
+    mesh.add(lines);
+  }
+
   private updatePrimitiveGeometryInPlace(prim: Primitive, mesh: THREE.Mesh): void {
     const oldGeo = mesh.geometry;
     mesh.geometry = prim.createGeometry();
@@ -614,6 +684,9 @@ export class ConstructorSceneService {
     const halfH = prim.getHalfHeight();
     const p = prim.params.position ?? { x: 0, y: 0, z: 0 };
     mesh.position.set(p.x, (p.y ?? 0) + halfH, p.z);
+
+    // Update edge lines
+    ConstructorSceneService.addEdgeLines(mesh);
   }
 
   /**
@@ -638,12 +711,13 @@ export class ConstructorSceneService {
     const g = prim?.geometryParams ?? {};
     const s = params.scale!;
 
-    // For non-primitives, compute bounding box size to convert mm delta to scale delta
+    // For non-primitives, compute bounding box to convert mm delta to scale delta
     let objBoxSize: THREE.Vector3 | null = null;
+    let objBox: THREE.Box3 | null = null;
     if (!prim && this.selectedObject3D) {
-      const box = new THREE.Box3().setFromObject(this.selectedObject3D);
+      objBox = new THREE.Box3().setFromObject(this.selectedObject3D);
       objBoxSize = new THREE.Vector3();
-      box.getSize(objBoxSize);
+      objBox.getSize(objBoxSize);
     }
 
     // Helper: grow a geometry param or fall back to scale
@@ -659,15 +733,24 @@ export class ConstructorSceneService {
         p[posAxis] += (delta / 2) * posSign;
       } else {
         // Convert mm delta to proportional scale change
-        const dimMap = { x: 'x', y: 'y', z: 'z' } as const;
-        const currentSize = objBoxSize ? objBoxSize[dimMap[scaleAxis]] : 0;
+        const currentSize = objBoxSize ? objBoxSize[scaleAxis] : 0;
         if (currentSize > 0.01) {
-          const scaleDelta = delta / currentSize * (s[scaleAxis] ?? 1);
-          s[scaleAxis] = Math.max(0.01, (s[scaleAxis] ?? 1) + scaleDelta);
+          const oldScale = s[scaleAxis] ?? 1;
+          const scaleDelta = delta / currentSize * oldScale;
+          s[scaleAxis] = Math.max(0.01, oldScale + scaleDelta);
+          // Position shift: keep the opposite face fixed.
+          // posSign +1 → growing max side, fix min face; -1 → growing min side, fix max face
+          if (objBox) {
+            const fixedFaceWorld = posSign > 0 ? objBox.min[posAxis] : objBox.max[posAxis];
+            const fixedLocal = (fixedFaceWorld - p[posAxis]) / oldScale;
+            p[posAxis] -= fixedLocal * scaleDelta;
+          } else {
+            p[posAxis] += (delta / 2) * posSign;
+          }
         } else {
           s[scaleAxis] = Math.max(0.01, (s[scaleAxis] ?? 1) + delta * 0.01);
+          p[posAxis] += (delta / 2) * posSign;
         }
-        p[posAxis] += (delta / 2) * posSign;
       }
     };
 
@@ -707,8 +790,14 @@ export class ConstructorSceneService {
         } else {
           const currentH = objBoxSize ? objBoxSize.y : 0;
           if (currentH > 0.01) {
-            const scaleDelta = dy / currentH * (s.y ?? 1);
-            s.y = Math.max(0.01, (s.y ?? 1) + scaleDelta);
+            const oldScaleY = s.y ?? 1;
+            const scaleDelta = dy / currentH * oldScaleY;
+            s.y = Math.max(0.01, oldScaleY + scaleDelta);
+            // Keep bottom face fixed
+            if (objBox) {
+              const fixedLocal = (objBox.min.y - p.y) / oldScaleY;
+              p.y -= fixedLocal * scaleDelta;
+            }
           } else {
             s.y = Math.max(0.01, (s.y ?? 1) + dy * 0.01);
           }
@@ -1142,6 +1231,16 @@ export class ConstructorSceneService {
 
   private onPointerDown = (event: PointerEvent): void => {
     if (!this.modelRootGroup || !this.raycaster || !this.mouse) return;
+
+    // Middle button: start camera cruise
+    if (event.button === 1) {
+      event.preventDefault();
+      this.middleDragging = true;
+      this.middleLastX = event.clientX;
+      this.middleLastY = event.clientY;
+      return;
+    }
+
     if (event.button !== 0) return;
     this.updateMouseFromEvent(event);
     this.raycaster.setFromCamera(this.mouse, this.camera!);
@@ -1194,6 +1293,32 @@ export class ConstructorSceneService {
 
   private onPointerMove = (event: PointerEvent): void => {
     if (!this.modelRootGroup || !this.raycaster || !this.mouse) return;
+
+    // ── Middle-button camera cruise ────────────────────────────────────────
+    if (this.middleDragging && this.camera && this.controls) {
+      const dx = event.clientX - this.middleLastX;
+      const dy = event.clientY - this.middleLastY;
+      this.middleLastX = event.clientX;
+      this.middleLastY = event.clientY;
+
+      const dist = this.camera.position.distanceTo(this.controls.target);
+      const speed = dist * 0.002 * this.zoomSpeed;
+
+      // Horizontal mouse → strafe (camera right), vertical → dolly (forward/back)
+      const forward = new THREE.Vector3();
+      this.camera.getWorldDirection(forward);
+      const right = new THREE.Vector3().crossVectors(forward, this.camera.up).normalize();
+
+      const offset = new THREE.Vector3();
+      offset.addScaledVector(right, -dx * speed);
+      offset.addScaledVector(forward, dy * speed);
+
+      this.camera.position.add(offset);
+      this.controls.target.add(offset);
+      this.controls.update();
+      return;
+    }
+
     this.updateMouseFromEvent(event);
     this.raycaster.setFromCamera(this.mouse, this.camera!);
 
@@ -1389,6 +1514,13 @@ export class ConstructorSceneService {
 
   private onPointerUp = (event: PointerEvent): void => {
     if (!this.renderer) return;
+
+    // Middle button release: stop camera cruise
+    if (event.button === 1) {
+      this.middleDragging = false;
+      return;
+    }
+
     if (event.button !== 0) return;
 
     if (this.isHandleDragging) {

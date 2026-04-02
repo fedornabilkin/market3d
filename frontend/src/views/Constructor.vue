@@ -39,78 +39,6 @@
           )
             svg.shape-svg(viewBox="0 0 24 24" fill="currentColor")
               path(:d="shape.icon")
-        .action-row
-          button.button.is-small.is-info(@click="mergeSelected" :disabled="!canMerge" title="Группа (Ctrl+G)")
-            span.icon.is-small
-              i.fas.fa-object-group
-          button.button.is-small(@click="ungroupSelected" :disabled="!canUngroup" title="Разгруппировать (Ctrl+Shift+G)")
-            span.icon.is-small
-              i.fas.fa-object-ungroup
-          button.button.is-small(
-            @click="undo"
-            :disabled="!canUndo"
-            title="Отменить (Ctrl+Z)"
-          )
-            span.icon.is-small
-              i.fas.fa-undo
-          button.button.is-small(
-            @click="redo"
-            :disabled="!canRedo"
-            title="Повторить (Ctrl+Shift+Z)"
-          )
-            span.icon.is-small
-              i.fas.fa-redo
-          button.button.is-small(
-            @click="duplicateSelected"
-            :disabled="!canDeleteSelected"
-            title="Дублировать (Ctrl+D)"
-          )
-            span.icon.is-small
-              i.fas.fa-clone
-          button.button.is-small(
-            :class="{ 'is-warning': mirrorModeActive }"
-            @click="toggleMirrorMode"
-            :disabled="!canDeleteSelected"
-            title="Зеркалирование (Ctrl+M)"
-          )
-            span.icon.is-small
-              i.fas.fa-arrows-alt-h
-          button.button.is-small(
-            :class="{ 'is-info': cruiseModeActive }"
-            @click="toggleCruiseMode"
-            title="Прилипание к объектам"
-          )
-            span.icon.is-small
-              i.fas.fa-magnet
-          button.button.is-small.is-danger.btn-delete(
-            @click="deleteSelected"
-            :disabled="!canDeleteSelected"
-            title="Удалить (Del)"
-          )
-            span.icon.is-small
-              i.fas.fa-trash
-
-        .align-row(v-if="canAlign")
-          span.align-label Выровнять:
-          button.btn-align(@click="alignNodes('minX')" title="По левому краю")
-            i.fas.fa-align-left
-          button.btn-align(@click="alignNodes('centerX')" title="По центру X")
-            i.fas.fa-align-center
-          button.btn-align(@click="alignNodes('maxX')" title="По правому краю")
-            i.fas.fa-align-right
-          button.btn-align(@click="alignNodes('minZ')" title="По заднему краю")
-            i.fas.fa-arrow-up
-          button.btn-align(@click="alignNodes('centerZ')" title="По центру Z")
-            i.fas.fa-arrows-alt-v
-          button.btn-align(@click="alignNodes('maxZ')" title="По переднему краю")
-            i.fas.fa-arrow-down
-          span.align-separator
-          button.btn-align(@click="alignNodes('minY')" title="По нижнему краю")
-            i.fas.fa-level-down-alt
-          button.btn-align(@click="alignNodes('centerY')" title="По центру Y")
-            i.fas.fa-minus
-          button.btn-align(@click="alignNodes('maxY')" title="По верхнему краю")
-            i.fas.fa-level-up-alt
 
     .constructor-panel.constructor-panel--settings
       .panel-header Настройки узла
@@ -190,6 +118,57 @@
 
   .constructor-canvas-wrap
     div(ref="containerRef" class="canvas-container")
+    .action-toolbar
+      button.btn-icon(@click="mergeSelected" :disabled="!canMerge" title="Группа (Ctrl+G)")
+        i.fas.fa-object-group
+      button.btn-icon(@click="ungroupSelected" :disabled="!canUngroup" title="Разгруппировать (Ctrl+Shift+G)")
+        i.fas.fa-object-ungroup
+      .toolbar-separator
+      button.btn-icon(@click="undo" :disabled="!canUndo" title="Отменить (Ctrl+Z)")
+        i.fas.fa-undo
+      button.btn-icon(@click="redo" :disabled="!canRedo" title="Повторить (Ctrl+Shift+Z)")
+        i.fas.fa-redo
+      .toolbar-separator
+      button.btn-icon(@click="duplicateSelected" :disabled="!canDeleteSelected" title="Дублировать (Ctrl+D)")
+        i.fas.fa-clone
+      button.btn-icon(
+        :class="{ 'is-active-tool': mirrorModeActive }"
+        @click="toggleMirrorMode"
+        :disabled="!canDeleteSelected"
+        title="Зеркалирование (Ctrl+M)"
+      )
+        i.fas.fa-arrows-alt-h
+      button.btn-icon(
+        :class="{ 'is-active-tool': cruiseModeActive }"
+        @click="toggleCruiseMode"
+        title="Прилипание к объектам"
+      )
+        i.fas.fa-magnet
+      .toolbar-separator
+      button.btn-icon.btn-delete(@click="deleteSelected" :disabled="!canDeleteSelected" title="Удалить (Del)")
+        i.fas.fa-trash
+      template(v-if="canAlign")
+        .toolbar-separator
+        span.align-label Выровнять:
+        button.btn-icon(@click="alignNodes('minX')" title="По левому краю")
+          i.fas.fa-align-left
+        button.btn-icon(@click="alignNodes('centerX')" title="По центру X")
+          i.fas.fa-align-center
+        button.btn-icon(@click="alignNodes('maxX')" title="По правому краю")
+          i.fas.fa-align-right
+        button.btn-icon(@click="alignNodes('minZ')" title="По заднему краю")
+          i.fas.fa-arrow-up
+        button.btn-icon(@click="alignNodes('centerZ')" title="По центру Z")
+          i.fas.fa-arrows-alt-v
+        button.btn-icon(@click="alignNodes('maxZ')" title="По переднему краю")
+          i.fas.fa-arrow-down
+        .toolbar-separator
+        button.btn-icon(@click="alignNodes('minY')" title="По нижнему краю")
+          i.fas.fa-level-down-alt
+        button.btn-icon(@click="alignNodes('centerY')" title="По центру Y")
+          i.fas.fa-minus
+        button.btn-icon(@click="alignNodes('maxY')" title="По верхнему краю")
+          i.fas.fa-level-up-alt
     .scene-toolbar
       button.btn-icon(@click="showSceneSettings = true" title="Параметры сцены")
         i.fas.fa-cog
@@ -1410,59 +1389,7 @@ onBeforeUnmount(() => {
   gap: 0.4rem;
   margin-top: 0.6rem;
 }
-.action-row {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  flex-wrap: wrap;
-}
-.action-row .select,
-.action-row .button {
-  flex-shrink: 0;
-}
-.action-row .label {
-  font-size: 0.82rem;
-  margin: 0;
-  white-space: nowrap;
-}
 .merge-op-select { max-width: 9rem; }
-
-/* ─── Align row ──────────────────────────────────────────────── */
-.align-row {
-  display: flex;
-  align-items: center;
-  gap: 0.25rem;
-  margin-top: 0.3rem;
-}
-.align-label {
-  font-size: 0.75rem;
-  color: #888;
-  white-space: nowrap;
-  margin-right: 0.1rem;
-}
-.btn-align {
-  background: #fff;
-  border: 1px solid #d0d0d0;
-  border-radius: 4px;
-  color: #666;
-  cursor: pointer;
-  padding: 0.2rem 0.35rem;
-  font-size: 0.7rem;
-  line-height: 1;
-  transition: background 0.15s, color 0.15s;
-}
-.btn-align:hover {
-  background: #e8e8e8;
-  color: #333;
-  border-color: #aaa;
-}
-.align-separator {
-  width: 1px;
-  height: 1.2rem;
-  background: #d0d0d0;
-  margin: 0 0.1rem;
-  flex-shrink: 0;
-}
 
 /* ─── Shape icons ────────────────────────────────────────────── */
 .shape-icons {
@@ -1579,11 +1506,6 @@ onBeforeUnmount(() => {
   font-size: 0.9rem;
 }
 
-/* ─── Delete button pushed right ─────────────────────────────── */
-.btn-delete {
-  margin-left: auto !important;
-}
-
 /* ─── Canvas ──────────────────────────────────────────────────── */
 .constructor-canvas-wrap {
   position: absolute;
@@ -1600,6 +1522,49 @@ onBeforeUnmount(() => {
   bottom: 0;
   width: 100%;
   height: 100%;
+}
+
+/* ─── Action toolbar (top-left over canvas) ──────────────────── */
+.action-toolbar {
+  position: absolute;
+  top: 0.6rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid #d0d0d0;
+  border-radius: 6px;
+  padding: 0.25rem 0.35rem;
+}
+.action-toolbar .btn-icon {
+  font-size: 0.85rem;
+  padding: 0.25rem 0.4rem;
+}
+.action-toolbar .btn-delete {
+  color: #e74c3c;
+}
+.action-toolbar .btn-icon.is-active-tool {
+  background: #3273dc;
+  color: #fff;
+  border-radius: 4px;
+}
+.action-toolbar .btn-icon:disabled {
+  opacity: 0.35;
+  pointer-events: none;
+}
+.action-toolbar .align-label {
+  font-size: 0.75rem;
+  color: #888;
+  margin: 0 0.15rem;
+}
+.toolbar-separator {
+  width: 1px;
+  height: 1.2rem;
+  background: #d0d0d0;
+  margin: 0 0.15rem;
 }
 
 /* ─── Scene toolbar (top-right over canvas) ──────────────────── */
