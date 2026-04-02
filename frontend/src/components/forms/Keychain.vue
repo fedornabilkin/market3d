@@ -3,7 +3,7 @@ const props = defineProps(['options', 'unit'])
 </script>
 
 <template lang="pug">
-.field.is-horizontal.form-bg-diff
+.field.is-horizontal.form-bg-diff.form-bg--keychain
   .field-label.is-small
     label.label {{ $t('form.keychain.active') }}
   .field-body
@@ -14,7 +14,7 @@ const props = defineProps(['options', 'unit'])
           span.is-size-7
             i.fa.fa-key &nbsp;
             | {{ $t('form.keychain.activeLabel') }}
-.box.form-bg-diff(v-if='props.options.keychain.active')
+.box.form-bg-diff.form-bg--keychain(v-if='props.options.keychain.active')
   .columns.is-multiline
     .column
       .field.is-horizontal
@@ -100,6 +100,3 @@ const props = defineProps(['options', 'unit'])
               input.input.is-small(type='color' :value='props.options.keychain.color || "#ffffff"' @input='props.options.keychain.color = $event.target.value')
 </template>
 
-<style scoped>
-.form-bg-diff {background: ghostwhite;}
-</style>

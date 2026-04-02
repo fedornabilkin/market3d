@@ -3,7 +3,7 @@ const props = defineProps(['options', 'unit'])
 </script>
 
 <template lang="pug">
-.field.is-horizontal.form-bg-diff
+.field.is-horizontal.form-bg-diff.form-bg--border
   .field-label.is-small
     label.label {{ $t('form.border.active') }}
 
@@ -16,7 +16,7 @@ const props = defineProps(['options', 'unit'])
             i.fa.fa-border-all &nbsp;
             | {{ $t('form.border.activeLabel') }}
 
-.box.form-bg-diff(v-if="props.options.border.active")
+.box.form-bg-diff.form-bg--border(v-if="props.options.border.active")
   .columns.is-multiline
     .column
       .field.is-horizontal
@@ -49,6 +49,3 @@ const props = defineProps(['options', 'unit'])
               input.input.is-small(type='color' :value='props.options.border.color || "#000000"' @input='props.options.border.color = $event.target.value')
 </template>
 
-<style scoped>
-.form-bg-diff {background: gainsboro;}
-</style>

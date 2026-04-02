@@ -17,7 +17,7 @@ const setActiveTab = (idx) => {
 </script>
 
 <template lang="pug">
-.field.is-horizontal.form-bg-diff
+.field.is-horizontal.form-bg-diff.form-bg--qr
   .field-label.is-small
     label.label {{ $t('form.qr.active') }}
 
@@ -30,7 +30,7 @@ const setActiveTab = (idx) => {
             i.fa.fa-qrcode &nbsp;
             | {{ $t('form.qr.activeLabel') }}
 
-.box.form-bg-diff(v-if="props.options.code.active")
+.box.form-bg-diff.form-bg--qr(v-if="props.options.code.active")
   QRCodeTabs(:active-tab-index='options.activeTabIndex' @change='setActiveTab')
   // Text
   .option-pane(v-if='options.activeTabIndex === 0')
@@ -48,7 +48,7 @@ const setActiveTab = (idx) => {
   .option-pane(v-if='options.activeTabIndex === 4')
     SMS(:sms='options.sms')
 
-.box.form-bg-diff(v-if="props.options.code.active")
+.box.form-bg-diff.form-bg--qr(v-if="props.options.code.active")
   .columns.is-multiline
     .column
       // Download
@@ -179,6 +179,3 @@ const setActiveTab = (idx) => {
 
 </template>
 
-<style scoped>
-.form-bg-diff {background: aliceblue;}
-</style>

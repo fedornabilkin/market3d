@@ -72,7 +72,14 @@ html.dark .box {
   border: 1px solid #374151;
 }
 
-/* Секции QR, Текст, Рамка, Брелок, Иконка — переопределяем scoped светлые фоны (aliceblue, azure, lightyellow и т.д.) */
+/* ─── Form section backgrounds (light theme variants) ─────────── */
+.form-bg-diff.form-bg--text { background: azure; }
+.form-bg-diff.form-bg--border { background: gainsboro; }
+.form-bg-diff.form-bg--icon { background: lightyellow; }
+.form-bg-diff.form-bg--qr { background: aliceblue; }
+.form-bg-diff.form-bg--keychain { background: ghostwhite; }
+
+/* Секции QR, Текст, Рамка, Брелок, Иконка — переопределяем светлые фоны */
 html.dark .form-bg-diff {
   background-color: #252529 !important;
   background: #252529 !important;
