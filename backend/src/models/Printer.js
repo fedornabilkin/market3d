@@ -1,17 +1,28 @@
 import pool from '../config/database.js';
 
 class Printer {
-  static async create({ userId, modelName, manufacturer, pricePerHour, state, materialIds }) {
-    // Валидация цены
-    if (pricePerHour === undefined || pricePerHour === null || typeof pricePerHour !== 'number' || pricePerHour < 0.01) {
-      throw new Error('Price per hour must be a positive number (minimum 0.01)');
+  static async create({ userId, modelName, manufacturer, pricePerHour, state, materialIds, colorIds, maxSizeX, maxSizeY, maxSizeZ, description, quantity }) {
+    // Валидация цены - только целые числа
+    if (pricePerHour === undefined || pricePerHour === null || typeof pricePerHour !== 'number' || pricePerHour < 1 || !Number.isInteger(pricePerHour)) {
+      throw new Error('Price per hour must be a positive integer (minimum 1)');
+    }
+
+    // Валидация обязательных полей максимального размера - только целые числа
+    if (maxSizeX === undefined || maxSizeX === null || typeof maxSizeX !== 'number' || maxSizeX <= 0 || !Number.isInteger(maxSizeX)) {
+      throw new Error('Max size X must be a positive integer (in millimeters)');
+    }
+    if (maxSizeY === undefined || maxSizeY === null || typeof maxSizeY !== 'number' || maxSizeY <= 0 || !Number.isInteger(maxSizeY)) {
+      throw new Error('Max size Y must be a positive integer (in millimeters)');
+    }
+    if (maxSizeZ === undefined || maxSizeZ === null || typeof maxSizeZ !== 'number' || maxSizeZ <= 0 || !Number.isInteger(maxSizeZ)) {
+      throw new Error('Max size Z must be a positive integer (in millimeters)');
     }
 
     const result = await pool.query(
-      `INSERT INTO printers (user_id, model_name, manufacturer, price_per_hour, state, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+      `INSERT INTO printers (user_id, model_name, manufacturer, price_per_hour, state, max_size_x, max_size_y, max_size_z, description, quantity, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())
        RETURNING *`,
-      [userId, modelName, manufacturer, pricePerHour, state || 'available']
+      [userId, modelName, manufacturer, pricePerHour, state || 'available', maxSizeX, maxSizeY, maxSizeZ, description || null, quantity || 1]
     );
     
     const printer = this.formatPrinter(result.rows[0]);
@@ -21,6 +32,13 @@ class Printer {
       printer.materials = await this.addMaterials(printer.id, materialIds);
     } else {
       printer.materials = [];
+    }
+    
+    // Добавляем цвета, если они указаны
+    if (colorIds && Array.isArray(colorIds) && colorIds.length > 0) {
+      printer.colors = await this.addColors(printer.id, colorIds);
+    } else {
+      printer.colors = [];
     }
     
     return printer;
@@ -85,11 +103,12 @@ class Printer {
     const total = parseInt(countResult.rows[0].total);
     const pages = Math.ceil(total / limit);
 
-    // Загружаем материалы для каждого принтера
+    // Загружаем материалы и цвета для каждого принтера
     const printers = await Promise.all(
       result.rows.map(async (row) => {
         const printer = this.formatPrinter(row);
         printer.materials = await this.getMaterials(printer.id);
+        printer.colors = await this.getColors(printer.id);
         return printer;
       })
     );
@@ -131,8 +150,9 @@ class Printer {
     if (!result.rows[0]) return null;
     
     const printer = this.formatPrinter(result.rows[0]);
-    // Загружаем материалы
+    // Загружаем материалы и цвета
     printer.materials = await this.getMaterials(id);
+    printer.colors = await this.getColors(id);
     return printer;
   }
 
@@ -145,10 +165,10 @@ class Printer {
   }
 
   static async update(id, updates, userId) {
-    // Валидация цены
+    // Валидация цены - только целые числа
     if (updates.pricePerHour !== undefined) {
-      if (typeof updates.pricePerHour !== 'number' || updates.pricePerHour < 0.01) {
-        throw new Error('Price per hour must be a positive number (minimum 0.01)');
+      if (typeof updates.pricePerHour !== 'number' || updates.pricePerHour < 1 || !Number.isInteger(updates.pricePerHour)) {
+        throw new Error('Price per hour must be a positive integer (minimum 1)');
       }
     }
 
@@ -172,6 +192,38 @@ class Printer {
       fields.push(`state = $${paramCount++}`);
       values.push(updates.state);
     }
+    if (updates.maxSizeX !== undefined) {
+      if (typeof updates.maxSizeX !== 'number' || updates.maxSizeX <= 0 || !Number.isInteger(updates.maxSizeX)) {
+        throw new Error('Max size X must be a positive integer (in millimeters)');
+      }
+      fields.push(`max_size_x = $${paramCount++}`);
+      values.push(updates.maxSizeX);
+    }
+    if (updates.maxSizeY !== undefined) {
+      if (typeof updates.maxSizeY !== 'number' || updates.maxSizeY <= 0 || !Number.isInteger(updates.maxSizeY)) {
+        throw new Error('Max size Y must be a positive integer (in millimeters)');
+      }
+      fields.push(`max_size_y = $${paramCount++}`);
+      values.push(updates.maxSizeY);
+    }
+    if (updates.maxSizeZ !== undefined) {
+      if (typeof updates.maxSizeZ !== 'number' || updates.maxSizeZ <= 0 || !Number.isInteger(updates.maxSizeZ)) {
+        throw new Error('Max size Z must be a positive integer (in millimeters)');
+      }
+      fields.push(`max_size_z = $${paramCount++}`);
+      values.push(updates.maxSizeZ);
+    }
+    if (updates.description !== undefined) {
+      fields.push(`description = $${paramCount++}`);
+      values.push(updates.description);
+    }
+    if (updates.quantity !== undefined) {
+      if (typeof updates.quantity !== 'number' || updates.quantity < 1 || !Number.isInteger(updates.quantity)) {
+        throw new Error('Quantity must be a positive integer (minimum 1)');
+      }
+      fields.push(`quantity = $${paramCount++}`);
+      values.push(updates.quantity);
+    }
 
     if (fields.length === 0) return null;
 
@@ -186,8 +238,9 @@ class Printer {
     if (!result.rows[0]) return null;
     
     const printer = this.formatPrinter(result.rows[0]);
-    // Загружаем материалы
+    // Загружаем материалы и цвета
     printer.materials = await this.getMaterials(id);
+    printer.colors = await this.getColors(id);
     return printer;
   }
 
@@ -267,6 +320,74 @@ class Printer {
     return result.rows.map(row => row.material_id);
   }
 
+  static async getColors(printerId) {
+    const result = await pool.query(
+      `SELECT di.id, di.name, di.dictionary_id
+       FROM printer_colors pc
+       INNER JOIN dictionary_items di ON pc.color_id = di.id
+       WHERE pc.printer_id = $1
+       ORDER BY di.name ASC`,
+      [printerId]
+    );
+    return result.rows.map(row => ({
+      id: row.id,
+      name: row.name,
+      dictionaryId: row.dictionary_id,
+    }));
+  }
+
+  static async addColors(printerId, colorIds) {
+    if (!Array.isArray(colorIds) || colorIds.length === 0) {
+      throw new Error('Color IDs must be a non-empty array');
+    }
+
+    // Проверяем существование цветов в справочнике
+    const colorsCheck = await pool.query(
+      `SELECT id FROM dictionary_items 
+       WHERE id = ANY($1::int[]) 
+       AND dictionary_id = (SELECT id FROM dictionaries WHERE name = 'colors')`,
+      [colorIds]
+    );
+
+    if (colorsCheck.rows.length !== colorIds.length) {
+      throw new Error('Some color IDs are invalid or not found in colors dictionary');
+    }
+
+    // Удаляем существующие связи для этих цветов (чтобы избежать дубликатов)
+    await pool.query(
+      `DELETE FROM printer_colors 
+       WHERE printer_id = $1 AND color_id = ANY($2::int[])`,
+      [printerId, colorIds]
+    );
+
+    // Добавляем новые связи
+    const values = colorIds.map((_, index) => `($1, $${index + 2}, NOW())`).join(', ');
+    const params = [printerId, ...colorIds];
+    
+    await pool.query(
+      `INSERT INTO printer_colors (printer_id, color_id, created_at)
+       VALUES ${values}`,
+      params
+    );
+
+    return this.getColors(printerId);
+  }
+
+  static async removeColors(printerId, colorIds) {
+    if (!Array.isArray(colorIds) || colorIds.length === 0) {
+      throw new Error('Color IDs must be a non-empty array');
+    }
+
+    const result = await pool.query(
+      `DELETE FROM printer_colors 
+       WHERE printer_id = $1 AND color_id = ANY($2::int[])
+       RETURNING color_id`,
+      [printerId, colorIds]
+    );
+
+    return result.rows.map(row => row.color_id);
+  }
+
   static formatPrinter(row) {
     if (!row) return null;
     return {
@@ -276,6 +397,11 @@ class Printer {
       clusterName: row.cluster_name,
       pricePerHour: parseFloat(row.price_per_hour),
       state: row.state,
+      maxSizeX: row.max_size_x ? parseFloat(row.max_size_x) : null,
+      maxSizeY: row.max_size_y ? parseFloat(row.max_size_y) : null,
+      maxSizeZ: row.max_size_z ? parseFloat(row.max_size_z) : null,
+      description: row.description,
+      quantity: row.quantity || 1,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };

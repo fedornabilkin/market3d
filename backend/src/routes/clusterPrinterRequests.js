@@ -9,17 +9,17 @@ import {
   cancelRequest,
 } from '../controllers/clusterPrinterRequestController.js';
 import { clusterPrinterRequestValidation, validate } from '../utils/validators/index.js';
-import { authenticateJWT } from '../middleware/auth.js';
+import { authenticateJWTWithActivity } from '../middleware/auth.js';
 
 const router = express.Router();
 
-router.get('/:clusterId/requests', authenticateJWT, getClusterRequests);
-router.get('/printers/:printerId/requests', authenticateJWT, getPrinterRequests);
-router.get('/requests/my', authenticateJWT, getMyRequests);
-router.post('/:clusterId/printers/:printerId/request', authenticateJWT, clusterPrinterRequestValidation, validate, createRequest);
-router.post('/requests/:id/approve', authenticateJWT, approveRequest);
-router.post('/requests/:id/reject', authenticateJWT, rejectRequest);
-router.post('/requests/:id/cancel', authenticateJWT, cancelRequest);
+router.get('/:clusterId/requests', authenticateJWTWithActivity, getClusterRequests);
+router.get('/printers/:printerId/requests', authenticateJWTWithActivity, getPrinterRequests);
+router.get('/requests/my', authenticateJWTWithActivity, getMyRequests);
+router.post('/:clusterId/printers/:printerId/request', authenticateJWTWithActivity, clusterPrinterRequestValidation, validate, createRequest);
+router.post('/requests/:id/approve', authenticateJWTWithActivity, approveRequest);
+router.post('/requests/:id/reject', authenticateJWTWithActivity, rejectRequest);
+router.post('/requests/:id/cancel', authenticateJWTWithActivity, cancelRequest);
 
 export default router;
 

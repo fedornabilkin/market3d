@@ -3,7 +3,7 @@ import passport from 'passport';
 import User from '../models/User.js';
 import { generateToken } from '../middleware/auth.js';
 import { generateVerificationCode, generateExpirationDate, isCodeExpired } from '../utils/verification.js';
-import { sendEmailNotification } from '../services/notification.js';
+import { sendTemplatedEmail } from '../services/notification.js';
 
 export const register = async (req, res) => {
   try {
@@ -40,8 +40,7 @@ export const register = async (req, res) => {
       emailVerified: false,
     });
 
-    // Выводим код в console.log для разработки
-    console.log(`[EMAIL VERIFICATION] User ${email} verification code: ${verificationCode}`);
+    await sendTemplatedEmail(email, 'registration', { code: verificationCode, email });
 
     // Генерируем токен
     const token = generateToken(user);
@@ -62,12 +61,19 @@ export const register = async (req, res) => {
 };
 
 export const login = async (req, res, next) => {
-  passport.authenticate('local', { session: false }, (err, user, info) => {
+  passport.authenticate('local', { session: false }, async (err, user, info) => {
     if (err) {
       return res.status(500).json({ error: 'Internal server error' });
     }
     if (!user) {
       return res.status(401).json({ error: info.message || 'Invalid credentials' });
+    }
+
+    // Обновляем время последней активности при успешном логине
+    try {
+      await User.updateLastActivity(user.id);
+    } catch (error) {
+      console.error('Failed to update last activity on login:', error);
     }
 
     const token = generateToken(user);
@@ -77,6 +83,9 @@ export const login = async (req, res, next) => {
       user: {
         id: user.id,
         email: user.email,
+        name: user.name,
+        description: user.description,
+        avatarUrl: user.avatar_url,
       },
     });
   })(req, res, next);
@@ -91,6 +100,9 @@ export const getProfile = async (req, res) => {
     res.json({
       id: user.id,
       email: user.email,
+      name: user.name,
+      description: user.description,
+      avatarUrl: user.avatar_url,
       emailVerified: user.email_verified || false,
       createdAt: user.created_at,
     });
@@ -182,10 +194,9 @@ export const requestNewVerificationCode = async (req, res) => {
       lastCodeRequestAt: new Date(),
     });
 
-    // Выводим код в console.log для разработки
-    console.log(`[EMAIL VERIFICATION] User ${user.email} new verification code: ${verificationCode}`);
+    await sendTemplatedEmail(user.email, 'verification_code', { code: verificationCode, email: user.email });
 
-    res.json({ message: 'New verification code sent to console (development mode)' });
+    res.json({ message: 'New verification code sent to your email' });
   } catch (error) {
     console.error('Request new verification code error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -221,10 +232,9 @@ export const requestEmailChange = async (req, res) => {
       newEmailVerificationCode: verificationCode,
     });
 
-    // Выводим код в console.log для разработки
-    console.log(`[EMAIL CHANGE] User ${user.email} -> ${newEmail} verification code: ${verificationCode}`);
+    await sendTemplatedEmail(newEmail, 'email_change_request', { code: verificationCode, newEmail });
 
-    res.json({ message: 'Verification code sent to console (development mode)' });
+    res.json({ message: 'Verification code sent to your new email' });
   } catch (error) {
     console.error('Request email change error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -262,12 +272,7 @@ export const confirmEmailChange = async (req, res) => {
       newEmailVerificationCode: null,
     });
 
-    // Отправляем уведомление на старый email
-    await sendEmailNotification(
-      oldEmail,
-      'Email изменен',
-      `Ваш email был изменен на ${user.new_email}. Если это были не вы, пожалуйста, свяжитесь с поддержкой.`
-    );
+    await sendTemplatedEmail(oldEmail, 'email_changed', { oldEmail, newEmail: user.new_email });
 
     res.json({ message: 'Email changed successfully' });
   } catch (error) {
@@ -279,10 +284,19 @@ export const confirmEmailChange = async (req, res) => {
 export const updateProfile = async (req, res) => {
   try {
     const userId = req.user.id;
+    const { name, description, avatarUrl } = req.body;
     const updates = {};
 
     // Можно обновлять только определенные поля (кроме email и пароля)
-    // В данном случае, кроме email и пароля других полей нет, но оставляем структуру для будущего расширения
+    if (name !== undefined) {
+      updates.name = name;
+    }
+    if (description !== undefined) {
+      updates.description = description;
+    }
+    if (avatarUrl !== undefined) {
+      updates.avatarUrl = avatarUrl;
+    }
 
     if (Object.keys(updates).length === 0) {
       return res.status(400).json({ error: 'No fields to update' });
@@ -296,6 +310,9 @@ export const updateProfile = async (req, res) => {
     res.json({
       id: updatedUser.id,
       email: updatedUser.email,
+      name: updatedUser.name,
+      description: updatedUser.description,
+      avatarUrl: updatedUser.avatar_url,
       emailVerified: updatedUser.email_verified || false,
       createdAt: updatedUser.created_at,
     });
@@ -340,12 +357,7 @@ export const changePassword = async (req, res) => {
       passwordSalt: newPasswordSalt,
     });
 
-    // Отправляем уведомление на email
-    await sendEmailNotification(
-      user.email,
-      'Пароль изменен',
-      'Ваш пароль был успешно изменен. Если это были не вы, пожалуйста, свяжитесь с поддержкой.'
-    );
+    await sendTemplatedEmail(user.email, 'password_changed', { email: user.email });
 
     res.json({ message: 'Password changed successfully' });
   } catch (error) {

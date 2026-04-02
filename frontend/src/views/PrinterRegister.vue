@@ -1,5 +1,6 @@
 <template lang="pug">
 .container
+  Breadcrumbs
   h1 {{ isEditMode ? 'Редактирование принтера' : 'Регистрация принтера' }}
   el-card.form-card
     el-form(@submit.prevent="handleSubmit" :model="form" :rules="rules" ref="formRef")
@@ -20,7 +21,17 @@
             :value="item.name"
           )
       el-form-item(label="Цена за час (₽)" prop="pricePerHour")
-        el-input-number(v-model="form.pricePerHour" :min="0.01" :precision="2" style="width: 100%")
+        el-input-number(v-model="form.pricePerHour" :min="1" :precision="0" style="width: 100%")
+      el-form-item(label="Максимальный размер X (мм)" prop="maxSizeX")
+        el-input-number(v-model="form.maxSizeX" :min="1" :precision="0" style="width: 100%")
+      el-form-item(label="Максимальный размер Y (мм)" prop="maxSizeY")
+        el-input-number(v-model="form.maxSizeY" :min="1" :precision="0" style="width: 100%")
+      el-form-item(label="Максимальный размер Z (мм)" prop="maxSizeZ")
+        el-input-number(v-model="form.maxSizeZ" :min="1" :precision="0" style="width: 100%")
+      el-form-item(label="Количество" prop="quantity")
+        el-input-number(v-model="form.quantity" :min="1" :precision="0" style="width: 100%")
+      el-form-item(label="Описание")
+        el-input(v-model="form.description" type="textarea" :rows="4" placeholder="Описание принтера (видно только вам)")
       el-form-item(label="Материалы" prop="materialIds")
         el-select(
           v-model="form.materialIds"
@@ -35,6 +46,21 @@
             :key="material.id"
             :label="material.name"
             :value="material.id"
+          )
+      el-form-item(label="Цвета" prop="colorIds")
+        el-select(
+          v-model="form.colorIds"
+          placeholder="Выберите цвета"
+          multiple
+          filterable
+          style="width: 100%"
+          :loading="dictionariesStore.loading"
+        )
+          el-option(
+            v-for="color in colors"
+            :key="color.id"
+            :label="color.name"
+            :value="color.id"
           )
       el-form-item(label="Статус" prop="state")
         el-select(v-model="form.state" placeholder="Выберите статус" style="width: 100%")
@@ -52,9 +78,10 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted, computed } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
-import { usePrintersStore } from '../stores/printers';
-import { useDictionariesStore } from '../stores/dictionaries';
+import { usePrintersStore } from '../store/printers';
+import { useDictionariesStore } from '../store/dictionaries';
 import type { FormInstance, FormRules } from 'element-plus';
+import Breadcrumbs from '../components/registry/Breadcrumbs.vue';
 
 const router = useRouter();
 const route = useRoute();
@@ -66,14 +93,21 @@ const isEditMode = computed(() => !!route.params.id);
 const manufacturers = ref([]);
 const models = ref([]);
 const materials = ref([]);
+const colors = ref([]);
 
 const formRef = ref<FormInstance>();
 const form = reactive({
   modelName: '',
   manufacturer: '',
-  pricePerHour: 0,
+  pricePerHour: 1,
+  maxSizeX: null as number | null,
+  maxSizeY: null as number | null,
+  maxSizeZ: null as number | null,
+  quantity: 1,
+  description: '',
   state: 'available' as 'available' | 'busy' | 'maintenance' | 'inactive',
   materialIds: [] as number[],
+  colorIds: [] as number[],
   maxBuildVolumeJson: '',
   materialsJson: '',
   specificationsJson: '',
@@ -86,7 +120,7 @@ const filteredModels = computed(() => {
   if (!form.manufacturer) return [];
   // Фильтруем модели по выбранному производителю
   // Модели хранятся как "Производитель Модель", поэтому проверяем начало названия
-  return models.value.filter((model: any) => 
+  return models.value.filter((model: any) =>
     model.name.toLowerCase().startsWith(form.manufacturer.toLowerCase())
   );
 });
@@ -100,10 +134,44 @@ const rules = reactive<FormRules>({
   ],
   pricePerHour: [
     { required: true, message: 'Пожалуйста, введите цену', trigger: 'blur' },
-    { type: 'number', min: 0.01, message: 'Цена должна быть положительным числом (минимум 0.01)', trigger: 'blur' },
+    { type: 'number', min: 1, message: 'Цена должна быть положительным целым числом (минимум 1)', trigger: 'blur' },
   ],
-  materialIds: [
-    { type: 'array', min: 1, message: 'Выберите хотя бы один материал', trigger: 'change' },
+  maxSizeX: [
+    { required: true, message: 'Пожалуйста, введите максимальный размер по оси X', trigger: 'blur' },
+    { type: 'number', min: 1, message: 'Размер должен быть положительным целым числом (в миллиметрах)', trigger: 'blur' },
+    { validator: (rule, value, callback) => {
+        if (value !== null && value !== undefined && !Number.isInteger(value)) {
+          callback(new Error('Размер должен быть целым числом'));
+        } else {
+          callback();
+        }
+      }, trigger: 'blur' },
+  ],
+  maxSizeY: [
+    { required: true, message: 'Пожалуйста, введите максимальный размер по оси Y', trigger: 'blur' },
+    { type: 'number', min: 1, message: 'Размер должен быть положительным целым числом (в миллиметрах)', trigger: 'blur' },
+    { validator: (rule, value, callback) => {
+        if (value !== null && value !== undefined && !Number.isInteger(value)) {
+          callback(new Error('Размер должен быть целым числом'));
+        } else {
+          callback();
+        }
+      }, trigger: 'blur' },
+  ],
+  maxSizeZ: [
+    { required: true, message: 'Пожалуйста, введите максимальный размер по оси Z', trigger: 'blur' },
+    { type: 'number', min: 1, message: 'Размер должен быть положительным целым числом (в миллиметрах)', trigger: 'blur' },
+    { validator: (rule, value, callback) => {
+        if (value !== null && value !== undefined && !Number.isInteger(value)) {
+          callback(new Error('Размер должен быть целым числом'));
+        } else {
+          callback();
+        }
+      }, trigger: 'blur' },
+  ],
+  quantity: [
+    { required: true, message: 'Пожалуйста, введите количество', trigger: 'blur' },
+    { type: 'number', min: 1, message: 'Количество должно быть не менее 1', trigger: 'blur' },
   ],
   state: [
     { required: true, message: 'Пожалуйста, выберите статус', trigger: 'change' },
@@ -117,7 +185,7 @@ const handleManufacturerChange = async () => {
 
 const handleSubmit = async () => {
   if (!formRef.value) return;
-  
+
   await formRef.value.validate(async (valid) => {
     if (valid) {
       try {
@@ -125,10 +193,16 @@ const handleSubmit = async () => {
           modelName: form.modelName,
           manufacturer: form.manufacturer,
           pricePerHour: form.pricePerHour,
+          maxSizeX: form.maxSizeX,
+          maxSizeY: form.maxSizeY,
+          maxSizeZ: form.maxSizeZ,
+          quantity: form.quantity,
+          description: form.description || null,
           state: form.state,
           materialIds: form.materialIds || [],
+          colorIds: form.colorIds || [],
         };
-        
+
         if (form.maxBuildVolumeJson) {
           try {
             printerData.maxBuildVolume = JSON.parse(form.maxBuildVolumeJson);
@@ -137,7 +211,7 @@ const handleSubmit = async () => {
             return;
           }
         }
-        
+
         if (form.specificationsJson) {
           try {
             printerData.specifications = JSON.parse(form.specificationsJson);
@@ -155,10 +229,10 @@ const handleSubmit = async () => {
           result = await printersStore.createPrinter(printerData);
           successMessage.value = 'Принтер успешно зарегистрирован!';
         }
-        
+
         setTimeout(() => {
           router.push(`/printers/${result.id}`);
-        }, 2000);
+        }, 700);
       } catch (error) {
         console.error('Error saving printer:', error);
       }
@@ -174,6 +248,8 @@ onMounted(async () => {
     models.value = await dictionariesStore.fetchItemsByDictionaryName('printer_models');
 
     materials.value = await dictionariesStore.fetchItemsByDictionaryName('materials');
+
+    colors.value = await dictionariesStore.fetchItemsByDictionaryName('colors');
   } catch (error) {
     console.error('Failed to load dictionaries:', error);
   }
@@ -187,10 +263,18 @@ onMounted(async () => {
       if (printer.value && printer.value.userId === printersStore.currentPrinter?.userId) {
         form.modelName = printer.value.model_name;
         form.manufacturer = printer.value.manufacturer;
-        form.pricePerHour = printer.value.price_per_hour;
+        form.pricePerHour = parseInt(printer.value.price_per_hour);
+        form.maxSizeX = printer.value.maxSizeX || null;
+        form.maxSizeY = printer.value.maxSizeY || null;
+        form.maxSizeZ = printer.value.maxSizeZ || null;
+        form.quantity = printer.value.quantity || 1;
+        form.description = printer.value.description || '';
         form.state = printer.value.state;
         if (printer.value.materials && Array.isArray(printer.value.materials)) {
           form.materialIds = printer.value.materials.map((m: any) => m.id || m);
+        }
+        if (printer.value.colors && Array.isArray(printer.value.colors)) {
+          form.colorIds = printer.value.colors.map((c: any) => c.id || c);
         }
         if (printer.value.maxBuildVolume) {
           form.maxBuildVolumeJson = JSON.stringify(printer.value.maxBuildVolume, null, 2);

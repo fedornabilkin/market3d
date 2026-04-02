@@ -73,23 +73,37 @@ class ClusterPrinter {
        ORDER BY cp.added_at DESC`,
       [clusterId]
     );
-    return result.rows.map(row => ({
-      id: row.id,
-      clusterId: row.cluster_id,
-      printerId: row.printer_id,
-      addedBy: row.added_by,
-      addedAt: row.added_at,
-      printer: Printer.formatPrinter({
-        id: row.printer_id_full,
-        user_id: row.printer_user_id,
-        model_name: row.model_name,
-        manufacturer: row.manufacturer,
-        price_per_hour: row.price_per_hour,
-        state: row.printer_state,
-        cluster_id: clusterId,
-        cluster_name: null,
+    
+    // Загружаем материалы и цвета для каждого принтера
+    const printers = await Promise.all(
+      result.rows.map(async (row) => {
+        const printer = Printer.formatPrinter({
+          id: row.printer_id_full,
+          user_id: row.printer_user_id,
+          model_name: row.model_name,
+          manufacturer: row.manufacturer,
+          price_per_hour: row.price_per_hour,
+          state: row.printer_state,
+          cluster_id: clusterId,
+          cluster_name: null,
+        });
+        
+        // Загружаем материалы и цвета
+        printer.materials = await Printer.getMaterials(row.printer_id_full);
+        printer.colors = await Printer.getColors(row.printer_id_full);
+        
+        return {
+          id: row.id,
+          clusterId: row.cluster_id,
+          printerId: row.printer_id,
+          addedBy: row.added_by,
+          addedAt: row.added_at,
+          printer,
+        };
       })
-    }));
+    );
+    
+    return printers;
   }
 
   static async findByPrinterId(printerId) {

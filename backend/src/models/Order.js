@@ -1,17 +1,17 @@
 import pool from '../config/database.js';
 
 class Order {
-  static async create({ userId, material, color, quantity, dimensions, deadline, totalPrice, description }) {
+  static async create({ userId, material, colorId, quantity, dimensions, deadline, totalPrice, description, deliveryMethodId }) {
     const result = await pool.query(
-      `INSERT INTO orders (user_id, material, color, quantity, dimensions, deadline, state, total_price, description, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, 'draft', $7, $8, NOW(), NOW())
+      `INSERT INTO orders (user_id, material, color_id, quantity, dimensions, deadline, state, total_price, description, delivery_method_id, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, 'draft', $7, $8, $9, NOW(), NOW())
        RETURNING *`,
-      [userId, material, color || 'default', quantity, JSON.stringify(dimensions || {}), deadline, totalPrice || 0, description || '']
+      [userId, material || null, colorId || null, quantity, JSON.stringify(dimensions || {}), deadline, totalPrice || 0, description || '', deliveryMethodId || null]
     );
     return this.formatOrder(result.rows[0]);
   }
 
-  static async createWithCluster({ userId, material, color, quantity, dimensions, deadline, totalPrice, description }, clusterId) {
+  static async createWithCluster({ userId, material, colorId, quantity, dimensions, deadline, totalPrice, description, deliveryMethodId }, clusterId) {
     // Проверяем существование кластера
     const clusterCheck = await pool.query('SELECT id, user_id FROM clusters WHERE id = $1', [clusterId]);
     if (clusterCheck.rows.length === 0) {
@@ -24,7 +24,7 @@ class Order {
     }
 
     // Создаем заказ
-    const order = await this.create({ userId, material, color, quantity, dimensions, deadline, totalPrice, description });
+    const order = await this.create({ userId, material, colorId, quantity, dimensions, deadline, totalPrice, description, deliveryMethodId });
 
     // Привязываем заказ к кластеру
     await pool.query(
@@ -54,9 +54,12 @@ class Order {
   static async findAll(filters = {}) {
     let query = `
       SELECT o.*, 
-             u.email as user_email
+             u.email as user_email,
+             di_color.id as color_id,
+             di_color.name as color_name
       FROM orders o
       LEFT JOIN users u ON o.user_id = u.id
+      LEFT JOIN dictionary_items di_color ON o.color_id = di_color.id
       WHERE 1=1
     `;
     let countQuery = `
@@ -94,7 +97,8 @@ class Order {
     const limit = parseInt(filters.limit) || 20;
     const offset = (page - 1) * limit;
 
-    query += ' ORDER BY o.created_at DESC';
+    // Сортировка по id в обратном порядке
+    query += ' ORDER BY o.id DESC';
     query += ` LIMIT $${paramCount} OFFSET $${paramCount + 1}`;
     params.push(limit, offset);
 
@@ -139,9 +143,15 @@ class Order {
   static async findById(id) {
     const result = await pool.query(
       `SELECT o.*, 
-              u.email as user_email
+              u.email as user_email,
+              di_color.id as color_id,
+              di_color.name as color_name,
+              di_delivery.id as delivery_method_id,
+              di_delivery.name as delivery_method_name
        FROM orders o
        LEFT JOIN users u ON o.user_id = u.id
+       LEFT JOIN dictionary_items di_color ON o.color_id = di_color.id
+       LEFT JOIN dictionary_items di_delivery ON o.delivery_method_id = di_delivery.id
        WHERE o.id = $1`,
       [id]
     );
@@ -189,13 +199,13 @@ class Order {
     const values = [];
     let paramCount = 1;
 
-    if (updates.material) {
+    if (updates.material !== undefined) {
       fields.push(`material = $${paramCount++}`);
-      values.push(updates.material);
+      values.push(updates.material || null);
     }
-    if (updates.color !== undefined) {
-      fields.push(`color = $${paramCount++}`);
-      values.push(updates.color);
+    if (updates.colorId !== undefined) {
+      fields.push(`color_id = $${paramCount++}`);
+      values.push(updates.colorId);
     }
     if (updates.quantity !== undefined) {
       fields.push(`quantity = $${paramCount++}`);
@@ -216,6 +226,10 @@ class Order {
     if (updates.description !== undefined) {
       fields.push(`description = $${paramCount++}`);
       values.push(updates.description);
+    }
+    if (updates.deliveryMethodId !== undefined) {
+      fields.push(`delivery_method_id = $${paramCount++}`);
+      values.push(updates.deliveryMethodId);
     }
 
     if (fields.length === 0) return order;
@@ -240,11 +254,24 @@ class Order {
       return null;
     }
 
+    // Если переходим в статус completed, устанавливаем completed_at
+    const updates = state === 'completed' 
+      ? `state = $1, completed_at = NOW(), updated_at = NOW()`
+      : `state = $1, updated_at = NOW()`;
+
     const result = await pool.query(
-      `UPDATE orders SET state = $1, updated_at = NOW() WHERE id = $2 RETURNING *`,
+      `UPDATE orders SET ${updates} WHERE id = $2 RETURNING *`,
       [state, id]
     );
-    return result.rows[0] ? this.formatOrder(result.rows[0]) : null;
+    
+    const updatedOrder = result.rows[0] ? this.formatOrder(result.rows[0]) : null;
+    
+    // Если заказ обновлен и привязан к кластеру, возвращаем информацию о кластере для создания уведомления
+    if (updatedOrder && order.clusterOwnerId) {
+      updatedOrder.clusterOwnerId = order.clusterOwnerId;
+    }
+    
+    return updatedOrder;
   }
 
   static async archive(id, userId) {
@@ -287,15 +314,20 @@ class Order {
       userEmail: row.user_email,
       modelFileUrl: row.model_file_url, // Deprecated, use order_files table
       material: row.material,
-      color: row.color,
+      color: row.color, // Оставляем для обратной совместимости
+      colorId: row.color_id,
+      colorName: row.color_name,
       quantity: row.quantity,
       dimensions: typeof row.dimensions === 'string' ? JSON.parse(row.dimensions) : row.dimensions,
       deadline: row.deadline,
       state: row.state,
       totalPrice: parseFloat(row.total_price),
       description: row.description || '',
+      deliveryMethodId: row.delivery_method_id,
+      deliveryMethodName: row.delivery_method_name,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
+      completedAt: row.completed_at,
     };
     
     // Добавляем информацию о кластере, если она есть

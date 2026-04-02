@@ -1,28 +1,62 @@
 <template lang="pug">
 .container
+  Breadcrumbs
   h1 {{ isEditMode ? 'Редактировать заказ' : 'Создать заказ' }}
   el-alert(
     v-if="!isEditMode && !clusterId"
-    title="Заказ можно создать только с детальной страницы кластера"
     type="warning"
     style="margin-bottom: 20px"
+    :closable="false"
   )
+    template(#title)
+      div
+        p Заказ можно создать только с детальной страницы кластера
+        router-link(to="/")
+          el-button(type="primary" size="small" style="margin-top: 10px") Перейти к выбору кластеров
   el-card.form-card(v-if="isEditMode || clusterId")
+    el-card(v-if="clusterData" style="margin-bottom: 20px")
+      template(#header)
+        h3 Основные данные кластера
+      el-descriptions(:column="2" border)
+        el-descriptions-item(label="Название") {{ clusterData.name }}
+        el-descriptions-item(label="Город") {{ clusterData.cityName }}
+        el-descriptions-item(label="ID") {{ clusterData.id }}
+        el-descriptions-item(v-if="clusterData.description" label="Описание" :span="2") {{ clusterData.description }}
     el-form(@submit.prevent="handleSubmit" :model="form" :rules="rules" ref="formRef")
-      el-form-item(label="Материал" prop="material")
-        el-select(v-model="form.material" placeholder="Выберите материал" style="width: 100%" :loading="dictionariesStore.loading")
-          el-option(
-            v-for="item in materialItems"
-            :key="item.id"
-            :label="item.name"
-            :value="item.name"
-          )
-      el-form-item(label="Цвет")
-        el-input(v-model="form.color" placeholder="Белый, черный и т.д.")
+      el-form-item(label="Материал (необязательно)" prop="material")
+        div(style="display: flex; flex-wrap: wrap; gap: 8px")
+          el-tag(
+            v-for="material in availableMaterials"
+            :key="material.id"
+            :type="form.material === material.name ? 'primary' : 'info'"
+            :effect="form.material === material.name ? 'dark' : 'plain'"
+            style="cursor: pointer"
+            @click="form.material = form.material === material.name ? '' : material.name"
+          ) {{ material.name }}
+      el-form-item(label="Цвет (необязательно)" prop="colorId")
+        div(style="display: flex; flex-wrap: wrap; gap: 8px")
+          el-tag(
+            v-for="color in availableColors"
+            :key="color.id"
+            :type="form.colorId === color.id ? 'primary' : 'info'"
+            :effect="form.colorId === color.id ? 'dark' : 'plain'"
+            style="cursor: pointer"
+            @click="form.colorId = form.colorId === color.id ? null : color.id"
+          ) {{ color.name }}
       el-form-item(label="Количество" prop="quantity")
         el-input-number(v-model="form.quantity" :min="1" style="width: 100%")
       el-form-item(label="Описание")
         el-input(v-model="form.description" type="textarea" :rows="4" placeholder="Описание заказа")
+      el-form-item(label="Способ доставки" prop="deliveryMethodId")
+        div(style="display: flex; flex-wrap: wrap; gap: 8px")
+          el-tag(
+            v-for="method in availableDeliveryMethods"
+            :key="method.id"
+            :type="form.deliveryMethodId === method.id ? 'primary' : 'info'"
+            :effect="form.deliveryMethodId === method.id ? 'dark' : 'plain'"
+            style="cursor: pointer"
+            @click="form.deliveryMethodId = form.deliveryMethodId === method.id ? null : method.id"
+          ) {{ method.name }}
       el-form-item(label="Срок выполнения" prop="deadline")
         el-date-picker(
           v-model="form.deadline"
@@ -42,10 +76,12 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted, computed } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
-import { useOrdersStore } from '../stores/orders';
-import { useDictionariesStore } from '../stores/dictionaries';
+import { useOrdersStore } from '../store/orders';
+import { useDictionariesStore } from '../store/dictionaries';
 import { ElMessageBox } from 'element-plus';
 import type { FormInstance, FormRules } from 'element-plus';
+import type { Order } from '../store/orders';
+import Breadcrumbs from '../components/registry/Breadcrumbs.vue';
 
 const router = useRouter();
 const route = useRoute();
@@ -53,27 +89,31 @@ const ordersStore = useOrdersStore();
 const dictionariesStore = useDictionariesStore();
 
 const isEditMode = computed(() => !!route.params.id);
-const clusterId = computed(() => {
-  const queryClusterId = route.query.clusterId;
-  return queryClusterId ? parseInt(queryClusterId as string) : null;
-});
+const queryClusterId = route.query.clusterId;
+const clusterId = ref<number | null>(queryClusterId ? parseInt(queryClusterId as string) : null);
 
 const formRef = ref<FormInstance>();
 const form = reactive({
   material: '',
-  color: '',
+  colorId: null as number | null,
   quantity: 1,
   description: '',
   deadline: '',
+  deliveryMethodId: null as number | null,
 });
 
 const successMessage = ref('');
 
 const materialItems = ref([]);
+const colorItems = ref([]);
+const availableMaterials = ref<Array<{ id: number; name: string }>>([]);
+const availableColors = ref<Array<{ id: number; name: string }>>([]);
+const availableDeliveryMethods = ref<Array<{ id: number; name: string; dictionaryId?: number }>>([]);
+const clusterData = ref<any>(null);
 
 const rules = reactive<FormRules>({
   material: [
-    { required: true, message: 'Пожалуйста, выберите материал', trigger: 'change' },
+    // Material is optional
   ],
   quantity: [
     { required: true, message: 'Пожалуйста, введите количество', trigger: 'blur' },
@@ -108,19 +148,23 @@ const rules = reactive<FormRules>({
 
 const handleSubmit = async () => {
   if (!formRef.value) return;
-  
+
   await formRef.value.validate(async (valid) => {
     if (valid) {
       try {
-        const orderData = {
-          material: form.material,
-          color: form.color,
+        const orderData: any = {
+          material: form.material || null,
+          colorId: form.colorId || null,
           quantity: form.quantity,
           deadline: form.deadline,
           description: form.description,
         };
 
-        let order;
+        if (form.deliveryMethodId) {
+          orderData.deliveryMethodId = form.deliveryMethodId;
+        }
+
+        let order: Order;
         if (isEditMode.value) {
           order = await ordersStore.updateOrder(parseInt(route.params.id as string), orderData);
           successMessage.value = 'Заказ успешно обновлен!';
@@ -131,7 +175,7 @@ const handleSubmit = async () => {
             order = await ordersStore.createOrder(orderData);
           }
           successMessage.value = 'Заказ успешно создан!';
-          
+
           // Предлагаем загрузить файлы
           await ElMessageBox.confirm(
             'Хотите загрузить файлы для заказа?',
@@ -148,7 +192,7 @@ const handleSubmit = async () => {
           });
           return;
         }
-        
+
         setTimeout(() => {
           router.push(`/orders/${order.id}`);
         }, 2000);
@@ -159,12 +203,40 @@ const handleSubmit = async () => {
   });
 };
 
+const loadAvailableMaterialsAndColors = async () => {
+  if (!clusterId.value) return;
+
+  try {
+    // Загружаем информацию о кластере для получения доступных материалов и цветов
+    const { useClustersStore } = await import('../store/clusters');
+    const clustersStore = useClustersStore();
+    await clustersStore.fetchClusterById(clusterId.value);
+    const cluster = clustersStore.currentCluster;
+
+    if (cluster) {
+      clusterData.value = cluster;
+      // Используем материалы и цвета из активных принтеров кластера
+      availableMaterials.value = cluster.uniqueMaterials || [];
+      availableColors.value = cluster.uniqueColors || [];
+      availableDeliveryMethods.value = cluster.deliveryMethods || [];
+    }
+  } catch (error) {
+    console.error('Failed to load cluster data:', error);
+  }
+};
+
 onMounted(async () => {
-  // Загружаем материалы из справочника
+  // Загружаем материалы и цвета из справочника
   try {
     materialItems.value = await dictionariesStore.fetchItemsByDictionaryName('materials');
+    colorItems.value = await dictionariesStore.fetchItemsByDictionaryName('colors');
   } catch (error) {
-    console.error('Failed to load materials:', error);
+    console.error('Failed to load dictionaries:', error);
+  }
+
+  // Если есть clusterId, загружаем доступные материалы и цвета
+  if (clusterId.value) {
+    await loadAvailableMaterialsAndColors();
   }
 
   // Если режим редактирования - загружаем данные заказа
@@ -174,11 +246,18 @@ onMounted(async () => {
       await ordersStore.fetchOrderById(orderId);
       const order = ordersStore.currentOrder;
       if (order && order.userId === ordersStore.currentOrder?.userId) {
-        form.material = order.material;
-        form.color = order.color || '';
+        form.material = order.material || '';
+        form.colorId = order.colorId || null;
         form.quantity = order.quantity;
         form.description = order.description || '';
         form.deadline = order.deadline;
+        form.deliveryMethodId = (order as any).deliveryMethodId || null;
+
+        // Если есть clusterId в заказе, используем его для загрузки данных кластера
+        if (order.clusterId) {
+          clusterId.value = order.clusterId;
+          await loadAvailableMaterialsAndColors();
+        }
       } else {
         router.push('/orders');
       }

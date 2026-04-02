@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx tsc:*)",
+      "Bash(node -e \"const THREE = require\\(''./node_modules/three''\\); const b = new THREE.BoxGeometry\\(\\); console.log\\(b instanceof THREE.BufferGeometry, b instanceof THREE.Geometry || ''no Geometry''\\)\")",
+      "Bash(node -e \"const THREE = require\\(''./node_modules/three''\\); console.log\\(''Box:'', new THREE.BoxGeometry\\(\\) instanceof THREE.BufferGeometry, ''BoxBuf:'', new THREE.BoxBufferGeometry\\(\\) instanceof THREE.BufferGeometry\\)\")",
+      "Bash(npx vite:*)",
+      "Bash(npm run:*)",
+      "Bash(npx vue-tsc:*)"
+    ]
+  }
+}

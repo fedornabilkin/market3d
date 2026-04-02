@@ -1,0 +1,14 @@
+---
+description: Для backend использовать nodejs-backend-patterns и nodejs-best-practices
+globs: backend/**
+alwaysApply: false
+---
+
+# Backend: Node.js Skills
+
+При работе с файлами в директории **backend** используй навыки:
+
+- **nodejs-backend-patterns** — паттерны для production-ready сервисов (Express/Fastify), middleware, обработка ошибок, аутентификация, интеграция с БД, проектирование API.
+- **nodejs-best-practices** — принципы и решения по выбору фреймворков, async-паттернам, безопасности и архитектуре Node.js.
+
+Перед реализацией или рефакторингом backend-фич обращайся к актуальному содержимому этих навыков и применяй описанные там практики.

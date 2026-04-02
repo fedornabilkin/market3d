@@ -26,7 +26,7 @@ class User {
 
   static async findById(id) {
     const result = await pool.query(
-      'SELECT id, email, email_verified, email_verification_code, email_verification_code_expires_at, new_email, new_email_verification_code, last_code_request_at, created_at, updated_at FROM users WHERE id = $1',
+      'SELECT id, email, name, description, avatar_url, email_verified, email_verification_code, email_verification_code_expires_at, new_email, new_email_verification_code, last_code_request_at, last_activity_at, created_at, updated_at FROM users WHERE id = $1',
       [id]
     );
     return result.rows[0];
@@ -73,6 +73,22 @@ class User {
       fields.push(`last_code_request_at = $${paramCount++}`);
       values.push(updates.lastCodeRequestAt);
     }
+    if (updates.name !== undefined) {
+      fields.push(`name = $${paramCount++}`);
+      values.push(updates.name);
+    }
+    if (updates.description !== undefined) {
+      fields.push(`description = $${paramCount++}`);
+      values.push(updates.description);
+    }
+    if (updates.avatarUrl !== undefined) {
+      fields.push(`avatar_url = $${paramCount++}`);
+      values.push(updates.avatarUrl);
+    }
+    if (updates.lastActivityAt !== undefined) {
+      fields.push(`last_activity_at = $${paramCount++}`);
+      values.push(updates.lastActivityAt);
+    }
 
     if (fields.length === 0) return null;
 
@@ -81,8 +97,17 @@ class User {
 
     const result = await pool.query(
       `UPDATE users SET ${fields.join(', ')} WHERE id = $${values.length}
-       RETURNING id, email, email_verified, created_at, updated_at`,
+       RETURNING id, email, name, description, avatar_url, email_verified, created_at, updated_at`,
       values
+    );
+    return result.rows[0];
+  }
+
+  static async updateLastActivity(userId) {
+    const result = await pool.query(
+      `UPDATE users SET last_activity_at = NOW(), updated_at = NOW() WHERE id = $1
+       RETURNING id, email, last_activity_at`,
+      [userId]
     );
     return result.rows[0];
   }

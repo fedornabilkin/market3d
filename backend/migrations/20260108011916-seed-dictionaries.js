@@ -15,6 +15,9 @@ export async function setup(options, seedLink) {
 }
 
 export async function up(db) {
+  const existing = await db.runSql(`SELECT id FROM dictionaries WHERE name = 'materials'`);
+  if (existing?.rows?.length) return;
+
   // Создаем справочник "Материалы"
   const materialsResult = await db.runSql(`
     INSERT INTO dictionaries (name, description, state, created_at, updated_at)

@@ -1,5 +1,6 @@
 <template lang="pug">
 .container
+  Breadcrumbs
   h1 Профиль пользователя
   el-card.form-card
     // Информация о пользователе
@@ -10,7 +11,22 @@
         el-tag(v-if="authStore.user?.emailVerified" type="success") Да
         el-tag(v-else type="warning") Нет
       el-descriptions-item(label="Дата регистрации") {{ formatDate(authStore.user?.createdAt) }}
-    
+
+    // Редактирование профиля
+    el-card(style="margin-top: 20px")
+      template(#header)
+        h3 Редактирование профиля
+      el-form(@submit.prevent="handleProfileUpdate" :model="profileForm" ref="profileFormRef")
+        el-form-item(label="Имя")
+          el-input(v-model="profileForm.name" placeholder="Введите имя")
+        el-form-item(label="Описание")
+          el-input(v-model="profileForm.description" type="textarea" :rows="4" placeholder="Введите описание")
+        el-form-item(label="Аватар (URL)")
+          el-input(v-model="profileForm.avatarUrl" placeholder="Введите URL аватара")
+        el-form-item
+          el-button(type="primary" @click="handleProfileUpdate" :loading="profileUpdateLoading") Сохранить
+          el-alert(v-if="profileUpdateSuccess" :title="profileUpdateSuccess" type="success" style="margin-top: 10px" :closable="false")
+
     // Верификация email (скрываем если email подтвержден)
     el-card(v-if="!authStore.user?.emailVerified" style="margin-top: 20px")
       template(#header)
@@ -22,7 +38,7 @@
           el-button(type="primary" @click="handleVerifyEmail" :loading="authStore.loading") Подтвердить
           el-button(@click="requestNewCode" :loading="codeRequestLoading" :disabled="codeRequestDisabled" style="margin-left: 10px")
             | {{ codeRequestDisabled ? `Запросить новый код (${codeRequestTimer}с)` : 'Запросить новый код' }}
-    
+
     // Смена email
     el-card(style="margin-top: 20px")
       template(#header)
@@ -36,7 +52,7 @@
           el-button(v-if="!emailChangeCodeRequested" type="primary" @click="requestEmailChange" :loading="authStore.loading") Запросить код
           el-button(v-else type="primary" @click="confirmEmailChange" :loading="authStore.loading") Подтвердить смену email
         el-alert(v-if="authStore.error && emailChangeCodeRequested" :title="authStore.error" type="error" style="margin-top: 10px")
-    
+
     // Смена пароля
     el-card(style="margin-top: 20px")
       template(#header)
@@ -51,14 +67,15 @@
         el-form-item
           el-button(type="primary" @click="handlePasswordChange" :loading="authStore.loading") Изменить пароль
         el-alert(v-if="authStore.error" :title="authStore.error" type="error" style="margin-top: 10px")
-    
+
     el-alert(v-if="successMessage" :title="successMessage" type="success" style="margin-top: 20px")
 </template>
 
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue';
-import { useAuthStore } from '../stores/auth';
+import { useAuthStore } from '../store/auth';
 import type { FormInstance, FormRules } from 'element-plus';
+import Breadcrumbs from '../components/registry/Breadcrumbs.vue';
 
 const authStore = useAuthStore();
 
@@ -81,6 +98,15 @@ const passwordForm = reactive({
   newPassword: '',
   confirmPassword: '',
 });
+
+const profileFormRef = ref<FormInstance>();
+const profileForm = reactive({
+  name: '',
+  description: '',
+  avatarUrl: '',
+});
+const profileUpdateLoading = ref(false);
+const profileUpdateSuccess = ref('');
 
 const emailRules = reactive<FormRules>({
   newEmail: [
@@ -139,7 +165,7 @@ const handleVerifyEmail = async () => {
 
 const requestNewCode = async () => {
   if (codeRequestDisabled.value) return;
-  
+
   codeRequestLoading.value = true;
   try {
     await authStore.requestNewVerificationCode();
@@ -147,7 +173,7 @@ const requestNewCode = async () => {
     setTimeout(() => {
       successMessage.value = '';
     }, 3000);
-    
+
     // Запускаем таймер на 1 минуту
     codeRequestDisabled.value = true;
     codeRequestTimer.value = 60;
@@ -243,8 +269,33 @@ const handlePasswordChange = async () => {
   });
 };
 
+const handleProfileUpdate = async () => {
+  profileUpdateLoading.value = true;
+  profileUpdateSuccess.value = '';
+  try {
+    await authStore.updateProfile({
+      name: profileForm.name,
+      description: profileForm.description,
+      avatarUrl: profileForm.avatarUrl,
+    });
+    profileUpdateSuccess.value = 'Профиль успешно обновлен!';
+    setTimeout(() => {
+      profileUpdateSuccess.value = '';
+    }, 3000);
+  } catch (error) {
+    // Error handled by store
+  } finally {
+    profileUpdateLoading.value = false;
+  }
+};
+
 onMounted(async () => {
   await authStore.getProfile();
+  if (authStore.user) {
+    profileForm.name = authStore.user.name || '';
+    profileForm.description = authStore.user.description || '';
+    profileForm.avatarUrl = authStore.user.avatarUrl || '';
+  }
 });
 </script>
 

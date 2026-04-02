@@ -4,13 +4,13 @@ import {
   attachPrinter,
   detachPrinter,
 } from '../controllers/clusterPrinterController.js';
-import { authenticateJWT } from '../middleware/auth.js';
+import { authenticateJWTWithActivity } from '../middleware/auth.js';
 
 const router = express.Router();
 
 router.get('/:clusterId/printers', getClusterPrinters);
-router.post('/:clusterId/printers/:printerId', authenticateJWT, attachPrinter);
-router.delete('/:clusterId/printers/:printerId', authenticateJWT, detachPrinter);
+router.post('/:clusterId/printers/:printerId', authenticateJWTWithActivity, attachPrinter);
+router.delete('/:clusterId/printers/:printerId', authenticateJWTWithActivity, detachPrinter);
 
 export default router;
 

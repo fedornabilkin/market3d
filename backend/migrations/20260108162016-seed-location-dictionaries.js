@@ -15,11 +15,12 @@ export async function setup(options, seedLink) {
 }
 
 export async function up(db) {
-  // Получаем ID справочников
   const regionsDict = await db.runSql(`SELECT id FROM dictionaries WHERE name = 'regions'`);
   const citiesDict = await db.runSql(`SELECT id FROM dictionaries WHERE name = 'cities'`);
   const metroDict = await db.runSql(`SELECT id FROM dictionaries WHERE name = 'metro_stations'`);
-  
+
+  if (!regionsDict?.rows?.length || !citiesDict?.rows?.length || !metroDict?.rows?.length) return;
+
   const regionsId = regionsDict.rows[0].id;
   const citiesId = citiesDict.rows[0].id;
   const metroId = metroDict.rows[0].id;

@@ -1,7 +1,40 @@
-import { createRouter, createWebHistory, RouteRecordRaw } from 'vue-router';
-import { useAuthStore } from '../stores/auth';
+import {createRouter, createWebHistory, RouteRecordRaw} from 'vue-router';
+import PageNotFound from '@/components/page/PageNotFound.vue';
+import { useAuthStore } from '../store/auth';
+
 
 const routes: RouteRecordRaw[] = [
+
+    {
+      path: '/',
+      name: 'Main',
+      component: () => import('../components/page/Main.vue'),
+      meta: { requiresAuth: false },
+    },
+    {
+      path: '/examples',
+      name: 'Example',
+      component: () => import('../components/page/Example.vue'),
+      meta: { requiresAuth: false },
+    },
+    {
+      path: '/generator/qr',
+      name: 'GeneratorQR',
+      component: () => import('../views/GeneratorQR.vue'),
+      meta: { requiresAuth: false },
+    },
+    {
+      path: '/constructor',
+      name: 'Constructor',
+      component: () => import('../views/Constructor.vue'),
+      meta: { requiresAuth: false },
+    },
+  {
+    path: '/payment-methods',
+    name: 'PaymentMethods',
+    component: () => import('../views/PaymentMethods.vue'),
+    meta: { requiresAuth: false },
+  },
   {
     path: '/login',
     name: 'Login',
@@ -18,6 +51,12 @@ const routes: RouteRecordRaw[] = [
     path: '/',
     name: 'Dashboard',
     component: () => import('../views/Dashboard.vue'),
+    meta: { requiresAuth: false },
+  },
+  {
+    path: '/stats',
+    name: 'Statistics',
+    component: () => import('../views/Statistics.vue'),
     meta: { requiresAuth: false },
   },
   {
@@ -98,12 +137,15 @@ const routes: RouteRecordRaw[] = [
     component: () => import('../views/ClusterCreate.vue'),
     meta: { requiresAuth: true },
   },
-];
+
+  { path: '/:pathMatch(.*)', component: PageNotFound },
+
+]
 
 const router = createRouter({
-  history: createWebHistory(),
-  routes,
-});
+    history: createWebHistory(),
+    routes,
+})
 
 router.beforeEach((to, from, next) => {
   const authStore = useAuthStore();
@@ -119,4 +161,3 @@ router.beforeEach((to, from, next) => {
 });
 
 export default router;
-

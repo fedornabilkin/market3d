@@ -1,5 +1,6 @@
 <template lang="pug">
 .login-container
+  Breadcrumbs
   el-card.login-card(shadow="always")
     template(#header)
       h1 Вход
@@ -13,15 +14,16 @@
         el-button(type="primary" native-type="submit" :loading="authStore.loading" style="width: 100%")
           | {{ authStore.loading ? 'Вход...' : 'Войти' }}
     p
-      | Нет аккаунта? 
+      | Нет аккаунта?
       router-link(to="/register") Зарегистрироваться
 </template>
 
 <script setup lang="ts">
 import { ref, reactive } from 'vue';
 import { useRouter } from 'vue-router';
-import { useAuthStore } from '../stores/auth';
+import { useAuthStore } from '../store/auth';
 import type { FormInstance, FormRules } from 'element-plus';
+import Breadcrumbs from '../components/registry/Breadcrumbs.vue';
 
 const router = useRouter();
 const authStore = useAuthStore();
@@ -44,7 +46,7 @@ const rules = reactive<FormRules>({
 
 const handleLogin = async () => {
   if (!formRef.value) return;
-  
+
   await formRef.value.validate(async (valid) => {
     if (valid) {
       try {

@@ -15,6 +15,12 @@ export async function setup(options, seedLink) {
 }
 
 export async function up(db) {
+  const r = await db.runSql(`
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'printer_materials';
+  `);
+  if (r?.rows?.length) return;
+
   return db.createTable('printer_materials', {
     id: {
       type: 'int',

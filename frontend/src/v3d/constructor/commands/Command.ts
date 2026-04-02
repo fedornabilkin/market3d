@@ -1,0 +1,8 @@
+/**
+ * Abstract command for history (undo/redo).
+ */
+export abstract class Command {
+  abstract execute(): void;
+  abstract undo(): void;
+  abstract redo(): void;
+}

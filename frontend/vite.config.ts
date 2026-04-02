@@ -1,23 +1,74 @@
-import { defineConfig, loadEnv } from 'vite';
-import vue from '@vitejs/plugin-vue';
-import { resolve } from 'path';
+import {fileURLToPath, URL} from 'node:url'
+import {defineConfig, loadEnv} from "vite";
+import vue from "@vitejs/plugin-vue";
 
-export default defineConfig(({ mode }) => {
-  // Загружаем .env файлы по режиму (только VITE_* переменные)
+export default defineConfig(({mode}) => {
+
   const env = loadEnv(mode, process.cwd(), 'VITE_');
-  
-  const apiHost = env.VITE_API_HOST || 'http://localhost';
+  const apiHost = env.VITE_API_HOST || 'localhost';
   const apiPort = env.VITE_API_PORT || 3000;
 
   return {
-    plugins: [vue()],
-    resolve: {
-      alias: {
-        '@': resolve(__dirname, 'src'),
-      },
+    plugins: [
+      vue(),
+    ],
+    build: {
+        minify: 'terser',
+        terserOptions: {
+            compress: {
+              drop_console: true,
+              drop_debugger: true,
+            },
+          },
+        rollupOptions: {
+          // https://rollupjs.org/configuration-options/
+          output: {
+            manualChunks: {
+              core: [
+                'vue',
+                'vue-i18n',
+                'vue-router',
+              ],
+              tree:
+                [
+                  'three',
+                  'three-csg-ts',
+                  'three-text-geometry',
+                ],
+              network:
+                [
+                  // 'yandex-metrika-vue3',
+                ],
+              utils:
+                [
+                  'jszip',
+                  'vue-qrcode-reader',
+                  'vcards-js',
+                  'qrcode',
+                  'path-that-svg',
+                  'deepmerge',
+                  'deep-object-diff',
+                ],
+              ui:
+                [
+                  // 'bulma',
+                  // 'sass-embedded',
+                ],
+              icons:
+                [
+                  // '@fortawesome/fontawesome-free',
+                ],
+            },
+          },
+        },
     },
     server: {
-      port: 5273,
+      watch: {
+        usePolling: true
+      },
+      host: true,
+      strictPort: true,
+      port: 5174,
       proxy: {
         '/api': {
           target: `http://${apiHost}:${apiPort}`,
@@ -29,10 +80,17 @@ export default defineConfig(({ mode }) => {
         },
       },
     },
-    define: {
-      // Доступны в коде через import.meta.env
-      __VITE_API_HOST__: JSON.stringify(apiHost),
-      __VITE_API_PORT__: JSON.stringify(apiPort),
+    resolve: {
+      alias: {
+        '@': fileURLToPath(new URL('./src', import.meta.url))
+      }
     },
-  };
-});
+    css: {
+      preprocessorOptions: {
+        scss: {
+          // additionalData: `@import "./src/assets/scss/main.scss";`
+        }
+      }
+    }
+  }
+})

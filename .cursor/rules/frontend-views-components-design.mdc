@@ -1,0 +1,14 @@
+---
+description: Для views и components использовать frontend-design
+globs: frontend/src/{views,components}/**/*
+alwaysApply: false
+---
+
+# Frontend: Views & Components — frontend-design
+
+При работе с файлами в **frontend/src/views** и **frontend/src/components** используй навык **frontend-design**.
+
+- Интерфейсы, вёрстка, визуальная подача и дизайн-системы — по гайдам frontend-design.
+- Создание отличительного, production-grade UI с продуманной эстетикой и не-шаблонной визуальной идентичностью.
+
+При необходимости обращайся к актуальному содержимому навыка и применяй описанные там практики.

@@ -1,0 +1,5 @@
+User-Agent: *
+Allow: /
+Disallow: /app
+Host: https://vsqr.ru
+sitemap: https://vsqr.ru/sitemaps.xml

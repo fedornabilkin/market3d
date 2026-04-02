@@ -1,5 +1,6 @@
 <template lang="pug">
 .container
+  Breadcrumbs
   div(v-if="clustersStore.loading")
     el-skeleton(:rows="10" animated)
   el-alert(v-else-if="clustersStore.error" :title="clustersStore.error" type="error")
@@ -8,8 +9,10 @@
       template(#header)
         .header-section
           div
+            .status-header
+              el-tag(:type="getStatusType(cluster.state)" style="margin-bottom: 10px") {{ getStatusText(cluster.state) }}
             h1 {{ cluster.name }}
-            el-tag(:type="getStatusType(cluster.state)") {{ getStatusText(cluster.state) }}
+            p(v-if="cluster.description" style="margin-top: 10px; color: #666") {{ cluster.description }}
           div
             router-link(v-if="canEdit" :to="`/clusters/${cluster.id}/edit`")
               el-button(type="primary") Редактировать
@@ -26,71 +29,167 @@
               style="margin-left: 10px"
             ) Архивировать
             router-link(
-              v-if="!canEdit && cluster.state === 'active'"
+              v-if="!canEdit && cluster.state === 'active' && authStore.isAuthenticated"
               :to="`/orders/create?clusterId=${cluster.id}`"
             )
               el-button(type="success" style="margin-left: 10px") Создать заказ
+            router-link(
+              v-if="!canEdit && cluster.state === 'active' && !authStore.isAuthenticated"
+              to="/login"
+            )
+              el-button(type="primary" style="margin-left: 10px") Войти
+    el-card.cluster-info(style="margin-top: 20px")
       el-descriptions(:column="2" border)
-        el-descriptions-item(label="Автор") {{ cluster.userEmail }}
         el-descriptions-item(label="Регион") {{ cluster.regionName }}
         el-descriptions-item(label="Город") {{ cluster.cityName }}
         el-descriptions-item(v-if="cluster.metroName" label="Метро") {{ cluster.metroName }}
-        el-descriptions-item(label="Принтеров") {{ cluster.printersCount || 0 }}
+        el-descriptions-item(label="Автор")
+          span {{ cluster.userEmail }}
+          span(v-if="cluster.ownerLastActivityAt" style="margin-left: 10px; color: #999; font-size: 12px")
+            | (активен: {{ formatLastActivity(cluster.ownerLastActivityAt) }})
+        el-descriptions-item(label="Принтеров") {{ totalPrintersCount }}
         el-descriptions-item(label="Доступно") {{ cluster.availablePrintersCount || 0 }}
         el-descriptions-item(label="Завершенных заказов") {{ cluster.completedOrdersCount || 0 }}
         el-descriptions-item(v-if="cluster.parentClusterName" label="Родительский кластер")
           router-link(:to="`/clusters/${cluster.parentClusterId}`") {{ cluster.parentClusterName }}
-        el-descriptions-item(v-if="cluster.description" label="Описание" :span="2") {{ cluster.description }}
         el-descriptions-item(v-if="cluster.uniqueMaterials && cluster.uniqueMaterials.length > 0" label="Материалы" :span="2")
           el-tag(
             v-for="material in cluster.uniqueMaterials"
             :key="material.id"
             style="margin-right: 5px; margin-top: 5px"
           ) {{ material.name }}
-    
+        el-descriptions-item(v-if="cluster.uniqueColors && cluster.uniqueColors.length > 0" label="Цвета" :span="2")
+          el-tag(
+            v-for="color in cluster.uniqueColors"
+            :key="color.id"
+            style="margin-right: 5px; margin-top: 5px"
+          ) {{ color.name }}
+        el-descriptions-item(v-if="cluster.deliveryMethods && cluster.deliveryMethods.length > 0" label="Способы доставки" :span="2")
+          el-tag(
+            v-for="method in cluster.deliveryMethods"
+            :key="method.id"
+            style="margin-right: 5px; margin-top: 5px"
+          ) {{ method.name }}
+
     el-card.printers-section(style="margin-top: 20px")
       template(#header)
-        .header-section
-          h2 Принтеры
-          el-button(
-            v-if="canEdit"
-            :disabled="availablePrinters.length === 0"
-            @click="showAttachDialog = true"
-            type="primary"
-          ) Привязать принтер
+        h2 Привязанные принтеры
       div(v-if="clusterPrintersStore.loading")
         el-skeleton(:rows="3" animated)
       el-alert(v-else-if="clusterPrintersStore.error" :title="clusterPrintersStore.error" type="error")
       div(v-else-if="printers.length === 0").empty-state
         p Принтеры не привязаны
-      el-table(v-else :data="printers")
-        el-table-column(prop="printer.modelName" label="Модель")
-        el-table-column(prop="printer.manufacturer" label="Производитель")
+      el-table(v-else :data="printers" row-key="printerId" class="draggable-table")
+        el-table-column(label="Принтер")
+          template(#default="{ row }")
+            router-link(:to="`/printers/${row.printerId}`")
+              | {{ row.printer.manufacturer }} {{ row.printer.modelName }}
+        el-table-column(label="Количество")
+          template(#default="{ row }")
+            | {{ row.printer.quantity || 1 }}
         el-table-column(prop="printer.pricePerHour" label="Цена за час")
         el-table-column(prop="printer.state" label="Статус")
           template(#default="{ row }")
             el-tag(:type="getPrinterStatusType(row.printer.state)") {{ getPrinterStatusText(row.printer.state) }}
+        el-table-column(label="Материалы")
+          template(#default="{ row }")
+            el-tag(
+              v-for="material in row.printer.materials || []"
+              :key="material.id"
+              size="small"
+              style="margin-right: 5px; margin-top: 5px"
+            ) {{ material.name }}
+        el-table-column(label="Цвета")
+          template(#default="{ row }")
+            el-tag(
+              v-for="color in row.printer.colors || []"
+              :key="color.id"
+              size="small"
+              style="margin-right: 5px; margin-top: 5px"
+            ) {{ color.name }}
+
+    el-card.available-printers-section(v-if="canEdit" style="margin-top: 20px")
+      template(#header)
+        h2 Мои доступные принтеры
+      div(v-if="printersStore.loading")
+        el-skeleton(:rows="3" animated)
+      el-alert(v-else-if="printersStore.error" :title="printersStore.error" type="error")
+      div(v-else-if="availablePrinters.length === 0").empty-state
+        p Нет доступных принтеров для привязки
+      el-table(v-else :data="availablePrinters" row-key="id" class="draggable-table")
+        el-table-column(label="Принтер")
+          template(#default="{ row }")
+            router-link(:to="`/printers/${row.id}`")
+              | {{ row.manufacturer }} {{ row.model_name }}
+        el-table-column(label="Количество")
+          template(#default="{ row }")
+            | {{ row.quantity || 1 }}
+        el-table-column(prop="price_per_hour" label="Цена за час")
+        el-table-column(prop="state" label="Статус")
+          template(#default="{ row }")
+            el-tag(:type="getPrinterStatusType(row.state)") {{ getPrinterStatusText(row.state) }}
+        el-table-column(label="Материалы")
+          template(#default="{ row }")
+            el-tag(
+              v-for="material in row.materials || []"
+              :key="material.id"
+              size="small"
+              style="margin-right: 5px; margin-top: 5px"
+            ) {{ material.name }}
+        el-table-column(label="Цвета")
+          template(#default="{ row }")
+            el-tag(
+              v-for="color in row.colors || []"
+              :key="color.id"
+              size="small"
+              style="margin-right: 5px; margin-top: 5px"
+            ) {{ color.name }}
         el-table-column(label="Действия")
           template(#default="{ row }")
-            router-link(:to="`/printers/${row.printerId}`")
-              el-button(size="small") Просмотр
             el-button(
-              v-if="canEdit || row.printer.userId === authStore.user?.id"
-              @click="handleDetach(row.printerId)"
+              @click="handleAttach(row.id)"
               size="small"
-              type="danger"
-              style="margin-left: 10px"
-            ) Отвязать
-    
-    el-card.requests-section(v-if="canEdit" style="margin-top: 20px")
+              type="primary"
+            ) Привязать
+
+    el-card.other-printers-section(v-if="otherPrinters.length > 0" style="margin-top: 20px")
+      template(#header)
+        h2 Другие активные принтеры
+      div(v-if="otherPrintersLoading")
+        el-skeleton(:rows="3" animated)
+      el-table(v-else :data="otherPrinters")
+        el-table-column(label="Принтер")
+          template(#default="{ row }")
+            router-link(:to="`/printers/${row.id}`")
+              | {{ row.manufacturer }} {{ row.model_name }}
+        el-table-column(prop="price_per_hour" label="Цена за час")
+        el-table-column(prop="state" label="Статус")
+          template(#default="{ row }")
+            el-tag(:type="getPrinterStatusType(row.state)") {{ getPrinterStatusText(row.state) }}
+        el-table-column(label="Материалы")
+          template(#default="{ row }")
+            el-tag(
+              v-for="material in row.materials || []"
+              :key="material.id"
+              size="small"
+              style="margin-right: 5px; margin-top: 5px"
+            ) {{ material.name }}
+        el-table-column(label="Цвета")
+          template(#default="{ row }")
+            el-tag(
+              v-for="color in row.colors || []"
+              :key="color.id"
+              size="small"
+              style="margin-right: 5px; margin-top: 5px"
+            ) {{ color.name }}
+
+    el-card.requests-section(v-if="canEdit && activeRequests.length > 0" style="margin-top: 20px")
       template(#header)
         h2 Запросы на привязку
       div(v-if="requestsStore.loading")
         el-skeleton(:rows="3" animated)
       el-alert(v-else-if="requestsStore.error" :title="requestsStore.error" type="error")
-      div(v-else-if="requests.length === 0").empty-state
-        p Запросов нет
-      el-table(v-else :data="requests")
+      el-table(v-else :data="activeRequests")
         el-table-column(prop="printerModelName" label="Принтер")
         el-table-column(prop="printerOwnerEmail" label="Владелец")
         el-table-column(prop="status" label="Статус")
@@ -105,31 +204,18 @@
               size="small"
               type="warning"
             ) Отменить
-
-    el-dialog(v-model="showAttachDialog" title="Привязать принтер" width="500px")
-      el-form(@submit.prevent="handleAttach")
-        el-form-item(label="Выберите принтер")
-          el-select(v-model="selectedPrinterId" placeholder="Выберите принтер" style="width: 100%")
-            el-option(
-              v-for="printer in availablePrinters"
-              :key="printer.id"
-              :label="`${printer.manufacturer} | ${printer.model_name}`"
-              :value="printer.id"
-            )
-        el-form-item
-          el-button(type="primary" native-type="submit" :loading="clusterPrintersStore.loading") Привязать
-          el-button(@click="showAttachDialog = false") Отмена
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { useClustersStore } from '../stores/clusters';
-import { useClusterPrintersStore } from '../stores/clusterPrinters';
-import { useClusterPrinterRequestsStore } from '../stores/clusterPrinterRequests';
-import { usePrintersStore } from '../stores/printers';
-import { useAuthStore } from '../stores/auth';
+import { useClustersStore } from '../store/clusters';
+import { useClusterPrintersStore } from '../store/clusterPrinters';
+import { useClusterPrinterRequestsStore } from '../store/clusterPrinterRequests';
+import { usePrintersStore } from '../store/printers';
+import { useAuthStore } from '../store/auth';
 import { ElMessage, ElMessageBox } from 'element-plus';
+import Breadcrumbs from '../components/registry/Breadcrumbs.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -143,11 +229,18 @@ const cluster = computed(() => clustersStore.currentCluster);
 const printers = ref([]);
 const requests = ref([]);
 const availablePrinters = ref([]);
-const showAttachDialog = ref(false);
-const selectedPrinterId = ref(null);
+const otherPrinters = ref([]);
+const otherPrintersLoading = ref(false);
+
+const totalPrintersCount = computed(() => {
+  if (!printers.value || printers.value.length === 0) return 0;
+  return printers.value.reduce((sum: number, p: any) => {
+    return sum + (p.printer?.quantity || 1);
+  }, 0);
+});
 
 const canEdit = computed(() => {
-  return cluster.value && cluster.value.userId === authStore.user?.id;
+  return authStore.isAuthenticated && cluster.value && cluster.value.userId === authStore.user?.id;
 });
 
 const getStatusText = (status: string): string => {
@@ -210,6 +303,21 @@ const getRequestStatusType = (status: string): 'success' | 'warning' | 'danger' 
   return typeMap[status] || 'info';
 };
 
+const formatLastActivity = (dateString: string): string => {
+  const date = new Date(dateString);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+
+  if (diffMins < 1) return 'только что';
+  if (diffMins < 60) return `${diffMins} мин. назад`;
+  if (diffHours < 24) return `${diffHours} ч. назад`;
+  if (diffDays < 7) return `${diffDays} дн. назад`;
+  return date.toLocaleDateString('ru-RU');
+};
+
 const handleActivate = async () => {
   try {
     await ElMessageBox.confirm(
@@ -254,19 +362,14 @@ const handleDetach = async (printerId: number) => {
   }
 };
 
-const handleAttach = async () => {
-  if (!selectedPrinterId.value) {
-    ElMessage.warning('Выберите принтер');
-    return;
-  }
+const handleAttach = async (printerId: number) => {
   try {
-    await clusterPrintersStore.attachPrinter(cluster.value!.id, selectedPrinterId.value);
+    await clusterPrintersStore.attachPrinter(cluster.value!.id, printerId);
     ElMessage.success('Принтер привязан');
-    availablePrinters.value = availablePrinters.value.filter((p: any) => p.id !== selectedPrinterId.value);
-    showAttachDialog.value = false;
-    selectedPrinterId.value = null;
+    availablePrinters.value = availablePrinters.value.filter((p: any) => p.id !== printerId);
     await loadPrinters();
     await loadCluster();
+    await loadOtherPrinters();
   } catch (error: any) {
     ElMessage.error(error.response?.data?.error || 'Не удалось привязать принтер');
   }
@@ -306,12 +409,38 @@ const loadRequests = async () => {
   }
 };
 
+const activeRequests = computed(() => {
+  return requests.value.filter((r: any) => r.status === 'pending');
+});
+
 const loadAvailablePrinters = async () => {
   try {
-    const result = await printersStore.fetchPrinters({ userId: authStore.user?.id, clusterId: 0 });
+    const result = await printersStore.fetchPrinters({ userId: authStore.user?.id, clusterId: 0, state: 'available' });
     availablePrinters.value = result.data || [];
   } catch (error) {
     console.error('Failed to load available printers:', error);
+  }
+};
+
+const loadOtherPrinters = async () => {
+  if (!cluster.value) return;
+  otherPrintersLoading.value = true;
+  try {
+    // Получаем список всех активных принтеров, не привязанных к кластеру
+    const allPrintersResult = await printersStore.fetchPrinters({ state: 'available', clusterId: 0 });
+    const allPrinters = allPrintersResult.data || [];
+
+    // Получаем список ID привязанных принтеров
+    const attachedPrinterIds = printers.value.map((p: any) => p.printerId);
+
+    // Фильтруем: только чужие принтеры (не мои), не привязанные к кластеру
+    otherPrinters.value = allPrinters.filter((p: any) =>
+      p.userId !== authStore.user?.id && !attachedPrinterIds.includes(p.id)
+    );
+  } catch (error) {
+    console.error('Failed to load other printers:', error);
+  } finally {
+    otherPrintersLoading.value = false;
   }
 };
 
@@ -321,6 +450,9 @@ onMounted(async () => {
   await loadRequests();
   if (canEdit.value) {
     await loadAvailablePrinters();
+  }
+  if (authStore.isAuthenticated) {
+    await loadOtherPrinters();
   }
 });
 </script>
