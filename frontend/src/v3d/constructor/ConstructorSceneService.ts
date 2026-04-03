@@ -19,6 +19,14 @@ import { applyHoleStyle, removeHoleStyle } from './holeMaterial';
 /** Pixels a pointer must move before a click becomes a drag. */
 const DRAG_THRESHOLD = 4;
 
+/** Normalize angle to [-π, π] range. */
+function normalizeAngle(a: number): number {
+  a = a % (2 * Math.PI);
+  if (a > Math.PI) a -= 2 * Math.PI;
+  if (a < -Math.PI) a += 2 * Math.PI;
+  return a;
+}
+
 // ─── Debug / callback types ───────────────────────────────────────────────────
 
 export interface SceneDebugChildInfo {
@@ -123,6 +131,16 @@ export class ConstructorSceneService {
     /** Screen-space start for rotation handles. */
     startClientX: number;
     startClientY: number;
+    /** Projected object center on screen (for angular rotation). */
+    rotationScreenCenter?: { x: number; y: number };
+    /** Last angle from screen center to mouse (radians). */
+    lastAngle?: number;
+    /** Accumulated raw rotation (radians, before snapping). */
+    totalRotation?: number;
+    /** Already-applied snapped rotation (radians). */
+    appliedRotation?: number;
+    /** Rotation value at drag start (radians). */
+    startRotation?: number;
   } | null = null;
 
   /** Offset between the pointer click point and the object center on the XZ plane. */
@@ -155,6 +173,8 @@ export class ConstructorSceneService {
 
   // ─── Scene settings (applied before mount or via setters) ──────────────���───
   private snapStep = 1;
+  /** Rotation snap step in radians (default 15°). */
+  private rotationSnapStep = Math.PI / 12;
   private backgroundColor: number | string = 0xf0f0f0;
   private zoomSpeed = 1;
   private gridWidthMm = 200;
@@ -811,21 +831,20 @@ export class ConstructorSceneService {
         this.showYZeroIndicatorIfNeeded(node);
         break;
 
-      // Rotation: decompose screen drag into rotation around camera view axis
-      case 'rotate': {
+      // Axis-constrained rotation (normalized to [-π, π])
+      case 'rotateX': {
         params.rotation = params.rotation || { x: 0, y: 0, z: 0 };
-        // dx = horizontal screen delta in radians (primary rotation input)
-        const angle = dx;
-        if (this.camera) {
-          const viewDir = new THREE.Vector3();
-          this.camera.getWorldDirection(viewDir);
-          // Rotate around the camera's view direction, decomposed into Euler axes
-          params.rotation.x = (params.rotation.x ?? 0) + angle * viewDir.x;
-          params.rotation.y = (params.rotation.y ?? 0) + angle * viewDir.y;
-          params.rotation.z = (params.rotation.z ?? 0) + angle * viewDir.z;
-        } else {
-          params.rotation.y = (params.rotation.y ?? 0) + angle;
-        }
+        params.rotation.x = normalizeAngle((params.rotation.x ?? 0) + dx);
+        break;
+      }
+      case 'rotateY': {
+        params.rotation = params.rotation || { x: 0, y: 0, z: 0 };
+        params.rotation.y = normalizeAngle((params.rotation.y ?? 0) + dx);
+        break;
+      }
+      case 'rotateZ': {
+        params.rotation = params.rotation || { x: 0, y: 0, z: 0 };
+        params.rotation.z = normalizeAngle((params.rotation.z ?? 0) + dx);
         break;
       }
       default:
@@ -928,6 +947,41 @@ export class ConstructorSceneService {
     this.downloadBlob(blob, filename);
   }
 
+  /**
+   * Async STL export with progress callback.
+   * Yields between CSG operations so the UI can update a progress bar.
+   */
+  async exportSTLAsync(
+    filename = 'scene.stl',
+    onlySelected = false,
+    onProgress?: (done: number, total: number) => void,
+  ): Promise<void> {
+    const mesh = await this.getExportMeshAsync(onlySelected, onProgress);
+    if (!mesh) return;
+    await new Promise((r) => setTimeout(r, 0));
+    const exporter = new STLExporter();
+    const result = exporter.parse(mesh, { binary: true });
+    const blob = new Blob([result], { type: 'application/octet-stream' });
+    this.downloadBlob(blob, filename);
+  }
+
+  /**
+   * Async OBJ export with progress callback.
+   */
+  async exportOBJAsync(
+    filename = 'scene.obj',
+    onlySelected = false,
+    onProgress?: (done: number, total: number) => void,
+  ): Promise<void> {
+    const mesh = await this.getExportMeshAsync(onlySelected, onProgress);
+    if (!mesh) return;
+    await new Promise((r) => setTimeout(r, 0));
+    const exporter = new OBJExporter();
+    const result = exporter.parse(mesh);
+    const blob = new Blob([result], { type: 'text/plain' });
+    this.downloadBlob(blob, filename);
+  }
+
   private getExportMesh(onlySelected: boolean): THREE.Mesh | null {
     if (onlySelected && this.selectedNode) {
       const mesh = this.selectedNode.getMesh();
@@ -937,6 +991,24 @@ export class ConstructorSceneService {
     const root = this.modelApp.getModelManager().getTree();
     if (!root) return null;
     const mesh = root.getMesh();
+    mesh.updateMatrixWorld(true);
+    return mesh;
+  }
+
+  private async getExportMeshAsync(
+    onlySelected: boolean,
+    onProgress?: (done: number, total: number) => void,
+  ): Promise<THREE.Mesh | null> {
+    const node = onlySelected && this.selectedNode
+      ? this.selectedNode
+      : this.modelApp.getModelManager().getTree();
+    if (!node) return null;
+
+    const totalOps = node.countCSGOperations();
+    const counter = { done: 0, total: totalOps };
+
+    if (onProgress) onProgress(0, totalOps);
+    const mesh = await node.getMeshAsync(onProgress, counter);
     mesh.updateMatrixWorld(true);
     return mesh;
   }
@@ -1327,14 +1399,32 @@ export class ConstructorSceneService {
       const isRotation = this.handleDragState.handleType.startsWith('rotate');
 
       if (isRotation) {
-        const RAD_PER_PX = 0.005;
-        const dx = (event.clientX - this.handleDragState.startClientX) * RAD_PER_PX;
-        const dy = (event.clientY - this.handleDragState.startClientY) * -RAD_PER_PX;
-        if (dx !== 0 || dy !== 0) {
-          this.applyHandleDragDelta(this.handleDragState.node, this.handleDragState.handleType, dx, dy);
+        const sc = this.handleDragState.rotationScreenCenter;
+        if (sc && this.handleDragState.lastAngle !== undefined) {
+          // Angular rotation relative to projected object center
+          const angle = Math.atan2(event.clientY - sc.y, event.clientX - sc.x);
+          let delta = angle - this.handleDragState.lastAngle;
+          if (delta > Math.PI) delta -= 2 * Math.PI;
+          if (delta < -Math.PI) delta += 2 * Math.PI;
+
+          this.handleDragState.totalRotation = (this.handleDragState.totalRotation ?? 0) - delta;
+
+          // Snap: compute target absolute angle, snap it, then apply the diff
+          const snapStep = this.rotationSnapStep;
+          const startRot = this.handleDragState.startRotation ?? 0;
+          const rawTarget = startRot + this.handleDragState.totalRotation;
+          const snapped = snapStep > 0
+            ? Math.round(rawTarget / snapStep) * snapStep
+            : rawTarget;
+          const toApply = snapped - startRot - (this.handleDragState.appliedRotation ?? 0);
+
+          if (toApply !== 0) {
+            this.applyHandleDragDelta(this.handleDragState.node, this.handleDragState.handleType, toApply, 0);
+            this.handleDragState.appliedRotation = (this.handleDragState.appliedRotation ?? 0) + toApply;
+          }
+
+          this.handleDragState.lastAngle = angle;
         }
-        this.handleDragState.startClientX = event.clientX;
-        this.handleDragState.startClientY = event.clientY;
         return;
       }
 
@@ -1470,6 +1560,26 @@ export class ConstructorSceneService {
           startClientX: event.clientX,
           startClientY: event.clientY,
         };
+
+        // For rotation handles: compute projected object center for angular input
+        if (handleType.startsWith('rotate') && this.selectedObject3D && this.camera && this.containerEl) {
+          const box = new THREE.Box3().setFromObject(this.selectedObject3D);
+          const center = new THREE.Vector3();
+          box.getCenter(center);
+          const projected = center.clone().project(this.camera);
+          const rect = this.containerEl.getBoundingClientRect();
+          const cx = (projected.x * 0.5 + 0.5) * rect.width + rect.left;
+          const cy = (-projected.y * 0.5 + 0.5) * rect.height + rect.top;
+          const angle = Math.atan2(event.clientY - cy, event.clientX - cx);
+          this.handleDragState.rotationScreenCenter = { x: cx, y: cy };
+          this.handleDragState.lastAngle = angle;
+          this.handleDragState.totalRotation = 0;
+          this.handleDragState.appliedRotation = 0;
+          // Store current rotation value at drag start
+          const node = this.handleDragState.node;
+          const axis = handleType === 'rotateX' ? 'x' : handleType === 'rotateY' ? 'y' : 'z';
+          this.handleDragState.startRotation = node?.params?.rotation?.[axis] ?? 0;
+        }
       }
     }
 

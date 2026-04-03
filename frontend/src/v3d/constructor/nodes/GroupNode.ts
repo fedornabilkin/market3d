@@ -4,6 +4,7 @@ import type { CSGType } from '../types';
 import type { ModelMemento } from '../memento/ModelMemento';
 import type { GroupNodeJSON } from '../types';
 import { ModelNode } from './ModelNode';
+import type { ExportProgressCallback } from './ModelNode';
 import { ModelMemento as ModelMementoClass } from '../memento/ModelMemento';
 
 /**
@@ -106,6 +107,113 @@ export class GroupNode extends ModelNode {
         const holeMesh = makeMesh(holeChild);
         const holeBsp = CSG.fromMesh(holeMesh);
         bsp = bsp.subtract(holeBsp);
+      }
+
+      result = CSG.toMesh(bsp, new THREE.Matrix4());
+      result.material = defaultMaterial;
+    } catch (e) {
+      console.warn('[GroupNode] CSG operation failed, falling back to first child mesh:', e);
+      result = solidMeshes[0].clone();
+      result.material = defaultMaterial;
+    }
+
+    this.applyParamsToMesh(result);
+    return result;
+  }
+
+  override countCSGOperations(): number {
+    let count = 0;
+    for (const child of this.children) {
+      count += child.countCSGOperations();
+    }
+    const solidCount = this.children.filter((c) => !c.params?.isHole).length;
+    const holeCount = this.children.filter((c) => !!c.params?.isHole).length;
+    if (solidCount > 1 || holeCount > 0) {
+      count += Math.max(0, solidCount - 1) + holeCount;
+    }
+    return count;
+  }
+
+  /**
+   * Async version that yields between CSG operations so the UI can repaint.
+   * Uses a shared counter object to track progress across the recursive tree.
+   */
+  override async getMeshAsync(
+    onProgress?: ExportProgressCallback,
+    _counter?: { done: number; total: number },
+  ): Promise<THREE.Mesh> {
+    const groupColor = this.params?.color as string | undefined;
+    const defaultMaterial = new THREE.MeshPhongMaterial({
+      color: groupColor ? new THREE.Color(groupColor) : 0x00a5a4,
+      shininess: 30,
+      specular: 0x444444,
+    });
+
+    if (this.children.length === 0) {
+      const empty = new THREE.Mesh(new THREE.BufferGeometry(), defaultMaterial);
+      this.applyParamsToMesh(empty);
+      return empty;
+    }
+
+    const solidChildren = this.children.filter((c) => !c.params?.isHole);
+    const holeChildren = this.children.filter((c) => !!c.params?.isHole);
+
+    const makeMeshAsync = async (child: ModelNode): Promise<THREE.Mesh> => {
+      const mesh = await child.getMeshAsync(onProgress, _counter);
+      mesh.updateMatrix();
+      mesh.updateMatrixWorld(true);
+      return mesh;
+    };
+
+    let result: THREE.Mesh;
+
+    if (solidChildren.length === 0) {
+      const empty = new THREE.Mesh(new THREE.BufferGeometry(), defaultMaterial);
+      this.applyParamsToMesh(empty);
+      return empty;
+    }
+
+    const solidMeshes: THREE.Mesh[] = [];
+    for (const child of solidChildren) {
+      solidMeshes.push(await makeMeshAsync(child));
+    }
+
+    if (solidMeshes.length === 1 && holeChildren.length === 0) {
+      result = solidMeshes[0].clone();
+      result.material = defaultMaterial;
+      this.applyParamsToMesh(result);
+      return result;
+    }
+
+    try {
+      let bsp = CSG.fromMesh(solidMeshes[0]);
+
+      for (let i = 1; i < solidMeshes.length; i++) {
+        // Yield to let browser repaint
+        await new Promise((r) => setTimeout(r, 0));
+        const bspNext = CSG.fromMesh(solidMeshes[i]);
+        if (this.operation === 'subtract') {
+          bsp = bsp.subtract(bspNext);
+        } else if (this.operation === 'intersect') {
+          bsp = bsp.intersect(bspNext);
+        } else {
+          bsp = bsp.union(bspNext);
+        }
+        if (_counter && onProgress) {
+          _counter.done++;
+          onProgress(_counter.done, _counter.total);
+        }
+      }
+
+      for (const holeChild of holeChildren) {
+        await new Promise((r) => setTimeout(r, 0));
+        const holeMesh = await makeMeshAsync(holeChild);
+        const holeBsp = CSG.fromMesh(holeMesh);
+        bsp = bsp.subtract(holeBsp);
+        if (_counter && onProgress) {
+          _counter.done++;
+          onProgress(_counter.done, _counter.total);
+        }
       }
 
       result = CSG.toMesh(bsp, new THREE.Matrix4());

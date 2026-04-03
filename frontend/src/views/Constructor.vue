@@ -224,22 +224,26 @@
 
   //- Export modal
   .scene-settings-modal(v-if="showExportModal")
-    .scene-settings-backdrop(@click="showExportModal = false")
+    .scene-settings-backdrop(@click="!exporting && (showExportModal = false)")
     .scene-settings-content(@click.stop)
       .scene-settings-header Экспорт модели
       .scene-settings-body
         .field
           label.label Формат файла
-          select.select.is-small(v-model="exportFormat")
+          select.select.is-small(v-model="exportFormat" :disabled="exporting")
             option(value="stl") STL
             option(value="obj") OBJ
         .field
           label.checkbox
-            input(type="checkbox" v-model="exportOnlySelected" :disabled="!selectedNode")
+            input(type="checkbox" v-model="exportOnlySelected" :disabled="!selectedNode || exporting")
             span  Только активный объект
+        .export-progress(v-if="exporting")
+          .export-progress-label {{ exportStatusText }}
+          .export-progress-bar
+            .export-progress-fill(:style="{ width: exportPercent + '%' }")
       .scene-settings-footer
-        button.button.is-small(@click="showExportModal = false") Отмена
-        button.button.is-small.is-primary(@click="doExport") Скачать
+        button.button.is-small(@click="showExportModal = false" :disabled="exporting") Отмена
+        button.button.is-small.is-primary(@click="doExport" :disabled="exporting") {{ exporting ? 'Экспорт...' : 'Скачать' }}
 
   //- Debug panel
   .debug-panel(v-if="showDebugPanel")
@@ -1094,18 +1098,54 @@ function handleKeydown(event: KeyboardEvent) {
 const showExportModal = ref(false);
 const exportFormat = ref('stl');
 const exportOnlySelected = ref(false);
+const exporting = ref(false);
+const exportPercent = ref(0);
+const exportStatusText = ref('');
 
-function doExport() {
-  if (!sceneService) return;
+async function doExport() {
+  if (!sceneService || exporting.value) return;
+  exporting.value = true;
+  exportPercent.value = 0;
+  exportStatusText.value = 'Подготовка модели...';
+
   const ext = exportFormat.value;
   const onlySelected = exportOnlySelected.value;
-  const filename = `scene.${ext}`;
-  if (ext === 'stl') {
-    sceneService.exportSTL(filename, onlySelected);
-  } else {
-    sceneService.exportOBJ(filename, onlySelected);
+  const root = modelApp.value?.getModelManager()?.getTree();
+  const baseName = root?.name || 'vsqr';
+  const ts = new Date().toISOString().replace(/[-:]/g, '').replace('T', '_').slice(0, 15);
+  const filename = `${baseName}_${ts}.${ext}`;
+
+  const onProgress = (done: number, total: number) => {
+    if (total === 0) {
+      exportPercent.value = 100;
+    } else {
+      exportPercent.value = Math.round((done / total) * 90);
+    }
+    exportStatusText.value = `CSG: ${done} / ${total}`;
+  };
+
+  try {
+    // Allow UI to render the progress bar before blocking
+    await new Promise((r) => setTimeout(r, 50));
+
+    if (ext === 'stl') {
+      await sceneService.exportSTLAsync(filename, onlySelected, onProgress);
+    } else {
+      await sceneService.exportOBJAsync(filename, onlySelected, onProgress);
+    }
+
+    exportPercent.value = 100;
+    exportStatusText.value = 'Готово!';
+    await new Promise((r) => setTimeout(r, 400));
+  } catch (e) {
+    console.error('[Export] failed:', e);
+    exportStatusText.value = 'Ошибка экспорта';
+    await new Promise((r) => setTimeout(r, 1500));
+  } finally {
+    exporting.value = false;
+    exportPercent.value = 0;
+    showExportModal.value = false;
   }
-  showExportModal.value = false;
 }
 
 // ─── Import STL ──────────────────────────────────────────────────────────
@@ -1634,6 +1674,28 @@ onBeforeUnmount(() => {
   justify-content: flex-end;
   gap: 0.4rem;
   margin-top: 0.5rem;
+}
+
+/* ─── Export progress bar ────────────────────────────────────── */
+.export-progress {
+  margin-top: 0.5rem;
+}
+.export-progress-label {
+  font-size: 0.8rem;
+  color: #666;
+  margin-bottom: 0.3rem;
+}
+.export-progress-bar {
+  height: 6px;
+  background: #e0e0e0;
+  border-radius: 3px;
+  overflow: hidden;
+}
+.export-progress-fill {
+  height: 100%;
+  background: #4a7cff;
+  border-radius: 3px;
+  transition: width 0.15s ease;
 }
 
 /* ─── Debug panel ────────────────────────────────────────────── */
