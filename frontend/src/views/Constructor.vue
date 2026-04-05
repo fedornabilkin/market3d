@@ -274,6 +274,8 @@
           | scale: ({{ debugNodeScale }})
           br
           | rot: ({{ debugNodeRot }})
+          br
+          | center: ({{ debugNodeCenter }})
         .debug-value(v-else) none
       .debug-section
         .debug-title Scene ({{ debugSceneInfo.length }})
@@ -439,6 +441,17 @@ const debugNodeRot = computed(() => {
   const r = selectedNode.value?.params?.rotation;
   if (!r) return '0, 0, 0';
   return `${(r.x * RAD_TO_DEG).toFixed(1)}°, ${(r.y * RAD_TO_DEG).toFixed(1)}°, ${(r.z * RAD_TO_DEG).toFixed(1)}°`;
+});
+
+const debugNodeCenter = computed(() => {
+  if (!sceneService || !selectedNode.value) return '—';
+  const obj = (sceneService as any).findObject3DByNode?.(selectedNode.value)
+    ?? (sceneService as any).selectedObject3D;
+  if (!obj) return '—';
+  const box = new THREE.Box3().setFromObject(obj);
+  const c = new THREE.Vector3();
+  box.getCenter(c);
+  return `${c.x.toFixed(1)}, ${c.y.toFixed(1)}, ${c.z.toFixed(1)}`;
 });
 
 // ─── Geometry field definitions per primitive type ─────────────────────────

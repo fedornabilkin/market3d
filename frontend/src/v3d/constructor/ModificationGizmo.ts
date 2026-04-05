@@ -28,10 +28,6 @@ const OFFSET_Y_SCREEN_PX = 19;
 const ROTATE_ARROW_SCREEN_PX = 36;
 /** Screen-pixel vertical offset above the bounding box for rotation arrows. */
 const ROTATE_ARROW_OFFSET_PX = 30;
-/** Screen-pixel horizontal spacing between rotation arrows. */
-const ROTATE_ARROW_SPACING_PX = 26;
-/** Screen-pixels for the full protractor ring (shown on hover). */
-const PROTRACTOR_SCREEN_PX = 80;
 
 const EDGE_TYPES: HandleType[] = [
   'edgeWidthLeft',
@@ -259,6 +255,8 @@ export class ModificationGizmo {
   private containerEl: HTMLElement | null = null;
   private hoveredHandle: HandleMesh | null = null;
   private rotationRings: Map<HandleType, THREE.Group> = new Map();
+  /** Fixed ring radius, captured when ring becomes visible. */
+  private fixedRingRadius = 0;
 
   constructor(private scene: THREE.Scene) {
     this.group = new THREE.Group();
@@ -391,9 +389,12 @@ export class ModificationGizmo {
       if (isRot) {
         mat.color.setHex(0xffffff);
         mat.opacity = 1.0;
-        // Show the corresponding protractor ring
+        // Show the corresponding protractor ring, fix radius at this moment
         const ring = this.rotationRings.get(handle.userData.type as HandleType);
-        if (ring) ring.visible = true;
+        if (ring) {
+          ring.visible = true;
+          this.fixedRingRadius = this.boxSize.length() * 0.6;
+        }
       } else {
         mat.color.setHex(0xff0000);
       }
@@ -448,24 +449,31 @@ export class ModificationGizmo {
     // OffsetY: above height handle by a screen-space-proportional amount
     this.handles[handleIndexByType.offsetY].position.set(midX, max.y + offsetYWorld * 2, midZ);
 
-    // Three rotation arrows — at the edge of corresponding faces
+    // Three rotation handles — oriented to match Euler XYZ decomposition
     const rotOff = wpp * ROTATE_ARROW_OFFSET_PX;
     const midY = (min.y + max.y) / 2;
+    const rot = this.node?.params?.rotation ?? { x: 0, y: 0, z: 0 };
+    const zAxis = new THREE.Vector3(0, 0, 1);
+    const qx = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), rot.x);
+    const qy = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), rot.y);
 
-    // rotateX — YZ plane (rotation around X axis) → right face edge
+    // rotateX — plane normal = world X (no prior rotations)
     const hRX = this.handles[handleIndexByType.rotateX];
     hRX.position.set(max.x + rotOff, midY, midZ);
-    hRX.quaternion.setFromEuler(new THREE.Euler(0, Math.PI / 2, 0));
+    hRX.quaternion.setFromUnitVectors(zAxis, new THREE.Vector3(1, 0, 0));
 
-    // rotateY — XZ plane (rotation around Y axis) → top face edge
+    // rotateY — plane normal = Rx · Y (after X rotation)
+    const normalY = new THREE.Vector3(0, 1, 0).applyQuaternion(qx);
     const hRY = this.handles[handleIndexByType.rotateY];
     hRY.position.set(midX, max.y + rotOff, midZ);
-    hRY.quaternion.setFromEuler(new THREE.Euler(-Math.PI / 2, 0, 0));
+    hRY.quaternion.setFromUnitVectors(zAxis, normalY);
 
-    // rotateZ — XY plane (rotation around Z axis) → front face edge
+    // rotateZ — plane normal = Rx · Ry · Z (after X and Y rotations)
+    const qxy = qx.clone().multiply(qy);
+    const normalZ = new THREE.Vector3(0, 0, 1).applyQuaternion(qxy);
     const hRZ = this.handles[handleIndexByType.rotateZ];
     hRZ.position.set(midX, midY, max.z + rotOff);
-    hRZ.quaternion.setFromEuler(new THREE.Euler(0, 0, 0));
+    hRZ.quaternion.setFromUnitVectors(zAxis, normalZ);
 
     // Billboard: orient non-rotation handles toward the camera
     this.handles.forEach((handle) => {
@@ -494,16 +502,17 @@ export class ModificationGizmo {
         handle.scale.setScalar(scaleFactor);
       });
 
-      // Position and scale protractor rings — centered on object, 120% of bounding box
+      // Position and scale protractor rings — centered on object, oriented per axis
       const rot = this.node?.params?.rotation;
-      const ringRadius = this.boxSize.length() * 0.6; // 120% / 2 = 0.6 (diameter = 120%)
+      const ringRadius = this.fixedRingRadius > 0 ? this.fixedRingRadius : this.boxSize.length() * 0.6;
       this.rotationRings.forEach((ring, type) => {
+        if (!ring.visible) return;
         const handle = this.handles[handleIndexByType[type]];
         ring.position.copy(this.boxCenter);
         ring.quaternion.copy(handle.quaternion);
         ring.scale.setScalar(ringRadius);
 
-        // Update pointer rotation
+        // Pointer = clock hand: points in the direction of current rotation
         const ptr = ring.getObjectByName('rotationPointer') as THREE.Line | undefined;
         if (ptr) {
           if (type === 'rotateX') ptr.rotation.z = -(rot?.x ?? 0);

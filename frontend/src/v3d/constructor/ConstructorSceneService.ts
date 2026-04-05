@@ -27,6 +27,74 @@ function normalizeAngle(a: number): number {
   return a;
 }
 
+/**
+ * Compute the angle on a rotation plane defined by its normal and two
+ * tangent axes.  The hit point is projected onto the plane through center,
+ * then atan2 of the two tangent coordinates gives the angle.
+ */
+function planeAngle(
+  hit: THREE.Vector3,
+  center: THREE.Vector3,
+  tangentU: THREE.Vector3,
+  tangentV: THREE.Vector3,
+): number {
+  const d = hit.clone().sub(center);
+  return Math.atan2(d.dot(tangentU), d.dot(tangentV));
+}
+
+/**
+ * Build the world-space rotation-plane normal and tangent axes for a given
+ * Euler handle, taking into account preceding rotations (XYZ order).
+ *
+ *  rotateX  → plane normal = X            (no prior rotations)
+ *  rotateY  → plane normal = Rx · Y       (after X rotation)
+ *  rotateZ  → plane normal = Rx · Ry · Z  (after X and Y rotations)
+ *
+ * Returns { normal, tangentU, tangentV } where U × V = normal (right-hand).
+ * tangentU / tangentV define the 2-D coordinate system on the plane.
+ */
+function rotationPlaneAxes(
+  handleType: string,
+  rotation: { x: number; y: number; z: number },
+): { normal: THREE.Vector3; tangentU: THREE.Vector3; tangentV: THREE.Vector3 } {
+  const qx = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), rotation.x);
+  const qy = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), rotation.y);
+
+  let normal: THREE.Vector3;
+  let tangentU: THREE.Vector3;
+  let tangentV: THREE.Vector3;
+
+  switch (handleType) {
+    case 'rotateX':
+      // No preceding rotations
+      normal   = new THREE.Vector3(1, 0, 0);
+      tangentU = new THREE.Vector3(0, 0, 1);  // maps to +Z
+      tangentV = new THREE.Vector3(0, 1, 0);  // maps to +Y
+      break;
+    case 'rotateY': {
+      // After X rotation
+      normal   = new THREE.Vector3(0, 1, 0).applyQuaternion(qx);
+      tangentU = new THREE.Vector3(-1, 0, 0).applyQuaternion(qx);
+      tangentV = new THREE.Vector3(0, 0, -1).applyQuaternion(qx);
+      break;
+    }
+    case 'rotateZ': {
+      // After X then Y rotation
+      const qxy = qx.clone().multiply(qy);
+      normal   = new THREE.Vector3(0, 0, 1).applyQuaternion(qxy);
+      tangentU = new THREE.Vector3(-1, 0, 0).applyQuaternion(qxy);
+      tangentV = new THREE.Vector3(0, 1, 0).applyQuaternion(qxy);
+      break;
+    }
+    default:
+      normal   = new THREE.Vector3(0, 0, 1);
+      tangentU = new THREE.Vector3(1, 0, 0);
+      tangentV = new THREE.Vector3(0, 1, 0);
+  }
+
+  return { normal, tangentU, tangentV };
+}
+
 // ─── Debug / callback types ───────────────────────────────────────────────────
 
 export interface SceneDebugChildInfo {
@@ -100,6 +168,9 @@ export class ConstructorSceneService {
   private mouse: THREE.Vector2 | null = null;
   private gridService: GridService | null = null;
 
+  // ─── Debug center marker ──────────────────────────────────────────────────
+  private centerMarker: THREE.Mesh | null = null;
+
   // ─── Drag state ────────────────────────────────────────────────────────────
   private dragPlane: THREE.Plane | null = null;
   private dragTarget: THREE.Object3D | null = null;
@@ -131,16 +202,21 @@ export class ConstructorSceneService {
     /** Screen-space start for rotation handles. */
     startClientX: number;
     startClientY: number;
-    /** Projected object center on screen (for angular rotation). */
-    rotationScreenCenter?: { x: number; y: number };
-    /** Last angle from screen center to mouse (radians). */
-    lastAngle?: number;
-    /** Accumulated raw rotation (radians, before snapping). */
-    totalRotation?: number;
-    /** Already-applied snapped rotation (radians). */
-    appliedRotation?: number;
-    /** Rotation value at drag start (radians). */
+    /** Rotation plane for raycasting (perpendicular to the rotation axis). */
+    rotationPlane?: THREE.Plane;
+    /** Center of the object in world space (rotation pivot). */
+    rotationCenter?: THREE.Vector3;
+    /** Angle on the rotation plane at drag start. */
+    startPlaneAngle?: number;
+    /** Rotation value at drag start (radians) for the active axis. */
     startRotation?: number;
+    /** Tangent axes of the rotation plane (for planeAngle computation). */
+    rotationTangentU?: THREE.Vector3;
+    rotationTangentV?: THREE.Vector3;
+    /** Fixed world-space pivot for rotation. */
+    groupPivotWorld?: THREE.Vector3;
+    /** Pivot in group's local space at drag start. */
+    groupPivotLocal?: THREE.Vector3;
   } | null = null;
 
   /** Offset between the pointer click point and the object center on the XZ plane. */
@@ -156,6 +232,7 @@ export class ConstructorSceneService {
   private resizeHandler: (() => void) | null = null;
   private containerEl: HTMLElement | null = null;
   private debugFrameCount = 0;
+  private showDebug = false;
 
   /** Visual ring shown at Y=0 when dragging an object vertically. */
   private yZeroIndicator: THREE.Mesh | null = null;
@@ -348,6 +425,12 @@ export class ConstructorSceneService {
 
     this.hideYZeroIndicator();
     this.clearCruiseGuides();
+    if (this.centerMarker) {
+      this.centerMarker.geometry.dispose();
+      (this.centerMarker.material as THREE.Material).dispose();
+      this.scene?.remove(this.centerMarker);
+      this.centerMarker = null;
+    }
     if (this.yZeroIndicator) {
       this.yZeroIndicator.geometry.dispose();
       (this.yZeroIndicator.material as THREE.Material).dispose();
@@ -484,6 +567,9 @@ export class ConstructorSceneService {
     if (this.mirrorGizmo?.isVisible()) {
       this.mirrorGizmo.updatePositions();
     }
+
+    // Debug center marker
+    this.updateCenterMarker();
 
     // Periodic debug info (every 30 frames)
     this.debugFrameCount++;
@@ -831,20 +917,20 @@ export class ConstructorSceneService {
         this.showYZeroIndicatorIfNeeded(node);
         break;
 
-      // Axis-constrained rotation (normalized to [-π, π])
+      // Axis-constrained rotation: dx = absolute angle (startRotation + totalAngle)
       case 'rotateX': {
         params.rotation = params.rotation || { x: 0, y: 0, z: 0 };
-        params.rotation.x = normalizeAngle((params.rotation.x ?? 0) + dx);
+        params.rotation.x = normalizeAngle(dx);
         break;
       }
       case 'rotateY': {
         params.rotation = params.rotation || { x: 0, y: 0, z: 0 };
-        params.rotation.y = normalizeAngle((params.rotation.y ?? 0) + dx);
+        params.rotation.y = normalizeAngle(dx);
         break;
       }
       case 'rotateZ': {
         params.rotation = params.rotation || { x: 0, y: 0, z: 0 };
-        params.rotation.z = normalizeAngle((params.rotation.z ?? 0) + dx);
+        params.rotation.z = normalizeAngle(dx);
         break;
       }
       default:
@@ -864,7 +950,28 @@ export class ConstructorSceneService {
       }
       if (params.scale) obj.scale.set(params.scale.x, params.scale.y, params.scale.z);
       if (params.rotation) {
-        obj.rotation.set(params.rotation.x, params.rotation.y, params.rotation.z);
+        if (this.handleDragState?.groupPivotWorld
+            && this.handleDragState?.groupPivotLocal) {
+          const pivotWorld = this.handleDragState.groupPivotWorld;
+          const pivotLocal = this.handleDragState.groupPivotLocal;
+
+          // Поставить новое вращение
+          obj.rotation.set(params.rotation.x, params.rotation.y, params.rotation.z);
+          obj.updateMatrixWorld(true);
+
+          // Куда сместился pivot после вращения (localToWorld = R * v + P)
+          const rotatedOffset = obj.localToWorld(pivotLocal.clone()).sub(obj.position);
+
+          // Позиция = pivot_мировой − повёрнутый_offset
+          obj.position.copy(pivotWorld).sub(rotatedOffset);
+
+          params.position = params.position || { x: 0, y: 0, z: 0 };
+          params.position.x = obj.position.x;
+          params.position.y = obj.position.y - halfH;
+          params.position.z = obj.position.z;
+        } else {
+          obj.rotation.set(params.rotation.x, params.rotation.y, params.rotation.z);
+        }
       }
     }
 
@@ -1171,6 +1278,42 @@ export class ConstructorSceneService {
     }
   }
 
+  // ─── Debug: center marker ──────────────────────────────────────────────────
+
+  private updateCenterMarker(): void {
+    if (!this.selectedObject3D || !this.scene) {
+      if (this.centerMarker) {
+        this.centerMarker.visible = false;
+      }
+      return;
+    }
+
+    const obj = this.selectedObject3D;
+    const box = new THREE.Box3().setFromObject(obj);
+    const center = new THREE.Vector3();
+    box.getCenter(center);
+    const size = new THREE.Vector3();
+    box.getSize(size);
+    const radius = Math.max(size.x, size.y, size.z) * 0.05;
+
+    if (!this.centerMarker) {
+      const geo = new THREE.SphereGeometry(1, 16, 16);
+      const mat = new THREE.MeshBasicMaterial({
+        color: 0xff0000,
+        depthTest: false,
+        transparent: true,
+        opacity: 0.7,
+      });
+      this.centerMarker = new THREE.Mesh(geo, mat);
+      this.centerMarker.renderOrder = 999;
+      this.scene.add(this.centerMarker);
+    }
+
+    this.centerMarker.visible = true;
+    this.centerMarker.position.copy(center);
+    this.centerMarker.scale.setScalar(radius);
+  }
+
   // ─── Private: cruise mode (object-to-object snapping) ──────────────────────
 
   /**
@@ -1399,31 +1542,32 @@ export class ConstructorSceneService {
       const isRotation = this.handleDragState.handleType.startsWith('rotate');
 
       if (isRotation) {
-        const sc = this.handleDragState.rotationScreenCenter;
-        if (sc && this.handleDragState.lastAngle !== undefined) {
-          // Angular rotation relative to projected object center
-          const angle = Math.atan2(event.clientY - sc.y, event.clientX - sc.x);
-          let delta = angle - this.handleDragState.lastAngle;
+        const rp = this.handleDragState.rotationPlane;
+        const rc = this.handleDragState.rotationCenter;
+        if (rp && rc && this.handleDragState.startPlaneAngle !== undefined) {
+          // Raycast cursor onto the rotation plane
+          const hitPoint = new THREE.Vector3();
+          const didHit = this.raycaster.ray.intersectPlane(rp, hitPoint);
+          if (!didHit) return;
+
+          // Compute current angle on the rotation plane
+          const tU = this.handleDragState.rotationTangentU!;
+          const tV = this.handleDragState.rotationTangentV!;
+          const currentAngle = planeAngle(hitPoint, rc, tU, tV);
+          let delta = currentAngle - this.handleDragState.startPlaneAngle;
           if (delta > Math.PI) delta -= 2 * Math.PI;
           if (delta < -Math.PI) delta += 2 * Math.PI;
 
-          this.handleDragState.totalRotation = (this.handleDragState.totalRotation ?? 0) - delta;
-
-          // Snap: compute target absolute angle, snap it, then apply the diff
+          // Snap
           const snapStep = this.rotationSnapStep;
           const startRot = this.handleDragState.startRotation ?? 0;
-          const rawTarget = startRot + this.handleDragState.totalRotation;
-          const snapped = snapStep > 0
+          const rawTarget = startRot + delta;
+          const snappedTarget = snapStep > 0
             ? Math.round(rawTarget / snapStep) * snapStep
             : rawTarget;
-          const toApply = snapped - startRot - (this.handleDragState.appliedRotation ?? 0);
 
-          if (toApply !== 0) {
-            this.applyHandleDragDelta(this.handleDragState.node, this.handleDragState.handleType, toApply, 0);
-            this.handleDragState.appliedRotation = (this.handleDragState.appliedRotation ?? 0) + toApply;
-          }
-
-          this.handleDragState.lastAngle = angle;
+          // Pass absolute angle
+          this.applyHandleDragDelta(this.handleDragState.node, this.handleDragState.handleType, snappedTarget, 0);
         }
         return;
       }
@@ -1561,24 +1705,38 @@ export class ConstructorSceneService {
           startClientY: event.clientY,
         };
 
-        // For rotation handles: compute projected object center for angular input
-        if (handleType.startsWith('rotate') && this.selectedObject3D && this.camera && this.containerEl) {
-          const box = new THREE.Box3().setFromObject(this.selectedObject3D);
+        // For rotation handles: set up rotation plane and initial angle
+        if (handleType.startsWith('rotate') && this.selectedObject3D && this.camera) {
+          const obj = this.selectedObject3D;
+          obj.updateMatrixWorld(true);
+          const box = new THREE.Box3().setFromObject(obj);
           const center = new THREE.Vector3();
           box.getCenter(center);
-          const projected = center.clone().project(this.camera);
-          const rect = this.containerEl.getBoundingClientRect();
-          const cx = (projected.x * 0.5 + 0.5) * rect.width + rect.left;
-          const cy = (-projected.y * 0.5 + 0.5) * rect.height + rect.top;
-          const angle = Math.atan2(event.clientY - cy, event.clientX - cx);
-          this.handleDragState.rotationScreenCenter = { x: cx, y: cy };
-          this.handleDragState.lastAngle = angle;
-          this.handleDragState.totalRotation = 0;
-          this.handleDragState.appliedRotation = 0;
-          // Store current rotation value at drag start
-          const node = this.handleDragState.node;
-          const axis = handleType === 'rotateX' ? 'x' : handleType === 'rotateY' ? 'y' : 'z';
-          this.handleDragState.startRotation = node?.params?.rotation?.[axis] ?? 0;
+
+          // Build rotation plane from current Euler, accounting for prior axes
+          const curRot = this.handleDragState.node?.params?.rotation ?? { x: 0, y: 0, z: 0 };
+          const { normal, tangentU, tangentV } = rotationPlaneAxes(handleType, curRot);
+          const rotPlane = new THREE.Plane().setFromNormalAndCoplanarPoint(normal, center);
+
+          // Raycast cursor onto the rotation plane to get starting angle
+          const hitStart = new THREE.Vector3();
+          const didHit = this.raycaster.ray.intersectPlane(rotPlane, hitStart);
+
+          if (didHit) {
+            const startAngle = planeAngle(hitStart, center, tangentU, tangentV);
+            const axisKey = handleType === 'rotateX' ? 'x' : handleType === 'rotateY' ? 'y' : 'z';
+            this.handleDragState.rotationPlane = rotPlane;
+            this.handleDragState.rotationCenter = center;
+            this.handleDragState.rotationTangentU = tangentU;
+            this.handleDragState.rotationTangentV = tangentV;
+            this.handleDragState.startPlaneAngle = startAngle;
+            this.handleDragState.startRotation = this.handleDragState.node?.params?.rotation?.[axisKey] ?? 0;
+          }
+
+          // Cache the bbox center as fixed pivot for position correction
+          const pivot = center.clone();
+          this.handleDragState.groupPivotWorld = pivot;
+          this.handleDragState.groupPivotLocal = obj.worldToLocal(pivot.clone());
         }
       }
     }
