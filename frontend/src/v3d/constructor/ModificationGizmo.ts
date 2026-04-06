@@ -115,36 +115,58 @@ function createProtractorHandle(type: HandleType): HandleMesh {
   return mesh;
 }
 
-// ─── Protractor ring (shown on hover, unit radius, scaled in world) ───
+// ─── Dual protractor rings (shown on hover, unit radius, scaled in world) ───
+// Inner ring: ticks every 5°, outer ring: ticks every 1°
 function buildRingGroup(color: number): THREE.Group {
   const g = new THREE.Group();
 
-  // Colored ring band
-  const ringGeo = new THREE.RingGeometry(0.92, 1.0, 64) as unknown as THREE.BufferGeometry;
-  const ringMat = new THREE.MeshBasicMaterial({
-    color, side: THREE.DoubleSide, transparent: true, opacity: 0.4,
-    depthTest: false, depthWrite: false,
-  });
-  g.add(new THREE.Mesh(ringGeo, ringMat));
-
-  // Tick marks
   const tickMat = new THREE.LineBasicMaterial({ color: 0x888888, depthTest: false });
   const majorMat = new THREE.LineBasicMaterial({ color, depthTest: false });
-  for (let deg = 0; deg < 360; deg += 10) {
+
+  // ── Inner ring: 5° ticks, thicker band ─────────────────────────────
+  const innerRingGeo = new THREE.RingGeometry(0.68, 0.78, 64) as unknown as THREE.BufferGeometry;
+  const innerRingMat = new THREE.MeshBasicMaterial({
+    color, side: THREE.DoubleSide, transparent: true, opacity: 0.35,
+    depthTest: false, depthWrite: false,
+  });
+  g.add(new THREE.Mesh(innerRingGeo, innerRingMat));
+
+  // Inner ticks every 5°, major every 15°
+  for (let deg = 0; deg < 360; deg += 5) {
     const rad = Math.PI / 2 - (deg * Math.PI) / 180;
-    const isMajor = deg % 30 === 0;
-    const inner = isMajor ? 0.82 : 0.88;
+    const isMajor = deg % 15 === 0;
+    const inner = isMajor ? 0.62 : 0.66;
     const pts = [
       new THREE.Vector3(Math.cos(rad) * inner, Math.sin(rad) * inner, 0),
-      new THREE.Vector3(Math.cos(rad) * 0.92, Math.sin(rad) * 0.92, 0),
+      new THREE.Vector3(Math.cos(rad) * 0.68, Math.sin(rad) * 0.68, 0),
     ];
     g.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), isMajor ? majorMat : tickMat));
   }
 
-  // Degree labels at every 30°
+  // ── Outer ring: 1° ticks, thinner band ─────────────────────────────
+  const outerRingGeo = new THREE.RingGeometry(0.88, 1.0, 128) as unknown as THREE.BufferGeometry;
+  const outerRingMat = new THREE.MeshBasicMaterial({
+    color, side: THREE.DoubleSide, transparent: true, opacity: 0.25,
+    depthTest: false, depthWrite: false,
+  });
+  g.add(new THREE.Mesh(outerRingGeo, outerRingMat));
+
+  // Outer ticks every 1°, major every 10°
+  for (let deg = 0; deg < 360; deg += 1) {
+    const rad = Math.PI / 2 - (deg * Math.PI) / 180;
+    const isMajor = deg % 10 === 0;
+    const inner = isMajor ? 0.83 : 0.86;
+    const pts = [
+      new THREE.Vector3(Math.cos(rad) * inner, Math.sin(rad) * inner, 0),
+      new THREE.Vector3(Math.cos(rad) * 0.88, Math.sin(rad) * 0.88, 0),
+    ];
+    g.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), isMajor ? majorMat : tickMat));
+  }
+
+  // Degree labels at every 30° (between the two rings)
   for (let deg = 0; deg < 360; deg += 30) {
     const rad = Math.PI / 2 - (deg * Math.PI) / 180;
-    const labelR = 0.76;
+    const labelR = 0.82;
     const sprite = makeTextSprite(String(deg), color);
     sprite.position.set(Math.cos(rad) * labelR, Math.sin(rad) * labelR, 0);
     sprite.scale.set(0.08, 0.08, 1);
@@ -431,49 +453,44 @@ export class ModificationGizmo {
       handleIndexByType[h.userData.type as HandleType] = i;
     });
 
-    // Edge midpoints at bottom face
-    this.handles[handleIndexByType.edgeWidthLeft].position.set(min.x, min.y, midZ);
-    this.handles[handleIndexByType.edgeWidthRight].position.set(max.x, min.y, midZ);
-    this.handles[handleIndexByType.edgeLengthFront].position.set(midX, min.y, max.z);
-    this.handles[handleIndexByType.edgeLengthBack].position.set(midX, min.y, min.z);
+    // Edge midpoints at grid projection (Y=0)
+    const projY = 0;
+    this.handles[handleIndexByType.edgeWidthLeft].position.set(min.x, projY, midZ);
+    this.handles[handleIndexByType.edgeWidthRight].position.set(max.x, projY, midZ);
+    this.handles[handleIndexByType.edgeLengthFront].position.set(midX, projY, max.z);
+    this.handles[handleIndexByType.edgeLengthBack].position.set(midX, projY, min.z);
 
-    // Corners at bottom face
-    this.handles[handleIndexByType.cornerBL].position.set(min.x, min.y, min.z);
-    this.handles[handleIndexByType.cornerBR].position.set(max.x, min.y, min.z);
-    this.handles[handleIndexByType.cornerTL].position.set(min.x, min.y, max.z);
-    this.handles[handleIndexByType.cornerTR].position.set(max.x, min.y, max.z);
+    // Corners at grid projection (Y=0)
+    this.handles[handleIndexByType.cornerBL].position.set(min.x, projY, min.z);
+    this.handles[handleIndexByType.cornerBR].position.set(max.x, projY, min.z);
+    this.handles[handleIndexByType.cornerTL].position.set(min.x, projY, max.z);
+    this.handles[handleIndexByType.cornerTR].position.set(max.x, projY, max.z);
 
     // Height handle: above top center
     this.handles[handleIndexByType.height].position.set(midX, max.y + offsetYWorld, midZ);
 
-    // OffsetY: above height handle by a screen-space-proportional amount
+    // OffsetY: above height handle
     this.handles[handleIndexByType.offsetY].position.set(midX, max.y + offsetYWorld * 2, midZ);
 
-    // Three rotation handles — oriented to match Euler XYZ decomposition
+    // Three rotation handles — always oriented along fixed world axes
     const rotOff = wpp * ROTATE_ARROW_OFFSET_PX;
     const midY = (min.y + max.y) / 2;
-    const rot = this.node?.params?.rotation ?? { x: 0, y: 0, z: 0 };
     const zAxis = new THREE.Vector3(0, 0, 1);
-    const qx = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), rot.x);
-    const qy = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), rot.y);
 
-    // rotateX — plane normal = world X (no prior rotations)
+    // rotateX — plane normal = world X
     const hRX = this.handles[handleIndexByType.rotateX];
     hRX.position.set(max.x + rotOff, midY, midZ);
     hRX.quaternion.setFromUnitVectors(zAxis, new THREE.Vector3(1, 0, 0));
 
-    // rotateY — plane normal = Rx · Y (after X rotation)
-    const normalY = new THREE.Vector3(0, 1, 0).applyQuaternion(qx);
+    // rotateY — plane normal = world Y
     const hRY = this.handles[handleIndexByType.rotateY];
     hRY.position.set(midX, max.y + rotOff, midZ);
-    hRY.quaternion.setFromUnitVectors(zAxis, normalY);
+    hRY.quaternion.setFromUnitVectors(zAxis, new THREE.Vector3(0, 1, 0));
 
-    // rotateZ — plane normal = Rx · Ry · Z (after X and Y rotations)
-    const qxy = qx.clone().multiply(qy);
-    const normalZ = new THREE.Vector3(0, 0, 1).applyQuaternion(qxy);
+    // rotateZ — plane normal = world Z
     const hRZ = this.handles[handleIndexByType.rotateZ];
     hRZ.position.set(midX, midY, max.z + rotOff);
-    hRZ.quaternion.setFromUnitVectors(zAxis, normalZ);
+    hRZ.quaternion.setFromUnitVectors(zAxis, new THREE.Vector3(0, 0, 1));
 
     // Billboard: orient non-rotation handles toward the camera
     this.handles.forEach((handle) => {

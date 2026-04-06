@@ -6,7 +6,10 @@
       "Bash(node -e \"const THREE = require\\(''./node_modules/three''\\); console.log\\(''Box:'', new THREE.BoxGeometry\\(\\) instanceof THREE.BufferGeometry, ''BoxBuf:'', new THREE.BoxBufferGeometry\\(\\) instanceof THREE.BufferGeometry\\)\")",
       "Bash(npx vite:*)",
       "Bash(npm run:*)",
-      "Bash(npx vue-tsc:*)"
+      "Bash(npx vue-tsc:*)",
+      "Bash(ls:*)",
+      "Bash(npm install:*)",
+      "Bash(npx vitest:*)"
     ]
   }
 }

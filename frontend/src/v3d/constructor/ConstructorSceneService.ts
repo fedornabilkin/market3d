@@ -13,6 +13,7 @@ import { MirrorGizmo, type MirrorHandleMesh } from './MirrorGizmo';
 import { ViewCubeNavigator } from './ViewCubeNavigator';
 import { GridService } from './services/GridService';
 import { applyHoleStyle, removeHoleStyle } from './holeMaterial';
+import { bakeRotation, bakeGroupRotation } from './primitiveTransforms';
 
 // ─── Tuning constants ────────────────────────────────────────────────────────
 
@@ -55,37 +56,28 @@ function planeAngle(
  */
 function rotationPlaneAxes(
   handleType: string,
-  rotation: { x: number; y: number; z: number },
+  _rotation: { x: number; y: number; z: number },
 ): { normal: THREE.Vector3; tangentU: THREE.Vector3; tangentV: THREE.Vector3 } {
-  const qx = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), rotation.x);
-  const qy = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), rotation.y);
-
   let normal: THREE.Vector3;
   let tangentU: THREE.Vector3;
   let tangentV: THREE.Vector3;
 
   switch (handleType) {
     case 'rotateX':
-      // No preceding rotations
       normal   = new THREE.Vector3(1, 0, 0);
-      tangentU = new THREE.Vector3(0, 0, 1);  // maps to +Z
-      tangentV = new THREE.Vector3(0, 1, 0);  // maps to +Y
+      tangentU = new THREE.Vector3(0, 0, 1);
+      tangentV = new THREE.Vector3(0, 1, 0);
       break;
-    case 'rotateY': {
-      // After X rotation
-      normal   = new THREE.Vector3(0, 1, 0).applyQuaternion(qx);
-      tangentU = new THREE.Vector3(-1, 0, 0).applyQuaternion(qx);
-      tangentV = new THREE.Vector3(0, 0, -1).applyQuaternion(qx);
+    case 'rotateY':
+      normal   = new THREE.Vector3(0, 1, 0);
+      tangentU = new THREE.Vector3(-1, 0, 0);
+      tangentV = new THREE.Vector3(0, 0, -1);
       break;
-    }
-    case 'rotateZ': {
-      // After X then Y rotation
-      const qxy = qx.clone().multiply(qy);
-      normal   = new THREE.Vector3(0, 0, 1).applyQuaternion(qxy);
-      tangentU = new THREE.Vector3(-1, 0, 0).applyQuaternion(qxy);
-      tangentV = new THREE.Vector3(0, 1, 0).applyQuaternion(qxy);
+    case 'rotateZ':
+      normal   = new THREE.Vector3(0, 0, 1);
+      tangentU = new THREE.Vector3(-1, 0, 0);
+      tangentV = new THREE.Vector3(0, 1, 0);
       break;
-    }
     default:
       normal   = new THREE.Vector3(0, 0, 1);
       tangentU = new THREE.Vector3(1, 0, 0);
@@ -217,6 +209,16 @@ export class ConstructorSceneService {
     groupPivotWorld?: THREE.Vector3;
     /** Pivot in group's local space at drag start. */
     groupPivotLocal?: THREE.Vector3;
+    /** Quaternion of the object at drag start (for world-axis rotation). */
+    startQuaternion?: THREE.Quaternion;
+    /** World axis for the active rotation handle. */
+    rotationWorldAxis?: THREE.Vector3;
+    /** World-space radius of the rotation ring (for dual-ring snap detection). */
+    ringRadius?: number;
+    /** Object's local X axis in world space (for corner drag). */
+    localAxisX?: THREE.Vector3;
+    /** Object's local Z axis in world space (for corner drag). */
+    localAxisZ?: THREE.Vector3;
   } | null = null;
 
   /** Offset between the pointer click point and the object center on the XZ plane. */
@@ -238,6 +240,9 @@ export class ConstructorSceneService {
   private yZeroIndicator: THREE.Mesh | null = null;
   private yZeroIndicatorTimeout: ReturnType<typeof setTimeout> | null = null;
 
+  /** Dashed-line projection of the active object onto the Y=0 grid plane. */
+  private gridProjection: THREE.Group | null = null;
+
   // ─── Cruise mode (object-to-object snapping) ──────────────────────────────
   private cruiseMode = false;
   private cruiseThreshold = 5; // snap distance in mm
@@ -250,8 +255,8 @@ export class ConstructorSceneService {
 
   // ─── Scene settings (applied before mount or via setters) ──────────────���───
   private snapStep = 1;
-  /** Rotation snap step in radians (default 15°). */
-  private rotationSnapStep = Math.PI / 12;
+  /** @deprecated Rotation snap is now determined by dual-ring position (5° inner / 1° outer). */
+  // private rotationSnapStep = Math.PI / 12;
   private backgroundColor: number | string = 0xf0f0f0;
   private zoomSpeed = 1;
   private gridWidthMm = 200;
@@ -436,6 +441,14 @@ export class ConstructorSceneService {
       (this.yZeroIndicator.material as THREE.Material).dispose();
       this.yZeroIndicator = null;
     }
+    if (this.gridProjection) {
+      this.gridProjection.traverse((child) => {
+        if ((child as THREE.Line).geometry) (child as THREE.Line).geometry.dispose();
+        if ((child as THREE.Line).material) ((child as THREE.Line).material as THREE.Material).dispose();
+      });
+      this.scene?.remove(this.gridProjection);
+      this.gridProjection = null;
+    }
 
     this.gridService?.dispose();
     this.gridService = null;
@@ -567,6 +580,9 @@ export class ConstructorSceneService {
     if (this.mirrorGizmo?.isVisible()) {
       this.mirrorGizmo.updatePositions();
     }
+
+    // Dashed projection of active object onto the grid
+    this.updateGridProjection();
 
     // Debug center marker
     this.updateCenterMarker();
@@ -817,16 +833,29 @@ export class ConstructorSceneService {
     const g = prim?.geometryParams ?? {};
     const s = params.scale!;
 
-    // For non-primitives, compute bounding box to convert mm delta to scale delta
+    // For non-primitives, compute TWO bounding boxes:
+    // - objBoxUnrotated: without rotation, for correct axis-aligned sizes (scaleDelta calc)
+    // - objBox: with rotation, for correct fixedFace world positions
     let objBoxSize: THREE.Vector3 | null = null;
     let objBox: THREE.Box3 | null = null;
     if (!prim && this.selectedObject3D) {
+      // Rotated bbox — for fixedFace world positions
       objBox = new THREE.Box3().setFromObject(this.selectedObject3D);
+
+      // Unrotated bbox — for size along each axis (scale operates before rotation)
+      const savedQ = this.selectedObject3D.quaternion.clone();
+      this.selectedObject3D.quaternion.set(0, 0, 0, 1);
+      this.selectedObject3D.updateMatrixWorld(true);
+      const objBoxUnrotated = new THREE.Box3().setFromObject(this.selectedObject3D);
+      this.selectedObject3D.quaternion.copy(savedQ);
+      this.selectedObject3D.updateMatrixWorld(true);
+
       objBoxSize = new THREE.Vector3();
-      objBox.getSize(objBoxSize);
+      objBoxUnrotated.getSize(objBoxSize);
     }
 
     // Helper: grow a geometry param or fall back to scale
+    // Сдвиг позиции идёт по мировым осям проекции (без учёта вращения)
     const growDim = (
       delta: number,
       geomKey: 'width' | 'height' | 'depth',
@@ -836,7 +865,8 @@ export class ConstructorSceneService {
     ) => {
       if (prim && geomKey in g) {
         g[geomKey] = Math.max(0.01, (g[geomKey] as number ?? 1) + delta);
-        p[posAxis] += (delta / 2) * posSign;
+        const shift = (delta / 2) * posSign;
+        p[posAxis] += shift;
       } else {
         // Convert mm delta to proportional scale change
         const currentSize = objBoxSize ? objBoxSize[scaleAxis] : 0;
@@ -844,8 +874,7 @@ export class ConstructorSceneService {
           const oldScale = s[scaleAxis] ?? 1;
           const scaleDelta = delta / currentSize * oldScale;
           s[scaleAxis] = Math.max(0.01, oldScale + scaleDelta);
-          // Position shift: keep the opposite face fixed.
-          // posSign +1 → growing max side, fix min face; -1 → growing min side, fix max face
+          // Position shift: keep the opposite face fixed
           if (objBox) {
             const fixedFaceWorld = posSign > 0 ? objBox.min[posAxis] : objBox.max[posAxis];
             const fixedLocal = (fixedFaceWorld - p[posAxis]) / oldScale;
@@ -889,8 +918,16 @@ export class ConstructorSceneService {
         break;
       }
 
-      // Height: grow upward, bottom face stays fixed (no position change)
+      // Height: grow upward, bottom face stays fixed
       case 'height': {
+        const hObj = this.selectedObject3D;
+        // Запоминаем bbox.min.y до изменения
+        let bottomBefore: number | null = null;
+        if (hObj) {
+          const bBefore = new THREE.Box3().setFromObject(hObj);
+          bottomBefore = bBefore.min.y;
+        }
+
         if (prim && 'height' in g) {
           g.height = Math.max(0.01, (g.height as number ?? 1) + dy);
         } else {
@@ -899,13 +936,38 @@ export class ConstructorSceneService {
             const oldScaleY = s.y ?? 1;
             const scaleDelta = dy / currentH * oldScaleY;
             s.y = Math.max(0.01, oldScaleY + scaleDelta);
-            // Keep bottom face fixed
-            if (objBox) {
-              const fixedLocal = (objBox.min.y - p.y) / oldScaleY;
-              p.y -= fixedLocal * scaleDelta;
-            }
           } else {
             s.y = Math.max(0.01, (s.y ?? 1) + dy * 0.01);
+          }
+        }
+
+        // Компенсируем позицию, чтобы bbox.min.y остался на месте
+        if (hObj && bottomBefore !== null) {
+          // Удаляем устаревшие edge-line дочерние объекты — их bbox от предыдущей
+          // геометрии раздувает setFromObject и ломает вычисление drift.
+          // updatePrimitiveGeometryInPlace пересоздаст их ниже.
+          const staleEdges = hObj.children.filter(c => c.userData.isEdgeLine);
+          staleEdges.forEach(c => {
+            if ((c as THREE.LineSegments).geometry) (c as THREE.LineSegments).geometry.dispose();
+            hObj.remove(c);
+          });
+
+          // Применяем промежуточные значения к mesh для вычисления нового bbox
+          if (prim) {
+            const tmpOldGeo = (hObj as THREE.Mesh).geometry;
+            (hObj as THREE.Mesh).geometry = prim.createGeometry();
+            tmpOldGeo.dispose();
+            const halfH = prim.getHalfHeight();
+            hObj.position.set(p.x, (p.y ?? 0) + halfH, p.z);
+          } else {
+            hObj.position.set(p.x, p.y, p.z);
+            if (params.scale) hObj.scale.set(params.scale.x, params.scale.y, params.scale.z);
+          }
+          hObj.updateMatrixWorld(true);
+          const bAfter = new THREE.Box3().setFromObject(hObj);
+          const drift = bAfter.min.y - bottomBefore;
+          if (Math.abs(drift) > 0.0001) {
+            p.y -= drift;
           }
         }
         break;
@@ -917,24 +979,34 @@ export class ConstructorSceneService {
         this.showYZeroIndicatorIfNeeded(node);
         break;
 
-      // Axis-constrained rotation: dx = absolute angle (startRotation + totalAngle)
-      case 'rotateX': {
-        params.rotation = params.rotation || { x: 0, y: 0, z: 0 };
-        params.rotation.x = normalizeAngle(dx);
-        break;
-      }
-      case 'rotateY': {
-        params.rotation = params.rotation || { x: 0, y: 0, z: 0 };
-        params.rotation.y = normalizeAngle(dx);
-        break;
-      }
+      // Axis-constrained rotation: dx = absolute angle, applied in world space via quaternion
+      case 'rotateX':
+      case 'rotateY':
       case 'rotateZ': {
         params.rotation = params.rotation || { x: 0, y: 0, z: 0 };
-        params.rotation.z = normalizeAngle(dx);
+        const ds = this.handleDragState;
+        if (ds?.startQuaternion && ds.rotationWorldAxis) {
+          const startRot = ds.startRotation ?? 0;
+          const deltaAngle = dx - startRot;
+          // Дельта-поворот вокруг мировой оси
+          const deltaQuat = new THREE.Quaternion().setFromAxisAngle(ds.rotationWorldAxis, deltaAngle);
+          // Новый кватернион = дельта * начальный (world-space rotation)
+          const newQuat = deltaQuat.multiply(ds.startQuaternion.clone());
+          // Разложить обратно в Euler
+          const euler = new THREE.Euler().setFromQuaternion(newQuat, 'XYZ');
+          params.rotation.x = normalizeAngle(euler.x);
+          params.rotation.y = normalizeAngle(euler.y);
+          params.rotation.z = normalizeAngle(euler.z);
+        }
         break;
       }
       default:
         break;
+    }
+
+    // Snap позиции только для вертикального смещения (offsetY)
+    if (this.snapStep > 0 && handleType === 'offsetY') {
+      p.y = Math.round(p.y / this.snapStep) * this.snapStep;
     }
 
     // Update mesh visuals
@@ -975,6 +1047,94 @@ export class ConstructorSceneService {
       }
     }
 
+    this.options.onNodeParamsChanged?.(node);
+  }
+
+  /**
+   * After a rotation drag ends, if the resulting rotation is aligned to 90° increments,
+   * bake the rotation into geometry dimensions (swap width/height/depth) and reset rotation to 0.
+   * Uses the pure `bakeRotation()` function for the math; this method applies the
+   * result to the node, 3D object, and gizmo.
+   */
+  private bakeRotationIntoDimensions(node: ModelNode): void {
+    const rot = node.params?.rotation;
+    if (!rot) return;
+
+    const prim = node instanceof Primitive ? node : null;
+    const isGroup = node instanceof GroupNode;
+
+    // ── Box primitive baking ──
+    if (prim) {
+      const transform = {
+        position: node.params!.position || { x: 0, y: 0, z: 0 },
+        scale: node.params!.scale || { x: 1, y: 1, z: 1 },
+        rotation: { ...rot },
+      };
+      const result = bakeRotation(prim.type, { ...prim.geometryParams }, transform);
+      if (!result.baked) return;
+
+      prim.geometryParams.width = result.geom.width;
+      prim.geometryParams.height = result.geom.height;
+      prim.geometryParams.depth = result.geom.depth;
+      node.params!.position = result.transform.position;
+      node.params!.scale = result.transform.scale;
+      rot.x = 0; rot.y = 0; rot.z = 0;
+
+      const obj = this.selectedObject3D;
+      if (obj) {
+        obj.rotation.set(0, 0, 0);
+        obj.scale.set(result.transform.scale.x, result.transform.scale.y, result.transform.scale.z);
+        this.updatePrimitiveGeometryInPlace(prim, obj as THREE.Mesh);
+      }
+    }
+
+    // ── Group baking: rotate children positions/rotations, reset group rotation ──
+    else if (isGroup) {
+      const groupNode = node as GroupNode;
+      const childTransforms = groupNode.children.map(c => ({
+        position: c.params?.position ? { ...c.params.position } : { x: 0, y: 0, z: 0 },
+        rotation: c.params?.rotation ? { ...c.params.rotation } : { x: 0, y: 0, z: 0 },
+      }));
+
+      const result = bakeGroupRotation(rot, childTransforms);
+      if (!result) return;
+
+      // Apply baked transforms to children
+      groupNode.children.forEach((child, i) => {
+        child.params = child.params || {};
+        child.params.position = result.bakedChildren[i].position;
+        child.params.rotation = result.bakedChildren[i].rotation;
+
+        // If child is a box primitive, recursively bake its new rotation
+        if (child instanceof Primitive && child.type === 'box') {
+          const childTransform = {
+            position: child.params.position,
+            scale: child.params.scale || { x: 1, y: 1, z: 1 },
+            rotation: child.params.rotation,
+          };
+          const childBake = bakeRotation('box', { ...child.geometryParams }, childTransform);
+          if (childBake.baked) {
+            child.geometryParams.width = childBake.geom.width;
+            child.geometryParams.height = childBake.geom.height;
+            child.geometryParams.depth = childBake.geom.depth;
+            child.params.position = childBake.transform.position;
+            child.params.scale = childBake.transform.scale;
+            child.params.rotation = childBake.transform.rotation;
+          }
+        }
+      });
+
+      rot.x = 0; rot.y = 0; rot.z = 0;
+
+      // Rebuild the group's 3D representation
+      this.rebuildSceneFromTree();
+    }
+
+    else {
+      return; // Unsupported node type
+    }
+
+    this.updateGizmoTarget();
     this.options.onNodeParamsChanged?.(node);
   }
 
@@ -1148,15 +1308,23 @@ export class ConstructorSceneService {
     worldAxis: THREE.Vector3;
     isVertical: boolean;
     isCorner: boolean;
+    localAxisX?: THREE.Vector3;
+    localAxisZ?: THREE.Vector3;
   } {
     const objectPos = new THREE.Vector3();
     if (this.selectedObject3D) {
       this.selectedObject3D.getWorldPosition(objectPos);
     }
 
+    // Точка на плоскости проекции (Y=0) под центром объекта
+    const projOrigin = new THREE.Vector3(objectPos.x, 0, objectPos.z);
+
+    // Оси проекции — всегда мировые, без учёта вращения объекта
     let worldAxis: THREE.Vector3;
     let isVertical = false;
     let isCorner = false;
+    let localAxisX: THREE.Vector3 | undefined;
+    let localAxisZ: THREE.Vector3 | undefined;
 
     switch (handleType) {
       case 'edgeWidthLeft':
@@ -1178,6 +1346,8 @@ export class ConstructorSceneService {
       case 'cornerTR':
         worldAxis = new THREE.Vector3(1, 0, 1).normalize();
         isCorner = true;
+        localAxisX = new THREE.Vector3(1, 0, 0);
+        localAxisZ = new THREE.Vector3(0, 0, 1);
         break;
       default:
         worldAxis = new THREE.Vector3(1, 0, 0);
@@ -1186,8 +1356,7 @@ export class ConstructorSceneService {
 
     let plane: THREE.Plane;
     if (isVertical) {
-      // Vertical: use a camera-facing plane so rays from any screen position
-      // reliably intersect it.  We then project the delta onto the Y axis.
+      // Вертикальные: плоскость лицом к камере
       const camDir = new THREE.Vector3();
       this.camera!.getWorldDirection(camDir);
       const normal = camDir.clone().negate().normalize();
@@ -1196,11 +1365,14 @@ export class ConstructorSceneService {
       }
       plane = new THREE.Plane().setFromNormalAndCoplanarPoint(normal, objectPos);
     } else {
-      // Horizontal: Y=objectY plane (the grid plane at the object's elevation)
-      plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -objectPos.y);
+      // Рёбра и углы: горизонтальная плоскость Y=0 (плоскость проекции)
+      plane = new THREE.Plane().setFromNormalAndCoplanarPoint(
+        new THREE.Vector3(0, 1, 0),
+        projOrigin,
+      );
     }
 
-    return { plane, worldAxis, isVertical, isCorner };
+    return { plane, worldAxis, isVertical, isCorner, localAxisX, localAxisZ };
   }
 
   // ─── Private: Y=0 indicator ───────────────────────────────────
@@ -1276,6 +1448,89 @@ export class ConstructorSceneService {
       clearTimeout(this.yZeroIndicatorTimeout);
       this.yZeroIndicatorTimeout = null;
     }
+  }
+
+  // ─── Grid projection (dashed outline + filled area on Y=0) ─────────────────
+
+  private updateGridProjection(): void {
+    if (!this.selectedObject3D || !this.scene) {
+      if (this.gridProjection) this.gridProjection.visible = false;
+      return;
+    }
+
+    const obj = this.selectedObject3D;
+    const box = new THREE.Box3().setFromObject(obj);
+    const { min, max } = box;
+
+    // Grid-plane Y coordinate (slightly above 0 to avoid z-fighting)
+    const gy = 0.02;
+
+    const sizeX = max.x - min.x;
+    const sizeZ = max.z - min.z;
+    const centerX = (min.x + max.x) / 2;
+    const centerZ = (min.z + max.z) / 2;
+
+    // Four corners of the bounding box projected onto Y=0
+    const c0 = new THREE.Vector3(min.x, gy, min.z);
+    const c1 = new THREE.Vector3(max.x, gy, min.z);
+    const c2 = new THREE.Vector3(max.x, gy, max.z);
+    const c3 = new THREE.Vector3(min.x, gy, max.z);
+
+    // Rectangle on the grid (closed loop)
+    const rectPoints = [c0, c1, c2, c3, c0];
+
+    if (!this.gridProjection) {
+      this.gridProjection = new THREE.Group();
+      this.gridProjection.renderOrder = 2;
+
+      // Filled area
+      const fillGeo = new THREE.PlaneGeometry(1, 1);
+      const fillMat = new THREE.MeshBasicMaterial({
+        color: 0x888888,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.15,
+        depthTest: false,
+      });
+      const fillMesh = new THREE.Mesh(fillGeo, fillMat);
+      fillMesh.rotation.x = -Math.PI / 2;
+      fillMesh.name = 'projFill';
+      this.gridProjection.add(fillMesh);
+
+      // Dashed rectangle outline
+      const rectGeo = new THREE.BufferGeometry().setFromPoints(rectPoints);
+      const rectMat = new THREE.LineDashedMaterial({
+        color: 0x888888,
+        dashSize: 0.3,
+        gapSize: 0.15,
+        depthTest: false,
+        transparent: true,
+        opacity: 0.6,
+      });
+      const rectLine = new THREE.Line(rectGeo, rectMat);
+      rectLine.computeLineDistances();
+      rectLine.name = 'projRect';
+      this.gridProjection.add(rectLine);
+
+      this.scene.add(this.gridProjection);
+    } else {
+      // Update dashed outline
+      const rectLine = this.gridProjection.getObjectByName('projRect') as THREE.Line;
+      if (rectLine) {
+        rectLine.geometry.dispose();
+        rectLine.geometry = new THREE.BufferGeometry().setFromPoints(rectPoints);
+        rectLine.computeLineDistances();
+      }
+    }
+
+    // Update filled area position and scale
+    const fillMesh = this.gridProjection.getObjectByName('projFill') as THREE.Mesh;
+    if (fillMesh) {
+      fillMesh.position.set(centerX, gy + 0.001, centerZ);
+      fillMesh.scale.set(sizeX, sizeZ, 1);
+    }
+
+    this.gridProjection.visible = true;
   }
 
   // ─── Debug: center marker ──────────────────────────────────────────────────
@@ -1519,14 +1774,15 @@ export class ConstructorSceneService {
       const dist = this.camera.position.distanceTo(this.controls.target);
       const speed = dist * 0.002 * this.zoomSpeed;
 
-      // Horizontal mouse → strafe (camera right), vertical → dolly (forward/back)
+      // Horizontal mouse → strafe (camera right), vertical → pan (camera up)
       const forward = new THREE.Vector3();
       this.camera.getWorldDirection(forward);
       const right = new THREE.Vector3().crossVectors(forward, this.camera.up).normalize();
+      const up = new THREE.Vector3().crossVectors(right, forward).normalize();
 
       const offset = new THREE.Vector3();
       offset.addScaledVector(right, -dx * speed);
-      offset.addScaledVector(forward, dy * speed);
+      offset.addScaledVector(up, dy * speed);
 
       this.camera.position.add(offset);
       this.controls.target.add(offset);
@@ -1558,8 +1814,14 @@ export class ConstructorSceneService {
           if (delta > Math.PI) delta -= 2 * Math.PI;
           if (delta < -Math.PI) delta += 2 * Math.PI;
 
-          // Snap
-          const snapStep = this.rotationSnapStep;
+          // Dual-ring snap: distance from center determines 5° (inner) or 1° (outer)
+          const ringRadius = this.handleDragState.ringRadius ?? 1;
+          const distFromCenter = hitPoint.distanceTo(rc);
+          const normalizedDist = distFromCenter / ringRadius;
+          // Inner ring boundary ~0.82 (midpoint between rings)
+          const snapDeg = normalizedDist < 0.82 ? 5 : 1;
+          const snapStep = (snapDeg * Math.PI) / 180;
+
           const startRot = this.handleDragState.startRotation ?? 0;
           const rawTarget = startRot + delta;
           const snappedTarget = snapStep > 0
@@ -1584,9 +1846,16 @@ export class ConstructorSceneService {
         // Y-axis handles: use vertical component
         this.handleDragState.totalDeltaY = rawDelta.y;
       } else if (this.handleDragState.isCorner) {
-        // Corner handles: track X and Z independently (dx=X axis, dy=Z axis)
-        this.handleDragState.totalDeltaX = rawDelta.x;
-        this.handleDragState.totalDeltaY = rawDelta.z;
+        // Corner handles: проекция на локальные оси объекта (dx=localX, dy=localZ)
+        const lx = this.handleDragState.localAxisX;
+        const lz = this.handleDragState.localAxisZ;
+        if (lx && lz) {
+          this.handleDragState.totalDeltaX = rawDelta.dot(lx);
+          this.handleDragState.totalDeltaY = rawDelta.dot(lz);
+        } else {
+          this.handleDragState.totalDeltaX = rawDelta.x;
+          this.handleDragState.totalDeltaY = rawDelta.z;
+        }
       } else {
         // Edge handles: project onto the single world axis
         const axisDot = rawDelta.dot(this.handleDragState.worldAxis);
@@ -1683,7 +1952,7 @@ export class ConstructorSceneService {
         const handleType = (this.pointerDownHandle.userData as { type: string }).type;
 
         // Compute the constraint plane and world axis for this handle
-        const { plane, worldAxis, isVertical, isCorner } = this.computeHandleConstraintPlane(handleType);
+        const { plane, worldAxis, isVertical, isCorner, localAxisX, localAxisZ } = this.computeHandleConstraintPlane(handleType);
 
         // Raycast to get the starting world-space intersection point
         const startWorldPoint = new THREE.Vector3();
@@ -1703,6 +1972,8 @@ export class ConstructorSceneService {
           appliedDeltaY: 0,
           startClientX: event.clientX,
           startClientY: event.clientY,
+          localAxisX,
+          localAxisZ,
         };
 
         // For rotation handles: set up rotation plane and initial angle
@@ -1731,7 +2002,15 @@ export class ConstructorSceneService {
             this.handleDragState.rotationTangentV = tangentV;
             this.handleDragState.startPlaneAngle = startAngle;
             this.handleDragState.startRotation = this.handleDragState.node?.params?.rotation?.[axisKey] ?? 0;
+            // Сохраняем начальный кватернион и мировую ось для корректного вращения
+            this.handleDragState.startQuaternion = obj.quaternion.clone();
+            this.handleDragState.rotationWorldAxis = normal.clone();
           }
+
+          // Вычисляем радиус кольца для определения snap-зоны
+          const boxSize = new THREE.Vector3();
+          box.getSize(boxSize);
+          this.handleDragState.ringRadius = boxSize.length() * 0.6;
 
           // Cache the bbox center as fixed pivot for position correction
           const pivot = center.clone();
@@ -1792,10 +2071,15 @@ export class ConstructorSceneService {
     if (event.button !== 0) return;
 
     if (this.isHandleDragging) {
+      const wasRotation = this.handleDragState?.handleType?.startsWith('rotate');
+      const rotNode = this.handleDragState?.node ?? null;
       this.isHandleDragging = false;
       this.handleDragState = null;
       this.pointerDownHandle = null;
       if (this.controls) this.controls.enabled = true;
+      if (wasRotation && rotNode) {
+        this.bakeRotationIntoDimensions(rotNode);
+      }
       this.options.onAfterDrag?.();
       return;
     }
