@@ -453,7 +453,7 @@ export class ModificationGizmo {
       handleIndexByType[h.userData.type as HandleType] = i;
     });
 
-    // Edge midpoints at grid projection (Y=0)
+    // Edge midpoints at grid projection (Y=0) — AABB edges match visual extent
     const projY = 0;
     this.handles[handleIndexByType.edgeWidthLeft].position.set(min.x, projY, midZ);
     this.handles[handleIndexByType.edgeWidthRight].position.set(max.x, projY, midZ);

@@ -13,7 +13,7 @@ import { MirrorGizmo, type MirrorHandleMesh } from './MirrorGizmo';
 import { ViewCubeNavigator } from './ViewCubeNavigator';
 import { GridService } from './services/GridService';
 import { applyHoleStyle, removeHoleStyle } from './holeMaterial';
-import { bakeRotation, bakeGroupRotation } from './primitiveTransforms';
+import { bakeRotation, remapAxisForRotatedGroup } from './primitiveTransforms';
 
 // ─── Tuning constants ────────────────────────────────────────────────────────
 
@@ -833,16 +833,15 @@ export class ConstructorSceneService {
     const g = prim?.geometryParams ?? {};
     const s = params.scale!;
 
-    // For non-primitives, compute TWO bounding boxes:
-    // - objBoxUnrotated: without rotation, for correct axis-aligned sizes (scaleDelta calc)
-    // - objBox: with rotation, for correct fixedFace world positions
+    // Compute AABB and unrotated bbox for scale-based sizing.
+    // Needed for groups (no geometryParams) and for primitives whose geomKey
+    // is absent (e.g. cylinder/cone have no width/depth — edge handles use scale).
     let objBoxSize: THREE.Vector3 | null = null;
     let objBox: THREE.Box3 | null = null;
-    if (!prim && this.selectedObject3D) {
-      // Rotated bbox — for fixedFace world positions
+    if (this.selectedObject3D) {
       objBox = new THREE.Box3().setFromObject(this.selectedObject3D);
 
-      // Unrotated bbox — for size along each axis (scale operates before rotation)
+      // Unrotated bbox — for size along each local axis (scale operates before rotation)
       const savedQ = this.selectedObject3D.quaternion.clone();
       this.selectedObject3D.quaternion.set(0, 0, 0, 1);
       this.selectedObject3D.updateMatrixWorld(true);
@@ -854,8 +853,18 @@ export class ConstructorSceneService {
       objBoxUnrotated.getSize(objBoxSize);
     }
 
-    // Helper: grow a geometry param or fall back to scale
-    // Сдвиг позиции идёт по мировым осям проекции (без учёта вращения)
+    // For rotated groups: remap world handle direction to the best-matching local scale axis.
+    // E.g. if group is rotated 90° around Y, world X handle should scale local Z.
+    const remapAxisForGroup = (worldAxis: 'x' | 'y' | 'z'): 'x' | 'y' | 'z' => {
+      if (prim) return worldAxis;
+      const rot = params.rotation;
+      if (!rot) return worldAxis;
+      return remapAxisForRotatedGroup(rot, worldAxis);
+    };
+
+    // Helper: grow a geometry param or fall back to scale.
+    // For groups (incl. rotated), uses "before-after" AABB approach:
+    // record the fixed face position, change scale, measure drift, compensate with position.
     const growDim = (
       delta: number,
       geomKey: 'width' | 'height' | 'depth',
@@ -863,27 +872,44 @@ export class ConstructorSceneService {
       posAxis: 'x' | 'y' | 'z',
       posSign: number // +1 or -1: direction position shifts to keep opposite face fixed
     ) => {
+      // For rotated groups, remap scale axis to best-matching local axis
+      const effectiveScaleAxis = prim ? scaleAxis : remapAxisForGroup(scaleAxis);
+
       if (prim && geomKey in g) {
         g[geomKey] = Math.max(0.01, (g[geomKey] as number ?? 1) + delta);
         const shift = (delta / 2) * posSign;
         p[posAxis] += shift;
-      } else {
-        // Convert mm delta to proportional scale change
-        const currentSize = objBoxSize ? objBoxSize[scaleAxis] : 0;
+      } else if (this.selectedObject3D) {
+        const obj = this.selectedObject3D;
+        const currentSize = objBoxSize ? objBoxSize[effectiveScaleAxis] : 0;
         if (currentSize > 0.01) {
-          const oldScale = s[scaleAxis] ?? 1;
+          // Record which AABB face must stay fixed (world-space)
+          const fixedBefore = objBox
+            ? (posSign > 0 ? objBox.min[posAxis] : objBox.max[posAxis])
+            : p[posAxis];
+
+          // Change scale in local space (using remapped axis)
+          const oldScale = s[effectiveScaleAxis] ?? 1;
           const scaleDelta = delta / currentSize * oldScale;
-          s[scaleAxis] = Math.max(0.01, oldScale + scaleDelta);
-          // Position shift: keep the opposite face fixed
-          if (objBox) {
-            const fixedFaceWorld = posSign > 0 ? objBox.min[posAxis] : objBox.max[posAxis];
-            const fixedLocal = (fixedFaceWorld - p[posAxis]) / oldScale;
-            p[posAxis] -= fixedLocal * scaleDelta;
-          } else {
-            p[posAxis] += (delta / 2) * posSign;
-          }
+          s[effectiveScaleAxis] = Math.max(0.01, oldScale + scaleDelta);
+
+          // Apply new scale to 3D object and measure where the fixed face moved
+          obj.scale.set(s.x, s.y, s.z);
+          obj.updateMatrixWorld(true);
+          const newBox = new THREE.Box3().setFromObject(obj);
+          const fixedAfter = posSign > 0 ? newBox.min[posAxis] : newBox.max[posAxis];
+
+          // Compensate position so the fixed face doesn't move
+          const drift = fixedAfter - fixedBefore;
+          p[posAxis] -= drift;
+
+          // Sync 3D object position for subsequent growDim calls (corners call twice)
+          const halfH = prim ? prim.getHalfHeight() : 0;
+          obj.position.set(p.x, p.y + halfH, p.z);
+          obj.updateMatrixWorld(true);
+          objBox = new THREE.Box3().setFromObject(obj);
         } else {
-          s[scaleAxis] = Math.max(0.01, (s[scaleAxis] ?? 1) + delta * 0.01);
+          s[effectiveScaleAxis] = Math.max(0.01, (s[effectiveScaleAxis] ?? 1) + delta * 0.01);
           p[posAxis] += (delta / 2) * posSign;
         }
       }
@@ -931,13 +957,14 @@ export class ConstructorSceneService {
         if (prim && 'height' in g) {
           g.height = Math.max(0.01, (g.height as number ?? 1) + dy);
         } else {
-          const currentH = objBoxSize ? objBoxSize.y : 0;
+          const heightAxis = remapAxisForGroup('y');
+          const currentH = objBoxSize ? objBoxSize[heightAxis] : 0;
           if (currentH > 0.01) {
-            const oldScaleY = s.y ?? 1;
-            const scaleDelta = dy / currentH * oldScaleY;
-            s.y = Math.max(0.01, oldScaleY + scaleDelta);
+            const oldScaleH = s[heightAxis] ?? 1;
+            const scaleDelta = dy / currentH * oldScaleH;
+            s[heightAxis] = Math.max(0.01, oldScaleH + scaleDelta);
           } else {
-            s.y = Math.max(0.01, (s.y ?? 1) + dy * 0.01);
+            s[heightAxis] = Math.max(0.01, (s[heightAxis] ?? 1) + dy * 0.01);
           }
         }
 
@@ -1088,50 +1115,9 @@ export class ConstructorSceneService {
       }
     }
 
-    // ── Group baking: rotate children positions/rotations, reset group rotation ──
-    else if (isGroup) {
-      const groupNode = node as GroupNode;
-      const childTransforms = groupNode.children.map(c => ({
-        position: c.params?.position ? { ...c.params.position } : { x: 0, y: 0, z: 0 },
-        rotation: c.params?.rotation ? { ...c.params.rotation } : { x: 0, y: 0, z: 0 },
-      }));
-
-      const result = bakeGroupRotation(rot, childTransforms);
-      if (!result) return;
-
-      // Apply baked transforms to children
-      groupNode.children.forEach((child, i) => {
-        child.params = child.params || {};
-        child.params.position = result.bakedChildren[i].position;
-        child.params.rotation = result.bakedChildren[i].rotation;
-
-        // If child is a box primitive, recursively bake its new rotation
-        if (child instanceof Primitive && child.type === 'box') {
-          const childTransform = {
-            position: child.params.position,
-            scale: child.params.scale || { x: 1, y: 1, z: 1 },
-            rotation: child.params.rotation,
-          };
-          const childBake = bakeRotation('box', { ...child.geometryParams }, childTransform);
-          if (childBake.baked) {
-            child.geometryParams.width = childBake.geom.width;
-            child.geometryParams.height = childBake.geom.height;
-            child.geometryParams.depth = childBake.geom.depth;
-            child.params.position = childBake.transform.position;
-            child.params.scale = childBake.transform.scale;
-            child.params.rotation = childBake.transform.rotation;
-          }
-        }
-      });
-
-      rot.x = 0; rot.y = 0; rot.z = 0;
-
-      // Rebuild the group's 3D representation
-      this.rebuildSceneFromTree();
-    }
-
+    // Groups keep their rotation — no baking. Handles are rotation-aware.
     else {
-      return; // Unsupported node type
+      return;
     }
 
     this.updateGizmoTarget();
@@ -1319,7 +1305,7 @@ export class ConstructorSceneService {
     // Точка на плоскости проекции (Y=0) под центром объекта
     const projOrigin = new THREE.Vector3(objectPos.x, 0, objectPos.z);
 
-    // Оси проекции — всегда мировые, без учёта вращения объекта
+    // Оси проекции — мировые, ручки работают в визуальном пространстве
     let worldAxis: THREE.Vector3;
     let isVertical = false;
     let isCorner = false;
@@ -1365,7 +1351,7 @@ export class ConstructorSceneService {
       }
       plane = new THREE.Plane().setFromNormalAndCoplanarPoint(normal, objectPos);
     } else {
-      // Рёбра и углы: горизонтальная плоскость Y=0 (плоскость проекции)
+      // Рёбра и углы: горизонтальная плоскость Y=0
       plane = new THREE.Plane().setFromNormalAndCoplanarPoint(
         new THREE.Vector3(0, 1, 0),
         projOrigin,
