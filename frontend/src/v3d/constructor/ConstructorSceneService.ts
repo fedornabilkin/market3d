@@ -215,6 +215,10 @@ export class ConstructorSceneService {
     rotationWorldAxis?: THREE.Vector3;
     /** World-space radius of the rotation ring (for dual-ring snap detection). */
     ringRadius?: number;
+    /** Screen-space center of rotation (projected rotation center). */
+    screenCenter?: THREE.Vector2;
+    /** Screen-space angle at drag start. */
+    startScreenAngle?: number;
     /** Object's local X axis in world space (for corner drag). */
     localAxisX?: THREE.Vector3;
     /** Object's local Z axis in world space (for corner drag). */
@@ -327,7 +331,7 @@ export class ConstructorSceneService {
 
     // Camera
     this.camera = new THREE.PerspectiveCamera(50, width / height, 0.1, 1000);
-    this.camera.position.set(220, 160, 220);
+    this.camera.position.set(0, 160, 300);
 
     // Renderer
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -830,7 +834,6 @@ export class ConstructorSceneService {
     params.scale = params.scale || { x: 1, y: 1, z: 1 };
 
     const p = params.position!;
-    const g = prim?.geometryParams ?? {};
     const s = params.scale!;
 
     // Compute AABB and unrotated bbox for scale-based sizing.
@@ -853,33 +856,27 @@ export class ConstructorSceneService {
       objBoxUnrotated.getSize(objBoxSize);
     }
 
-    // For rotated groups: remap world handle direction to the best-matching local scale axis.
-    // E.g. if group is rotated 90° around Y, world X handle should scale local Z.
-    const remapAxisForGroup = (worldAxis: 'x' | 'y' | 'z'): 'x' | 'y' | 'z' => {
-      if (prim) return worldAxis;
+    // Remap world handle direction to the best-matching local scale axis.
+    // E.g. if object is rotated 90° around Y, world X handle should scale local Z.
+    const remapAxis = (worldAxis: 'x' | 'y' | 'z'): 'x' | 'y' | 'z' => {
       const rot = params.rotation;
       if (!rot) return worldAxis;
       return remapAxisForRotatedGroup(rot, worldAxis);
     };
 
-    // Helper: grow a geometry param or fall back to scale.
-    // For groups (incl. rotated), uses "before-after" AABB approach:
+    // Helper: scale object along one axis using "before-after" AABB approach:
     // record the fixed face position, change scale, measure drift, compensate with position.
     const growDim = (
       delta: number,
-      geomKey: 'width' | 'height' | 'depth',
+      _geomKey: 'width' | 'height' | 'depth',
       scaleAxis: 'x' | 'y' | 'z',
       posAxis: 'x' | 'y' | 'z',
       posSign: number // +1 or -1: direction position shifts to keep opposite face fixed
     ) => {
       // For rotated groups, remap scale axis to best-matching local axis
-      const effectiveScaleAxis = prim ? scaleAxis : remapAxisForGroup(scaleAxis);
+      const effectiveScaleAxis = remapAxis(scaleAxis);
 
-      if (prim && geomKey in g) {
-        g[geomKey] = Math.max(0.01, (g[geomKey] as number ?? 1) + delta);
-        const shift = (delta / 2) * posSign;
-        p[posAxis] += shift;
-      } else if (this.selectedObject3D) {
+      if (this.selectedObject3D) {
         const obj = this.selectedObject3D;
         const currentSize = objBoxSize ? objBoxSize[effectiveScaleAxis] : 0;
         if (currentSize > 0.01) {
@@ -954,10 +951,8 @@ export class ConstructorSceneService {
           bottomBefore = bBefore.min.y;
         }
 
-        if (prim && 'height' in g) {
-          g.height = Math.max(0.01, (g.height as number ?? 1) + dy);
-        } else {
-          const heightAxis = remapAxisForGroup('y');
+        {
+          const heightAxis = remapAxis('y');
           const currentH = objBoxSize ? objBoxSize[heightAxis] : 0;
           if (currentH > 0.01) {
             const oldScaleH = s[heightAxis] ?? 1;
@@ -980,14 +975,9 @@ export class ConstructorSceneService {
           });
 
           // Применяем промежуточные значения к mesh для вычисления нового bbox
-          if (prim) {
-            const tmpOldGeo = (hObj as THREE.Mesh).geometry;
-            (hObj as THREE.Mesh).geometry = prim.createGeometry();
-            tmpOldGeo.dispose();
-            const halfH = prim.getHalfHeight();
+          {
+            const halfH = prim ? prim.getHalfHeight() : 0;
             hObj.position.set(p.x, (p.y ?? 0) + halfH, p.z);
-          } else {
-            hObj.position.set(p.x, p.y, p.z);
             if (params.scale) hObj.scale.set(params.scale.x, params.scale.y, params.scale.z);
           }
           hObj.updateMatrixWorld(true);
@@ -1038,11 +1028,8 @@ export class ConstructorSceneService {
 
     // Update mesh visuals
     const obj = this.selectedObject3D;
-    const isGeomChange = handleType.startsWith('edge') || handleType.startsWith('corner') || handleType === 'height';
 
-    if (obj && prim && isGeomChange) {
-      this.updatePrimitiveGeometryInPlace(prim, obj as THREE.Mesh);
-    } else if (obj) {
+    if (obj) {
       const halfH = prim ? prim.getHalfHeight() : 0;
       if (params.position) {
         obj.position.set(params.position.x, (params.position.y ?? 0) + halfH, params.position.z);
@@ -1784,28 +1771,39 @@ export class ConstructorSceneService {
       const isRotation = this.handleDragState.handleType.startsWith('rotate');
 
       if (isRotation) {
-        const rp = this.handleDragState.rotationPlane;
-        const rc = this.handleDragState.rotationCenter;
-        if (rp && rc && this.handleDragState.startPlaneAngle !== undefined) {
-          // Raycast cursor onto the rotation plane
-          const hitPoint = new THREE.Vector3();
-          const didHit = this.raycaster.ray.intersectPlane(rp, hitPoint);
-          if (!didHit) return;
-
-          // Compute current angle on the rotation plane
-          const tU = this.handleDragState.rotationTangentU!;
-          const tV = this.handleDragState.rotationTangentV!;
-          const currentAngle = planeAngle(hitPoint, rc, tU, tV);
-          let delta = currentAngle - this.handleDragState.startPlaneAngle;
+        const sc = this.handleDragState.screenCenter;
+        const startSA = this.handleDragState.startScreenAngle;
+        if (sc && startSA !== undefined && this.handleDragState.startPlaneAngle !== undefined) {
+          // Screen-space angle for uniform stiffness across all axes
+          const curScreenAngle = Math.atan2(
+            -(event.clientY - sc.y), event.clientX - sc.x
+          );
+          let delta = curScreenAngle - startSA;
           if (delta > Math.PI) delta -= 2 * Math.PI;
           if (delta < -Math.PI) delta += 2 * Math.PI;
 
-          // Dual-ring snap: distance from center determines 5° (inner) or 1° (outer)
-          const ringRadius = this.handleDragState.ringRadius ?? 1;
-          const distFromCenter = hitPoint.distanceTo(rc);
-          const normalizedDist = distFromCenter / ringRadius;
-          // Inner ring boundary ~0.82 (midpoint between rings)
-          const snapDeg = normalizedDist < 0.82 ? 5 : 1;
+          // Check rotation direction: if camera looks at the back of the plane,
+          // invert the rotation so it matches visual cursor direction
+          const rc = this.handleDragState.rotationCenter;
+          const normal = this.handleDragState.rotationWorldAxis;
+          if (rc && normal && this.camera) {
+            const camDir = this.camera.position.clone().sub(rc);
+            if (camDir.dot(normal) < 0) delta = -delta;
+          }
+
+          // Triple-ring snap: use 3D raycast distance for snap zone detection
+          let snapDeg = 5; // default
+          const rp = this.handleDragState.rotationPlane;
+          if (rp && rc) {
+            const hitPoint = new THREE.Vector3();
+            const didHit = this.raycaster.ray.intersectPlane(rp, hitPoint);
+            if (didHit) {
+              const ringRadius = this.handleDragState.ringRadius ?? 1;
+              const distFromCenter = hitPoint.distanceTo(rc);
+              const normalizedDist = distFromCenter / ringRadius;
+              snapDeg = normalizedDist < 0.64 ? 22.5 : normalizedDist < 0.82 ? 5 : 1;
+            }
+          }
           const snapStep = (snapDeg * Math.PI) / 180;
 
           const startRot = this.handleDragState.startRotation ?? 0;
@@ -1816,6 +1814,15 @@ export class ConstructorSceneService {
 
           // Pass absolute angle
           this.applyHandleDragDelta(this.handleDragState.node, this.handleDragState.handleType, snappedTarget, 0);
+
+          // Update sector visualization
+          if (this.modificationGizmo) {
+            this.modificationGizmo.updateRotationSector(
+              this.handleDragState.handleType as import('./ModificationGizmo').HandleType,
+              startRot,
+              snappedTarget
+            );
+          }
         }
         return;
       }
@@ -1991,12 +1998,24 @@ export class ConstructorSceneService {
             // Сохраняем начальный кватернион и мировую ось для корректного вращения
             this.handleDragState.startQuaternion = obj.quaternion.clone();
             this.handleDragState.rotationWorldAxis = normal.clone();
+
+            // Screen-space center and start angle for uniform stiffness
+            const screenCenter = center.clone().project(this.camera!);
+            const rect = this.containerEl?.getBoundingClientRect();
+            if (rect) {
+              const sx = (screenCenter.x * 0.5 + 0.5) * rect.width + rect.left;
+              const sy = (-screenCenter.y * 0.5 + 0.5) * rect.height + rect.top;
+              this.handleDragState.screenCenter = new THREE.Vector2(sx, sy);
+              this.handleDragState.startScreenAngle = Math.atan2(
+                -(event.clientY - sy), event.clientX - sx
+              );
+            }
           }
 
           // Вычисляем радиус кольца для определения snap-зоны
           const boxSize = new THREE.Vector3();
           box.getSize(boxSize);
-          this.handleDragState.ringRadius = boxSize.length() * 0.6;
+          this.handleDragState.ringRadius = boxSize.length() * 1.0;
 
           // Cache the bbox center as fixed pivot for position correction
           const pivot = center.clone();
@@ -2059,6 +2078,12 @@ export class ConstructorSceneService {
     if (this.isHandleDragging) {
       const wasRotation = this.handleDragState?.handleType?.startsWith('rotate');
       const rotNode = this.handleDragState?.node ?? null;
+      // Hide rotation sector
+      if (wasRotation && this.modificationGizmo && this.handleDragState?.handleType) {
+        this.modificationGizmo.hideRotationSector(
+          this.handleDragState.handleType as import('./ModificationGizmo').HandleType
+        );
+      }
       this.isHandleDragging = false;
       this.handleDragState = null;
       this.pointerDownHandle = null;

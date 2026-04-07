@@ -115,13 +115,31 @@ function createProtractorHandle(type: HandleType): HandleMesh {
   return mesh;
 }
 
-// ─── Dual protractor rings (shown on hover, unit radius, scaled in world) ───
-// Inner ring: ticks every 5°, outer ring: ticks every 1°
+// ─── Triple protractor rings (shown on hover, unit radius, scaled in world) ──
+// Center ring: 45° snap (8 parts), inner ring: 5° ticks, outer ring: 1° ticks
 function buildRingGroup(color: number): THREE.Group {
   const g = new THREE.Group();
 
   const tickMat = new THREE.LineBasicMaterial({ color: 0x888888, depthTest: false });
   const majorMat = new THREE.LineBasicMaterial({ color, depthTest: false });
+
+  // ── Center ring: 45° ticks (8 parts) ──────────────────────────────
+  const centerRingGeo = new THREE.RingGeometry(0.50, 0.60, 64) as unknown as THREE.BufferGeometry;
+  const centerRingMat = new THREE.MeshBasicMaterial({
+    color, side: THREE.DoubleSide, transparent: true, opacity: 0.40,
+    depthTest: false, depthWrite: false,
+  });
+  g.add(new THREE.Mesh(centerRingGeo, centerRingMat));
+
+  // Center ticks every 22.5° (16 parts)
+  for (let deg = 0; deg < 360; deg += 22.5) {
+    const rad = -Math.PI / 2 - (deg * Math.PI) / 180;
+    const pts = [
+      new THREE.Vector3(Math.cos(rad) * 0.44, Math.sin(rad) * 0.44, 0),
+      new THREE.Vector3(Math.cos(rad) * 0.50, Math.sin(rad) * 0.50, 0),
+    ];
+    g.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), majorMat));
+  }
 
   // ── Inner ring: 5° ticks, thicker band ─────────────────────────────
   const innerRingGeo = new THREE.RingGeometry(0.68, 0.78, 64) as unknown as THREE.BufferGeometry;
@@ -133,7 +151,7 @@ function buildRingGroup(color: number): THREE.Group {
 
   // Inner ticks every 5°, major every 15°
   for (let deg = 0; deg < 360; deg += 5) {
-    const rad = Math.PI / 2 - (deg * Math.PI) / 180;
+    const rad = -Math.PI / 2 - (deg * Math.PI) / 180;
     const isMajor = deg % 15 === 0;
     const inner = isMajor ? 0.62 : 0.66;
     const pts = [
@@ -153,7 +171,7 @@ function buildRingGroup(color: number): THREE.Group {
 
   // Outer ticks every 1°, major every 10°
   for (let deg = 0; deg < 360; deg += 1) {
-    const rad = Math.PI / 2 - (deg * Math.PI) / 180;
+    const rad = -Math.PI / 2 - (deg * Math.PI) / 180;
     const isMajor = deg % 10 === 0;
     const inner = isMajor ? 0.83 : 0.86;
     const pts = [
@@ -165,7 +183,7 @@ function buildRingGroup(color: number): THREE.Group {
 
   // Degree labels at every 30° (between the two rings)
   for (let deg = 0; deg < 360; deg += 30) {
-    const rad = Math.PI / 2 - (deg * Math.PI) / 180;
+    const rad = -Math.PI / 2 - (deg * Math.PI) / 180;
     const labelR = 0.82;
     const sprite = makeTextSprite(String(deg), color);
     sprite.position.set(Math.cos(rad) * labelR, Math.sin(rad) * labelR, 0);
@@ -173,14 +191,33 @@ function buildRingGroup(color: number): THREE.Group {
     g.add(sprite);
   }
 
-  // Pointer line
+  // Pointer line (current rotation axis) — points down (toward 0°)
   const ptrMat = new THREE.LineBasicMaterial({ color, depthTest: false, linewidth: 2 });
   const ptrGeo = new THREE.BufferGeometry().setFromPoints([
-    new THREE.Vector3(0, 0, 0.001), new THREE.Vector3(0, 0.95, 0.001),
+    new THREE.Vector3(0, 0, 0.001), new THREE.Vector3(0, -0.95, 0.001),
   ]);
   const ptr = new THREE.Line(ptrGeo, ptrMat);
   ptr.name = 'rotationPointer';
   g.add(ptr);
+
+  // Cursor pointer line (follows drag angle) — points down
+  const cursorPtrGeo = new THREE.BufferGeometry().setFromPoints([
+    new THREE.Vector3(0, 0, 0.002), new THREE.Vector3(0, -0.95, 0.002),
+  ]);
+  const cursorPtr = new THREE.Line(cursorPtrGeo, ptrMat.clone());
+  cursorPtr.name = 'rotationCursorPointer';
+  cursorPtr.visible = false;
+  g.add(cursorPtr);
+
+  // Sector fill (highlighted area between start and current angle) — contrasting color
+  const sectorMat = new THREE.MeshBasicMaterial({
+    color: 0xffff00, side: THREE.DoubleSide, transparent: true, opacity: 0.30,
+    depthTest: false, depthWrite: false,
+  });
+  const sectorMesh = new THREE.Mesh(new THREE.BufferGeometry(), sectorMat);
+  sectorMesh.name = 'rotationSector';
+  sectorMesh.visible = false;
+  g.add(sectorMesh);
 
   // Center dot
   const dotGeo = new THREE.CircleGeometry(0.02, 12) as unknown as THREE.BufferGeometry;
@@ -415,7 +452,7 @@ export class ModificationGizmo {
         const ring = this.rotationRings.get(handle.userData.type as HandleType);
         if (ring) {
           ring.visible = true;
-          this.fixedRingRadius = this.boxSize.length() * 0.6;
+          this.fixedRingRadius = this.boxSize.length() * 1.0;
         }
       } else {
         mat.color.setHex(0xff0000);
@@ -472,25 +509,59 @@ export class ModificationGizmo {
     // OffsetY: above height handle
     this.handles[handleIndexByType.offsetY].position.set(midX, max.y + offsetYWorld * 2, midZ);
 
-    // Three rotation handles — always oriented along fixed world axes
+    // Three rotation handles — oriented with arcs facing the object center
     const rotOff = wpp * ROTATE_ARROW_OFFSET_PX;
-    const midY = (min.y + max.y) / 2;
-    const zAxis = new THREE.Vector3(0, 0, 1);
+    // Orient rotation handle so arc bow faces toward the object (away from grid)
+    const orientArc = (handle: HandleMesh, rotAxis: THREE.Vector3) => {
+      const gridPoint = new THREE.Vector3(handle.position.x, 0, handle.position.z);
+      const dir = handle.position.clone().sub(gridPoint); // away from grid → arc bows toward object
+      // Project direction onto plane perpendicular to rotation axis
+      dir.sub(rotAxis.clone().multiplyScalar(dir.dot(rotAxis)));
+      if (dir.lengthSq() < 0.001) return;
+      dir.normalize();
+      // local Z = rotAxis (rotation plane normal), local X = dir (arc center), local Y = Z × X
+      const localY = new THREE.Vector3().crossVectors(rotAxis, dir).normalize();
+      const m = new THREE.Matrix4().makeBasis(dir, localY, rotAxis);
+      handle.quaternion.setFromRotationMatrix(m);
+    };
 
-    // rotateX — plane normal = world X
+    // rotateX — at the far edge from camera along X, above top, centered
     const hRX = this.handles[handleIndexByType.rotateX];
-    hRX.position.set(max.x + rotOff, midY, midZ);
-    hRX.quaternion.setFromUnitVectors(zAxis, new THREE.Vector3(1, 0, 0));
+    const camX = this.camera!.position.x;
+    const farX = camX > midX ? min.x : max.x;
+    hRX.position.set(farX, max.y + rotOff, midZ);
+    orientArc(hRX, new THREE.Vector3(1, 0, 0));
 
-    // rotateY — plane normal = world Y
-    const hRY = this.handles[handleIndexByType.rotateY];
-    hRY.position.set(midX, max.y + rotOff, midZ);
-    hRY.quaternion.setFromUnitVectors(zAxis, new THREE.Vector3(0, 1, 0));
-
-    // rotateZ — plane normal = world Z
+    // rotateZ — at the far edge from camera, above top, centered
     const hRZ = this.handles[handleIndexByType.rotateZ];
-    hRZ.position.set(midX, midY, max.z + rotOff);
-    hRZ.quaternion.setFromUnitVectors(zAxis, new THREE.Vector3(0, 0, 1));
+    const camZ = this.camera!.position.z;
+    const farZ = camZ > midZ ? min.z : max.z;
+    hRZ.position.set(midX, max.y + rotOff, farZ);
+    orientArc(hRZ, new THREE.Vector3(0, 0, 1));
+
+    // rotateY — at bottom, at the nearest edge from camera
+    const hRY = this.handles[handleIndexByType.rotateY];
+    const nearX = camX > midX ? max.x : min.x;
+    const nearZ = camZ > midZ ? max.z : min.z;
+    // Pick the nearest edge (X or Z) based on which camera axis is more dominant
+    const dxCam = Math.abs(camX - midX);
+    const dzCam = Math.abs(camZ - midZ);
+    if (dxCam > dzCam) {
+      hRY.position.set(nearX + rotOff * Math.sign(camX - midX), min.y, midZ);
+    } else {
+      hRY.position.set(midX, min.y, nearZ + rotOff * Math.sign(camZ - midZ));
+    }
+    {
+      const camDir = this.camera!.position.clone().sub(hRY.position);
+      camDir.y = 0; // project onto grid plane
+      if (camDir.lengthSq() > 0.001) {
+        camDir.normalize();
+        const rotAxis = new THREE.Vector3(0, 1, 0);
+        const localY = new THREE.Vector3().crossVectors(rotAxis, camDir).normalize();
+        const m = new THREE.Matrix4().makeBasis(camDir, localY, rotAxis);
+        hRY.quaternion.setFromRotationMatrix(m);
+      }
+    }
 
     // Billboard: orient non-rotation handles toward the camera
     this.handles.forEach((handle) => {
@@ -521,20 +592,34 @@ export class ModificationGizmo {
 
       // Position and scale protractor rings — centered on object, oriented per axis
       const rot = this.node?.params?.rotation;
-      const ringRadius = this.fixedRingRadius > 0 ? this.fixedRingRadius : this.boxSize.length() * 0.6;
+      const ringRadius = this.fixedRingRadius > 0 ? this.fixedRingRadius : this.boxSize.length() * 1.0;
       this.rotationRings.forEach((ring, type) => {
         if (!ring.visible) return;
         const handle = this.handles[handleIndexByType[type]];
         ring.position.copy(this.boxCenter);
         ring.quaternion.copy(handle.quaternion);
+
+        // Rotate ring so zero mark (-Y in local) faces the handle position
+        const worldDir = handle.position.clone().sub(this.boxCenter);
+        const localX = new THREE.Vector3(1, 0, 0).applyQuaternion(handle.quaternion);
+        const localY = new THREE.Vector3(0, 1, 0).applyQuaternion(handle.quaternion);
+        const localZ = new THREE.Vector3(0, 0, 1).applyQuaternion(handle.quaternion);
+        worldDir.sub(localZ.clone().multiplyScalar(worldDir.dot(localZ))); // project onto ring plane
+        const lx = worldDir.dot(localX);
+        const ly = worldDir.dot(localY);
+        const zeroOffset = Math.atan2(lx, -ly);
+        ring.quaternion.multiply(
+          new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), zeroOffset)
+        );
+
         ring.scale.setScalar(ringRadius);
 
         // Pointer = clock hand: points in the direction of current rotation
         const ptr = ring.getObjectByName('rotationPointer') as THREE.Line | undefined;
         if (ptr) {
-          if (type === 'rotateX') ptr.rotation.z = -(rot?.x ?? 0);
-          if (type === 'rotateY') ptr.rotation.z = -(rot?.y ?? 0);
-          if (type === 'rotateZ') ptr.rotation.z = -(rot?.z ?? 0);
+          if (type === 'rotateX') ptr.rotation.z = (rot?.x ?? 0);
+          if (type === 'rotateY') ptr.rotation.z = (rot?.y ?? 0);
+          if (type === 'rotateZ') ptr.rotation.z = (rot?.z ?? 0);
         }
       });
     }
@@ -715,6 +800,63 @@ export class ModificationGizmo {
       this.tooltip = null;
     }
     this.scene.remove(this.group);
+  }
+
+  /** Update the rotation sector and cursor pointer during drag. */
+  updateRotationSector(type: HandleType, startAngle: number, currentAngle: number): void {
+    const ring = this.rotationRings.get(type);
+    if (!ring) return;
+
+    const cursorPtr = ring.getObjectByName('rotationCursorPointer') as THREE.Line | undefined;
+    const sectorMesh = ring.getObjectByName('rotationSector') as THREE.Mesh | undefined;
+
+    if (cursorPtr) {
+      cursorPtr.visible = true;
+      cursorPtr.rotation.z = currentAngle;
+    }
+
+    if (sectorMesh) {
+      sectorMesh.visible = true;
+      // Build sector geometry between startAngle and currentAngle
+      let delta = currentAngle - startAngle;
+      if (delta > Math.PI) delta -= 2 * Math.PI;
+      if (delta < -Math.PI) delta += 2 * Math.PI;
+
+      const segs = Math.max(3, Math.ceil(Math.abs(delta) / (Math.PI / 36)));
+      const vertices: number[] = [];
+      for (let i = 0; i <= segs; i++) {
+        const a = -Math.PI / 2 + (startAngle + delta * (i / segs));
+        // Center vertex
+        vertices.push(0, 0, 0.001);
+        // Edge vertex at outer radius
+        vertices.push(Math.cos(a) * 0.95, Math.sin(a) * 0.95, 0.001);
+        if (i < segs) {
+          const aNext = -Math.PI / 2 + (startAngle + delta * ((i + 1) / segs));
+          vertices.push(Math.cos(aNext) * 0.95, Math.sin(aNext) * 0.95, 0.001);
+        }
+      }
+      // Build triangle fan
+      const indices: number[] = [];
+      for (let i = 0; i < segs; i++) {
+        indices.push(i * 3, i * 3 + 1, i * 3 + 2);
+      }
+
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+      geo.setIndex(indices);
+      if (sectorMesh.geometry) sectorMesh.geometry.dispose();
+      sectorMesh.geometry = geo;
+    }
+  }
+
+  /** Hide sector and cursor pointer (call on drag end). */
+  hideRotationSector(type: HandleType): void {
+    const ring = this.rotationRings.get(type);
+    if (!ring) return;
+    const cursorPtr = ring.getObjectByName('rotationCursorPointer') as THREE.Line | undefined;
+    const sectorMesh = ring.getObjectByName('rotationSector') as THREE.Mesh | undefined;
+    if (cursorPtr) cursorPtr.visible = false;
+    if (sectorMesh) sectorMesh.visible = false;
   }
 }
 
