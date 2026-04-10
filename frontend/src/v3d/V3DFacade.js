@@ -283,18 +283,10 @@ export class V3DFacade {
       
       return zipBlob;
         } else {
-          // Экспорт объединенной модели
-          // Останавливаем рендеринг перед объединением геометрий
-          const wasAnimating = this.box.animation && this.box.animation.node;
-          if (wasAnimating) {
-            this.box.animation.stop();
-          }
-          
-          // Небольшая задержка для завершения текущего кадра рендеринга
-          await new Promise(resolve => setTimeout(resolve, 50));
-          
-          const combinedMesh = this.box.combinedNodes();
-          const result = exporter.parse(combinedMesh, expConfig);
+          // Экспорт объединенной модели — передаём sceneGraphRoot целиком,
+          // STLExporter сам traverse'ит все дочерние Mesh
+          this.box.sceneGraphRoot.updateMatrixWorld(true);
+          const result = exporter.parse(this.box.sceneGraphRoot, expConfig);
           const stlFilename = filename || `${this.generateFilename()}.stl`;
 
           if (exportAsBinary) {
@@ -302,9 +294,9 @@ export class V3DFacade {
           } else {
             saveAsString(result, stlFilename);
           }
-          
-          return new Blob([result], { 
-            type: exportAsBinary ? 'application/octet-stream' : 'text/plain' 
+
+          return new Blob([result], {
+            type: exportAsBinary ? 'application/octet-stream' : 'text/plain'
           });
         }
   }

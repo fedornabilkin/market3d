@@ -260,7 +260,22 @@ export default {
       return `${prefix}${param}${timestamp}`
     },
     exportPNG() {
-      const dataUrl = this.v3dFacade.getImageDataUrl()
+      const renderer = this.renderer
+      const container = document.getElementById('container3d')
+      const origWidth = container.clientWidth
+      const origHeight = container.clientHeight
+      const origPixelRatio = renderer.getPixelRatio()
+
+      const scale = 3
+      renderer.setPixelRatio(scale)
+      renderer.setSize(origWidth, origHeight)
+      renderer.render(this.scene, this.camera)
+
+      const dataUrl = renderer.domElement.toDataURL('image/png')
+
+      renderer.setPixelRatio(origPixelRatio)
+      renderer.setSize(origWidth, origHeight)
+
       const a = document.createElement('a')
       a.href = dataUrl
       a.download = `${this.fileName()}.png`
