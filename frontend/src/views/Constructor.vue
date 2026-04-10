@@ -41,80 +41,87 @@
               path(:d="shape.icon")
 
     .constructor-panel.constructor-panel--settings
-      .panel-header Настройки узла
-      .settings-content(v-if="selectedNode")
-        //- Name (inline, no label)
-        .field
-          input.input.is-small(
-            type="text"
-            v-model="selectedName"
-            placeholder="Название узла"
-            @change="applyName"
-          )
-        //- isHole
-        .field
-          label.checkbox
-            input(type="checkbox" v-model="selectedIsHole" @change="applyIsHole")
-            span  Отверстие
-        //- Color (inline, no label)
-        .field
-          .color-row
-            input(type="color" v-model="selectedColor" @change="applyColor")
-            button.button.is-small.reset-color(@click="resetColor" title="Сбросить цвет") ✕
-        //- Position
-        .field
-          label.label Позиция (мм)
-          .field.has-addons
-            .xyz-input
-              span.xyz-label X
-              input.input(type="number" step="1" v-model.number="selectedPosition.x" @change="applySettingsPosition")
-            .xyz-input
-              span.xyz-label Y
-              input.input(type="number" step="1" v-model.number="selectedPosition.y" @change="applySettingsPosition")
-            .xyz-input
-              span.xyz-label Z
-              input.input(type="number" step="1" v-model.number="selectedPosition.z" @change="applySettingsPosition")
-        //- Scale
-        .field
-          label.label Масштаб
-          .field.has-addons
-            .xyz-input
-              span.xyz-label X
-              input.input(type="number" step="0.1" min="0.01" v-model.number="selectedScale.x" @change="applySettingsScale")
-            .xyz-input
-              span.xyz-label Y
-              input.input(type="number" step="0.1" min="0.01" v-model.number="selectedScale.y" @change="applySettingsScale")
-            .xyz-input
-              span.xyz-label Z
-              input.input(type="number" step="0.1" min="0.01" v-model.number="selectedScale.z" @change="applySettingsScale")
-        //- Rotation in degrees
-        .field
-          label.label Поворот (°)
-          .field.has-addons
-            .xyz-input
-              span.xyz-label X
-              input.input(type="number" step="1" v-model.number="selectedRotationDeg.x" @change="applySettingsRotation")
-            .xyz-input
-              span.xyz-label Y
-              input.input(type="number" step="1" v-model.number="selectedRotationDeg.y" @change="applySettingsRotation")
-            .xyz-input
-              span.xyz-label Z
-              input.input(type="number" step="1" v-model.number="selectedRotationDeg.z" @change="applySettingsRotation")
-        //- Geometry params (primitives and groups)
-        .field(v-if="currentGeometryFields.length")
-          label.label Геометрия
-          .geometry-grid
-            .geometry-item(v-for="field in currentGeometryFields" :key="field.key")
-              span.geometry-label {{ field.label }}
-              input.input.is-small.geometry-input(
-                type="number"
-                step="0.5"
-                min="0.01"
-                v-model.number="selectedGeometryParams[field.key]"
-                @change="applySettingsGeometry"
-              )
-      .settings-placeholder(v-else)
-        | Выберите узел в сцене или в списке
+      template(v-if="chamferModeActive")
+        .panel-header Фаска
+        .settings-content
+          .field
+            label.label Размер (мм)
+            input.input.is-small(type="number" :step="snapStep || 0.5" :min="snapStep || 0.1" v-model.number="chamferRadius")
+      template(v-else)
+        .panel-header Настройки узла
+        .settings-content(v-if="selectedNode")
+          //- Name (inline, no label)
+          .field
+            input.input.is-small(
+              type="text"
+              v-model="selectedName"
+              placeholder="Название узла"
+              @change="applyName"
+            )
+          //- isHole
+          .field
+            label.checkbox
+              input(type="checkbox" v-model="selectedIsHole" @change="applyIsHole")
+              span  Отверстие
+          //- Color (inline, no label)
+          .field
+            .color-row
+              input(type="color" v-model="selectedColor" @change="applyColor")
+              button.button.is-small.reset-color(@click="resetColor" title="Сбросить цвет") ✕
+          //- Position
+          .field
+            label.label Позиция (мм)
+            .field.has-addons
+              .xyz-input
+                span.xyz-label X
+                input.input(type="number" step="1" v-model.number="selectedPosition.x" @change="applySettingsPosition")
+              .xyz-input
+                span.xyz-label Y
+                input.input(type="number" step="1" v-model.number="selectedPosition.y" @change="applySettingsPosition")
+              .xyz-input
+                span.xyz-label Z
+                input.input(type="number" step="1" v-model.number="selectedPosition.z" @change="applySettingsPosition")
+          //- Scale
+          .field
+            label.label Масштаб
+            .field.has-addons
+              .xyz-input
+                span.xyz-label X
+                input.input(type="number" step="0.1" min="0.01" v-model.number="selectedScale.x" @change="applySettingsScale")
+              .xyz-input
+                span.xyz-label Y
+                input.input(type="number" step="0.1" min="0.01" v-model.number="selectedScale.y" @change="applySettingsScale")
+              .xyz-input
+                span.xyz-label Z
+                input.input(type="number" step="0.1" min="0.01" v-model.number="selectedScale.z" @change="applySettingsScale")
+          //- Rotation in degrees
+          .field
+            label.label Поворот (°)
+            .field.has-addons
+              .xyz-input
+                span.xyz-label X
+                input.input(type="number" step="1" v-model.number="selectedRotationDeg.x" @change="applySettingsRotation")
+              .xyz-input
+                span.xyz-label Y
+                input.input(type="number" step="1" v-model.number="selectedRotationDeg.y" @change="applySettingsRotation")
+              .xyz-input
+                span.xyz-label Z
+                input.input(type="number" step="1" v-model.number="selectedRotationDeg.z" @change="applySettingsRotation")
+          //- Geometry params (primitives and groups)
+          .field(v-if="currentGeometryFields.length")
+            label.label Геометрия
+            .geometry-grid
+              .geometry-item(v-for="field in currentGeometryFields" :key="field.key")
+                span.geometry-label {{ field.label }}
+                input.input.is-small.geometry-input(
+                  type="number"
+                  step="0.5"
+                  min="0.01"
+                  v-model.number="selectedGeometryParams[field.key]"
+                  @change="applySettingsGeometry"
+                )
+        .settings-placeholder(v-else)
+          | Выберите узел в сцене или в списке
 
   .constructor-canvas-wrap
     div(ref="containerRef" class="canvas-container")
@@ -154,6 +161,13 @@
         title="Метки выравнивания"
       )
         i.fas.fa-ruler-combined
+      button.btn-icon(
+        :class="{ 'is-active-tool': chamferModeActive }"
+        @click="toggleChamferMode"
+        :disabled="!hasSceneObjects"
+        title="Фаска (F)"
+      )
+        i.fas.fa-bezier-curve
       .toolbar-separator
       button.btn-icon.btn-delete(@click="deleteSelected" :disabled="!canDeleteSelected" title="Удалить (Del)")
         i.fas.fa-trash
@@ -279,7 +293,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, shallowRef, computed, onMounted, onBeforeUnmount, toRaw } from 'vue';
+import { ref, shallowRef, computed, onMounted, onBeforeUnmount, toRaw, watch } from 'vue';
 import { markRaw } from 'vue';
 import * as THREE from 'three';
 import {
@@ -341,6 +355,12 @@ const canDeleteSelected = computed(() => {
   const r = rootNode.value;
   return !!node && !!r && node !== r;
 });
+
+const hasSceneObjects = computed(() => {
+  treeVersion.value;
+  const r = rootNode.value;
+  return r instanceof GroupNode && r.children.length > 0;
+});
 const canMerge = computed(() => selectedNodes.value.length >= 2);
 const canUngroup = computed(() => {
   const node = selectedNode.value;
@@ -362,6 +382,16 @@ const addCooldown = ref(false);
 const mirrorModeActive = ref(false);
 const cruiseModeActive = ref(false);
 const alignmentModeActive = ref(false);
+const chamferModeActive = ref(false);
+const chamferRadius = ref(2);
+watch([chamferRadius], () => {
+  if (sceneService && chamferModeActive.value) {
+    const cm = sceneService.getChamferMode();
+    cm.settings.radius = chamferRadius.value;
+    cm.settings.profile = 'concave';
+    cm.refreshPreview();
+  }
+});
 const selectedGroupOperation = ref('union');
 const selectedPosition = ref({ x: 0, y: 0, z: 0 });
 const selectedScale = ref({ x: 1, y: 1, z: 1 });
@@ -784,6 +814,122 @@ function toggleAlignmentMode() {
   sceneService.setAlignmentMode(alignmentModeActive.value);
 }
 
+function toggleChamferMode() {
+  if (!sceneService) return;
+  chamferModeActive.value = !chamferModeActive.value;
+  sceneService.setChamferMode(chamferModeActive.value);
+  if (chamferModeActive.value) {
+    const cm = sceneService.getChamferMode();
+    cm.settings.radius = chamferRadius.value;
+    cm.settings.profile = 'concave';
+  }
+}
+
+function applyChamferToEdge(
+  obj: THREE.Object3D,
+  edge: Record<string, any>,
+  settings: { radius: number; profile: 'convex' | 'concave' | 'flat' },
+) {
+  if (!sceneService || !modelApp.value) return;
+  const node = (obj.userData as { node?: ModelNode }).node;
+  if (!node) return;
+
+  const parent = sceneService.getParentOf(node);
+  if (!parent || !(parent instanceof GroupNode)) return;
+
+  const r = settings.radius;
+
+  const chamferGroup = buildLinearChamfer(edge, r, settings.profile, node);
+
+  withHistory(() => {
+    if (node instanceof GroupNode) {
+      node.children.push(chamferGroup);
+    } else {
+      // Primitive: wrap original + chamfer in a new group for CSG
+      const idx = parent.children.indexOf(node);
+      if (idx === -1) return;
+      const wrapper = new GroupNode();
+      wrapper.operation = 'union';
+      wrapper.name = node.name || 'Группа';
+      wrapper.params = {
+        position: node.params?.position ? { ...node.params.position } : { x: 0, y: 0, z: 0 },
+        scale: node.params?.scale ? { ...node.params.scale } : undefined,
+        rotation: node.params?.rotation ? { ...node.params.rotation } : undefined,
+        color: node.params?.color,
+        isHole: node.params?.isHole,
+      };
+      node.params = {
+        ...node.params,
+        position: { x: 0, y: 0, z: 0 },
+      };
+      wrapper.children.push(node, chamferGroup);
+      parent.children[idx] = wrapper;
+    }
+  });
+
+  sceneService!.rebuildSceneFromTree();
+  treeVersion.value++;
+  _saveToLocalStorage();
+}
+
+/**
+ * Build chamfer group for a linear edge — convex rounding.
+ *
+ * In chamfer-local space Y is always the edge axis. perpDirX/Z point
+ * from the edge toward the bbox center. We place a box (size r×h×r)
+ * and a cylinder (radius r, height h) offset so they form a quarter-
+ * cylinder at the corner. The cylinder is subtracted from the box
+ * (isHole), leaving a concave cutout. When the whole group (also isHole)
+ * is subtracted from the object, the corner becomes convex-rounded.
+ */
+function buildLinearChamfer(
+  edge: Record<string, any>,
+  r: number,
+  _profile: 'convex' | 'concave' | 'flat',
+  node: ModelNode,
+): GroupNode {
+  const edgeLen = (edge.localStart as THREE.Vector3).distanceTo(edge.localEnd as THREE.Vector3);
+  const lm = (edge.localMid as THREE.Vector3).clone();
+
+  if (node instanceof Primitive) {
+    lm.y += node.getHalfHeight();
+  }
+
+  const dx: number = edge.perpDirX; // +1 or −1
+  const dz: number = edge.perpDirZ;
+  const h = edgeLen + 0.2;
+
+  const chamferGroup = new GroupNode();
+  chamferGroup.operation = 'union';
+  chamferGroup.name = 'Скругление';
+
+  // Box: r × h × r, shifted half-r toward the center in X and Z
+  const box = new Primitive('box', { width: r, height: h, depth: r });
+  box.params = { position: { x: dx * r / 2, y: -h / 2, z: dz * r / 2 } };
+
+  // Cylinder at the inner corner of the box (full r offset from edge)
+  const cyl = new Primitive('cylinder', {
+    radiusTop: r, radiusBottom: r, height: h, segments: 32,
+  });
+  cyl.params = { position: { x: dx * r, y: -h / 2, z: dz * r }, isHole: true };
+
+  chamferGroup.children.push(box, cyl);
+
+  chamferGroup.params = {
+    position: { x: lm.x, y: lm.y, z: lm.z },
+    isHole: true,
+  };
+
+  if (edge.axis === 'x') {
+    chamferGroup.params.rotation = { x: 0, y: 0, z: Math.PI / 2 };
+  } else if (edge.axis === 'z') {
+    chamferGroup.params.rotation = { x: Math.PI / 2, y: 0, z: 0 };
+  }
+
+  return chamferGroup;
+}
+
+
 type AlignMode = 'minX' | 'centerX' | 'maxX' | 'minY' | 'centerY' | 'maxY' | 'minZ' | 'centerZ' | 'maxZ';
 
 function alignNodes(mode: AlignMode) {
@@ -1104,6 +1250,13 @@ function handleKeydown(event: KeyboardEvent) {
     }
     return;
   }
+  if (event.code === 'KeyF' && !hasCtrl) {
+    if (hasSceneObjects.value) {
+      event.preventDefault();
+      toggleChamferMode();
+    }
+    return;
+  }
 
   if (!hasCtrl) return;
   if (event.code === 'KeyZ') {
@@ -1334,6 +1487,11 @@ onMounted(() => {
   sceneService.setBackgroundColor(sceneSettings.value.background);
   sceneService.setZoomSpeed(sceneSettings.value.zoomSpeed);
   sceneService.setGridSize(sceneSettings.value.gridWidth, sceneSettings.value.gridLength);
+
+  // Chamfer mode: wire up edge click callback
+  sceneService.getChamferMode().onEdgeClick = (obj, edge, settings) => {
+    applyChamferToEdge(obj, edge, settings);
+  };
 
   // Migrate old single-scene data to scene 0
   const oldKey = 'constructor_scene_v1';
@@ -1678,6 +1836,8 @@ onBeforeUnmount(() => {
   font-size: 0.9rem;
   padding: 0.3rem 0.45rem;
 }
+
+/* ─── Chamfer settings panel ─────────────────────────────────── */
 
 /* ─── Scene settings modal ────────────────────────────────────── */
 .scene-settings-modal {

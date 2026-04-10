@@ -13,6 +13,7 @@ import { MirrorMode } from './modes/MirrorMode';
 import { CruiseMode } from './modes/CruiseMode';
 import { GridMode } from './modes/GridMode';
 import { AlignmentMode } from './modes/AlignmentMode';
+import { ChamferMode } from './modes/ChamferMode';
 import {
   PointerEventController,
   type PointerEventHost,
@@ -104,6 +105,7 @@ export class ConstructorSceneService {
   private readonly cruiseModeCtrl = new CruiseMode();
   private readonly gridMode = new GridMode();
   private readonly alignmentMode = new AlignmentMode();
+  private readonly chamferMode = new ChamferMode();
 
   // ─── Debug center marker ──────────────────────────────────────────────────
   private centerMarker: THREE.Mesh | null = null;
@@ -178,6 +180,7 @@ export class ConstructorSceneService {
     void this.bakeRotationIntoDimensions; void this.computeHandleConstraintPlane;
     void this.collectNeighborEdges; void this.applyCruiseSnap;
     void this.showCruiseGuides; void this.clearCruiseGuides;
+    void this.chamferMode;
     return this as unknown as PointerEventHost;
   }
 
@@ -214,6 +217,25 @@ export class ConstructorSceneService {
 
   isAlignmentMode(): boolean {
     return this.alignmentMode.isActive();
+  }
+
+  setChamferMode(active: boolean): void {
+    this.chamferMode.setActive(active);
+    if (this.modificationGizmo) {
+      if (active) {
+        this.modificationGizmo.clearTarget();
+      } else {
+        this.updateGizmoTarget();
+      }
+    }
+  }
+
+  isChamferMode(): boolean {
+    return this.chamferMode.isActive();
+  }
+
+  getChamferMode(): ChamferMode {
+    return this.chamferMode;
   }
 
   setDebugPanelVisible(visible: boolean): void {
@@ -306,6 +328,7 @@ export class ConstructorSceneService {
     this.cruiseModeCtrl.init(this.scene, this.modelRootGroup);
     this.alignmentMode.init(this.scene, this.modelRootGroup!, this.camera);
     this.alignmentMode.setContainerHeight(height);
+    this.chamferMode.init(this.scene, this.camera);
 
     // View cube navigator
     this.viewCube = new ViewCubeNavigator();
@@ -347,6 +370,7 @@ export class ConstructorSceneService {
     this.mirrorMode.dispose();
     this.cruiseModeCtrl.dispose();
     this.alignmentMode.dispose();
+    this.chamferMode.dispose();
     this.viewCube?.dispose();
 
     if (this.resizeHandler) {
@@ -682,7 +706,7 @@ export class ConstructorSceneService {
     this.selectedObject3D = obj || null;
     if (obj && this.selectedNode) {
       // Don't show modification gizmo when alignment mode is active
-      if (!this.alignmentMode.isActive()) {
+      if (!this.alignmentMode.isActive() && !this.chamferMode.isActive()) {
         this.modificationGizmo.setTarget(obj, this.selectedNode as unknown as Parameters<ModificationGizmo['setTarget']>[1]);
       }
       this.mirrorMode.syncWithSelection(obj);

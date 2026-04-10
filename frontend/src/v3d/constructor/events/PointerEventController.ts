@@ -6,6 +6,7 @@ import type { MirrorHandleMesh } from '../MirrorGizmo';
 import type { MirrorMode } from '../modes/MirrorMode';
 import type { CruiseMode } from '../modes/CruiseMode';
 import type { AlignmentMode } from '../modes/AlignmentMode';
+import type { ChamferMode } from '../modes/ChamferMode';
 
 /** Pixels a pointer must move before a click becomes a drag. */
 export const DRAG_THRESHOLD = 4;
@@ -120,6 +121,7 @@ export interface PointerEventHost {
   modificationGizmo: ModificationGizmo | null;
   mirrorMode: MirrorMode;
   alignmentMode: AlignmentMode;
+  chamferMode: ChamferMode;
 
   // ─── Tunables ──────────────────────────────────────────────────────────────
   snapStep: number;
@@ -239,6 +241,17 @@ export class PointerEventController {
         }
         return;
       }
+    }
+
+    // Chamfer mode click: raycast to mesh, find nearest edge
+    if (host.chamferMode.isActive()) {
+      const meshes = host.getSelectableMeshes();
+      const hits = host.raycaster.intersectObjects(meshes);
+      if (hits.length > 0) {
+        host.chamferMode.updateHover(hits[0].object, hits[0].point);
+        host.chamferMode.handleClick();
+      }
+      return;
     }
 
     // Alignment marker click (screen-space)
@@ -589,6 +602,19 @@ export class PointerEventController {
         );
         host.dragPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
         host.dragPlane.setFromNormalAndCoplanarPoint(new THREE.Vector3(0, 1, 0), worldPos);
+      }
+    }
+
+    // ── Chamfer mode hover: highlight nearest edge ─────────────────────
+    if (!host.isHandleDragging && !host.isPlaneDragging && host.chamferMode.isActive()) {
+      const meshes = host.getSelectableMeshes();
+      const hits = host.raycaster.intersectObjects(meshes);
+      if (hits.length > 0) {
+        host.chamferMode.updateHover(hits[0].object, hits[0].point);
+        if (host.containerEl) host.containerEl.style.cursor = 'crosshair';
+      } else {
+        host.chamferMode.updateHover(null, null);
+        if (host.containerEl) host.containerEl.style.cursor = '';
       }
     }
 
