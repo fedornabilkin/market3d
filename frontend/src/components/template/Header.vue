@@ -13,6 +13,11 @@ nav.navbar(role='navigation' aria-label='main navigation')
   .navbar-menu
     .navbar-end
       .navbar-item
+        a.button.is-small.gen-tg-header-btn(href="https://t.me/+W4Rsqz4svmBkZmMy" target="_blank")
+          span.icon
+            i.fab.fa-telegram
+          span.is-hidden-mobile {{$t('t.tgChannelButton')}}
+      .navbar-item
         el-dropdown(trigger="click" placement="bottom-end" @command="themeStore.setTheme")
           el-button(
             circle
@@ -51,5 +56,18 @@ nav.navbar(role='navigation' aria-label='main navigation')
 .el-icon {
   margin-right: 0.35rem;
   vertical-align: middle;
+}
+.gen-tg-header-btn {
+  border-radius: 8px;
+  font-weight: 500;
+  background: #0088cc;
+  border-color: #0088cc;
+  color: #fff;
+  transition: all 0.15s ease;
+}
+.gen-tg-header-btn:hover {
+  background: #006daa;
+  border-color: #006daa;
+  color: #fff;
 }
 </style>

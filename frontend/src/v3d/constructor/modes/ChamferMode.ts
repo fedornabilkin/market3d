@@ -342,7 +342,7 @@ export class ChamferMode {
     shape.absarc(r, r, r, -Math.PI / 2, Math.PI, true);
     shape.lineTo(0, 0);
 
-    const geo = new THREE.ExtrudeBufferGeometry(shape, {
+    const geo = new THREE.ExtrudeGeometry(shape, {
       depth: edgeLen,
       bevelEnabled: false,
     });

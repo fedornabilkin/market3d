@@ -28,6 +28,11 @@ const props = defineProps(['options', 'unit'])
               input.input.is-small(type="number" v-model.number="props.options.border.width")
             p.control
               a.button.is-static.is-small {{ props.unit }}
+      .field.is-horizontal
+        .field-body
+          .field
+            .control
+              input.gen-color-input(type='color' :value='props.options.border.color || "#000000"' @input='props.options.border.color = $event.target.value')
 
     .column
       .field.is-horizontal
@@ -40,12 +45,5 @@ const props = defineProps(['options', 'unit'])
               input.input.is-small(type="number" v-model.number="props.options.border.depth")
             p.control
               a.button.is-static.is-small {{ props.unit }}
-      .field.is-horizontal
-        .field-label.is-small
-          label.label {{ $t('form.color') }}
-        .field-body
-          .field
-            .control
-              input.input.is-small(type='color' :value='props.options.border.color || "#000000"' @input='props.options.border.color = $event.target.value')
 </template>
 

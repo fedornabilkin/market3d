@@ -9,7 +9,7 @@ import {
 } from "three";
 import * as THREE from "three";
 import {OrbitControls} from "three/examples/jsm/controls/OrbitControls";
-import {BufferGeometryUtils} from "three/examples/jsm/utils/BufferGeometryUtils";
+import * as BufferGeometryUtils from "three/examples/jsm/utils/BufferGeometryUtils";
 
 export class Box {
 
@@ -137,11 +137,7 @@ export class Box {
       if (child === group || !(child instanceof THREE.Mesh) || !child.geometry) return
       
       try {
-        let geometry = child.geometry
-        if (geometry instanceof THREE.Geometry) {
-          geometry = new THREE.BufferGeometry().fromGeometry(geometry)
-        }
-        
+        const geometry = child.geometry
         if (!geometry?.attributes?.position) return
         
         const clonedGeometry = geometry.clone()
@@ -165,11 +161,7 @@ export class Box {
     if (!mesh?.geometry) return null
     
     try {
-      let geometry = mesh.geometry
-      if (geometry instanceof THREE.Geometry) {
-        geometry = new THREE.BufferGeometry().fromGeometry(geometry)
-      }
-      
+      const geometry = mesh.geometry
       const clonedGeometry = geometry.clone()
       clonedGeometry.applyMatrix4(this._calculateTransformMatrix(mesh))
       return clonedGeometry
@@ -220,15 +212,15 @@ export class Box {
     
     try {
       if (validGeometries.length <= BATCH_SIZE) {
-        merged = BufferGeometryUtils.mergeBufferGeometries(validGeometries)
+        merged = BufferGeometryUtils.mergeGeometries(validGeometries)
       } else {
         for (let i = 0; i < validGeometries.length; i += BATCH_SIZE) {
           const batch = validGeometries.slice(i, i + BATCH_SIZE)
-          const batchMerged = BufferGeometryUtils.mergeBufferGeometries(batch)
+          const batchMerged = BufferGeometryUtils.mergeGeometries(batch)
           
           if (batchMerged) {
             merged = merged 
-              ? BufferGeometryUtils.mergeBufferGeometries([merged, batchMerged])
+              ? BufferGeometryUtils.mergeGeometries([merged, batchMerged])
               : batchMerged
           }
         }

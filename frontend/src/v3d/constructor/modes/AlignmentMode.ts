@@ -34,8 +34,8 @@ export class AlignmentMode {
   private lastConfigKey = '';
 
   // Shared geometry / materials (created once, reused)
-  private circleHorizontal: THREE.CircleBufferGeometry | null = null;
-  private circleVertical: THREE.CircleBufferGeometry | null = null;
+  private circleHorizontal: THREE.CircleGeometry | null = null;
+  private circleVertical: THREE.CircleGeometry | null = null;
   private dotMaterial: THREE.MeshBasicMaterial | null = null;
   private leaderMaterial: THREE.LineBasicMaterial | null = null;
   private hoverDotMaterial: THREE.MeshBasicMaterial | null = null;
@@ -168,11 +168,11 @@ export class AlignmentMode {
 
   private ensureMaterials(): void {
     if (!this.circleHorizontal) {
-      this.circleHorizontal = new THREE.CircleBufferGeometry(AlignmentMode.BASE_SIZE, 16);
+      this.circleHorizontal = new THREE.CircleGeometry(AlignmentMode.BASE_SIZE, 16);
       this.circleHorizontal.rotateX(-Math.PI / 2);
     }
     if (!this.circleVertical) {
-      this.circleVertical = new THREE.CircleBufferGeometry(AlignmentMode.BASE_SIZE, 16);
+      this.circleVertical = new THREE.CircleGeometry(AlignmentMode.BASE_SIZE, 16);
       this.circleVertical.rotateY(-Math.PI / 2);
     }
     if (!this.dotMaterial) {

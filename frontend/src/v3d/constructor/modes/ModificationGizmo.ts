@@ -317,6 +317,7 @@ export class ModificationGizmo {
   /** Fixed ring radius, captured when ring becomes visible. */
   private fixedRingRadius = 0;
 
+
   constructor(private scene: THREE.Scene) {
     this.group = new THREE.Group();
     this.box = new THREE.Box3();
@@ -490,18 +491,19 @@ export class ModificationGizmo {
       handleIndexByType[h.userData.type as HandleType] = i;
     });
 
-    // Edge midpoints at grid projection (Y=0) — AABB edges match visual extent
-    const projY = 0;
-    this.handles[handleIndexByType.edgeWidthLeft].position.set(min.x, projY, midZ);
-    this.handles[handleIndexByType.edgeWidthRight].position.set(max.x, projY, midZ);
-    this.handles[handleIndexByType.edgeLengthFront].position.set(midX, projY, max.z);
-    this.handles[handleIndexByType.edgeLengthBack].position.set(midX, projY, min.z);
+    // Edge midpoints at bottom face of the object
+    const botY = min.y;
+    this.handles[handleIndexByType.edgeWidthLeft].position.set(min.x, botY, midZ);
+    this.handles[handleIndexByType.edgeWidthRight].position.set(max.x, botY, midZ);
+    this.handles[handleIndexByType.edgeLengthFront].position.set(midX, botY, max.z);
+    this.handles[handleIndexByType.edgeLengthBack].position.set(midX, botY, min.z);
 
-    // Corners at grid projection (Y=0)
-    this.handles[handleIndexByType.cornerBL].position.set(min.x, projY, min.z);
-    this.handles[handleIndexByType.cornerBR].position.set(max.x, projY, min.z);
-    this.handles[handleIndexByType.cornerTL].position.set(min.x, projY, max.z);
-    this.handles[handleIndexByType.cornerTR].position.set(max.x, projY, max.z);
+    // Corners at bottom face
+    this.handles[handleIndexByType.cornerBL].position.set(min.x, botY, min.z);
+    this.handles[handleIndexByType.cornerBR].position.set(max.x, botY, min.z);
+    this.handles[handleIndexByType.cornerTL].position.set(min.x, botY, max.z);
+    this.handles[handleIndexByType.cornerTR].position.set(max.x, botY, max.z);
+
 
     // Height handle: above top center
     this.handles[handleIndexByType.height].position.set(midX, max.y + offsetYWorld, midZ);
@@ -687,31 +689,29 @@ export class ModificationGizmo {
     const h = g.height ?? 1;
     const d = g.depth ?? 1;
     const r = g.radius ?? 0.5;
+    const tube = g.tube ?? 0.2;
+
+    // Projected bounding dimensions for round objects
+    const isRound = nodeType === 'sphere' || nodeType === 'cylinder' || nodeType === 'cone';
+    const isTorus = nodeType === 'torus';
+    const projW = isRound ? 2 * r : isTorus ? 2 * (r + tube) : w;
+    const projD = isRound ? 2 * r : isTorus ? 2 * (r + tube) : d;
+    const projH = nodeType === 'sphere' ? 2 * r : isTorus ? 2 * tube : h;
 
     switch (type) {
       case 'edgeWidthLeft':
       case 'edgeWidthRight':
-        if (nodeType === 'sphere') return `R: ${+(r * sx).toFixed(2)}`;
-        if (nodeType === 'cylinder' || nodeType === 'cone') return `R: ${+(r * sx).toFixed(2)}`;
-        if (nodeType === 'torus') return `R: ${+(r * sx).toFixed(2)}`;
-        return `W: ${+(w * sx).toFixed(2)}`;
+        return `W: ${+(projW * sx).toFixed(2)}`;
       case 'edgeLengthFront':
       case 'edgeLengthBack':
-        if (nodeType === 'sphere') return `R: ${+(r * sz).toFixed(2)}`;
-        if (nodeType === 'cylinder' || nodeType === 'cone') return `R: ${+(r * sz).toFixed(2)}`;
-        if (nodeType === 'torus') return `R: ${+(r * sz).toFixed(2)}`;
-        return `D: ${+(d * sz).toFixed(2)}`;
+        return `D: ${+(projD * sz).toFixed(2)}`;
       case 'height':
-        if (nodeType === 'sphere') return `R: ${+(r * sy).toFixed(2)}`;
-        if (nodeType === 'torus') return `T: ${+((g.tube ?? 0.2) * sy).toFixed(2)}`;
-        return `H: ${+(h * sy).toFixed(2)}`;
+        return `H: ${+(projH * sy).toFixed(2)}`;
       case 'cornerBL':
       case 'cornerBR':
       case 'cornerTL':
       case 'cornerTR':
-        if (nodeType === 'sphere') return `R: ${+(r * sx).toFixed(2)}`;
-        if (nodeType === 'cylinder' || nodeType === 'cone') return `R: ${+(r * sx).toFixed(2)}`;
-        return `${+(w * sx).toFixed(2)} × ${+(d * sz).toFixed(2)}`;
+        return `${+(projW * sx).toFixed(2)} × ${+(projD * sz).toFixed(2)}`;
       case 'offsetY':
         return `Y: ${+(this.node.params?.position?.y ?? 0).toFixed(2)}`;
       case 'rotateX': {
@@ -764,6 +764,12 @@ export class ModificationGizmo {
   updateMatrixWorldForHandles(): void {
     this.group.updateMatrixWorld(true);
   }
+
+  /** Returns the currently hovered handle (detected during pointermove). */
+  getHoveredHandle(): HandleMesh | null {
+    return this.hoveredHandle;
+  }
+
 
   dispose(): void {
     this.handles.forEach((h) => {

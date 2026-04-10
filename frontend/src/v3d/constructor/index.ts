@@ -18,7 +18,7 @@ export { CSGOperation } from './commands/CSGOperation';
 export { SnapshotCommand } from './commands/SnapshotCommand';
 
 export { ModelMemento } from './memento/ModelMemento';
-export { ModificationGizmo } from './ModificationGizmo';
+export { ModificationGizmo } from './modes/ModificationGizmo';
 export { ConstructorSceneService } from './ConstructorSceneService';
 export { GridService } from './services/GridService';
 

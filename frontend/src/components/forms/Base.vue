@@ -38,6 +38,11 @@ const props = defineProps(['options', 'unit'])
               input.input.is-small(type='number' v-model.number='options.base.height')
             p.control
               a.button.is-static.is-small {{ unit }}
+      .field.is-horizontal
+        .field-body
+          .field
+            .control
+              input.gen-color-input(type='color' :value='options.base.color || "#ffffff"' @input='options.base.color = $event.target.value')
 
     .column
       .field.is-horizontal
@@ -58,15 +63,8 @@ const props = defineProps(['options', 'unit'])
               input.input.is-small(type='number' v-model.number='options.base.cornerRadius')
             p.control
               a.button.is-static.is-small {{ unit }}
-      .field.is-horizontal
-        .field-label.is-small
-          label.label {{ $t('form.color') }}
-        .field-body
-          .field
-            .control
-              input.input.is-small(type='color' :value='options.base.color || "#ffffff"' @input='options.base.color = $event.target.value')
 
-  .field.is-horizontal
+  .field.is-horizontal.gen-activation
     .field-label.is-small
       label.label {{ $t('form.base.active') }}
     .field-body

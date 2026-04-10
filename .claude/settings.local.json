@@ -12,7 +12,12 @@
       "Bash(npx vitest:*)",
       "Bash(git stash:*)",
       "Bash(node:*)",
-      "Bash(git:*)"
+      "Bash(git:*)",
+      "Bash(npm ls:*)",
+      "Bash(npm view:*)",
+      "Bash(npm list:*)",
+      "Bash(echo \"EXIT:$?\")",
+      "Bash(awk '{print $9, \"\\(\" $5 \"\\)\"}')"
     ]
   }
 }

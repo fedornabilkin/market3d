@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 import type { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
 import type { ModelNode } from '../nodes/ModelNode';
-import type { ModificationGizmo, HandleMesh } from '../ModificationGizmo';
-import type { MirrorHandleMesh } from '../MirrorGizmo';
+import type { ModificationGizmo, HandleMesh } from '../modes/ModificationGizmo';
+import type { MirrorHandleMesh } from '../modes/MirrorGizmo';
 import type { MirrorMode } from '../modes/MirrorMode';
 import type { CruiseMode } from '../modes/CruiseMode';
 import type { AlignmentMode } from '../modes/AlignmentMode';
@@ -148,6 +148,7 @@ export interface PointerEventHost {
     onBeforeDrag?: () => void;
     onAfterDrag?: () => void;
     onAlignMarkerClick?: (mode: string) => void;
+    onMarqueeSelect?: (nodes: ModelNode[]) => void;
   };
 
   // ─── Methods the handlers call back into ───────────────────────────────────
@@ -181,6 +182,12 @@ export class PointerEventController {
   private middleDragging = false;
   private middleLastX = 0;
   private middleLastY = 0;
+
+  // Marquee (rectangle) selection
+  private isMarqueeSelecting = false;
+  private marqueeStartX = 0;
+  private marqueeStartY = 0;
+  private marqueeEl: HTMLDivElement | null = null;
 
   constructor(private readonly host: PointerEventHost) {}
 
@@ -282,15 +289,35 @@ export class PointerEventController {
     if (host.modificationGizmo?.getTarget()) {
       // Force matrix update so raycasting reflects the latest handle positions.
       host.modificationGizmo.updateMatrixWorldForHandles();
-      const handleHits = host.raycaster.intersectObjects(host.modificationGizmo.getHandles());
+      const handleHits = host.raycaster.intersectObjects(host.modificationGizmo.getHandles(), false);
+      let hitHandle: HandleMesh | null = null;
       if (handleHits.length > 0) {
-        const handle = handleHits[0].object as HandleMesh;
-        if (handle.userData?.type) {
-          host.pointerDownHandle = handle;
-          host.pointerDownClient = { x: event.clientX, y: event.clientY };
-          host.pointerDownShift = !!event.shiftKey;
-          return;
+        hitHandle = handleHits[0].object as HandleMesh;
+      }
+      // Fallback: screen-space proximity test (handles are small billboard quads)
+      if (!hitHandle && host.camera && host.containerEl) {
+        const rect = host.containerEl.getBoundingClientRect();
+        const mx = event.clientX - rect.left;
+        const my = event.clientY - rect.top;
+        const wp = new THREE.Vector3();
+        let closestDist = 16; // px radius
+        for (const h of host.modificationGizmo.getHandles()) {
+          h.getWorldPosition(wp);
+          wp.project(host.camera);
+          const sx = (wp.x * 0.5 + 0.5) * rect.width;
+          const sy = (-wp.y * 0.5 + 0.5) * rect.height;
+          const d = Math.hypot(sx - mx, sy - my);
+          if (d < closestDist) {
+            closestDist = d;
+            hitHandle = h as HandleMesh;
+          }
         }
+      }
+      if (hitHandle?.userData?.type) {
+        host.pointerDownHandle = hitHandle;
+        host.pointerDownClient = { x: event.clientX, y: event.clientY };
+        host.pointerDownShift = !!event.shiftKey;
+        return;
       }
     }
 
@@ -605,6 +632,31 @@ export class PointerEventController {
       }
     }
 
+    // ── Marquee selection (empty-space drag) ────────────────────────────
+    if (this.isMarqueeSelecting) {
+      this.updateMarqueeRect(event);
+      return;
+    }
+    if (
+      !host.pointerDownHit &&
+      !host.pointerDownHandle &&
+      !host.isHandleDragging &&
+      !host.isPlaneDragging &&
+      (event.buttons & 1) === 1
+    ) {
+      const dx = event.clientX - host.pointerDownClient.x;
+      const dy = event.clientY - host.pointerDownClient.y;
+      if (Math.sqrt(dx * dx + dy * dy) >= DRAG_THRESHOLD) {
+        this.isMarqueeSelecting = true;
+        this.marqueeStartX = host.pointerDownClient.x;
+        this.marqueeStartY = host.pointerDownClient.y;
+        if (host.controls) host.controls.enabled = false;
+        this.createMarqueeEl();
+        this.updateMarqueeRect(event);
+        return;
+      }
+    }
+
     // ── Chamfer mode hover: highlight nearest edge ─────────────────────
     if (!host.isHandleDragging && !host.isPlaneDragging && host.chamferMode.isActive()) {
       const meshes = host.getSelectableMeshes();
@@ -648,7 +700,7 @@ export class PointerEventController {
     // ── Handle hover highlight ────────────────────────────────────────────
     if (!host.isHandleDragging && !host.isPlaneDragging && host.modificationGizmo?.getTarget()) {
       host.modificationGizmo.updateMatrixWorldForHandles();
-      const handleHits = host.raycaster.intersectObjects(host.modificationGizmo.getHandles());
+      const handleHits = host.raycaster.intersectObjects(host.modificationGizmo.getHandles(), false);
       const hovered = handleHits.length > 0 ? (handleHits[0].object as HandleMesh) : null;
       host.modificationGizmo.setHovered(hovered);
     }
@@ -706,6 +758,14 @@ export class PointerEventController {
       return;
     }
 
+    if (this.isMarqueeSelecting) {
+      this.finishMarquee();
+      if (host.controls) host.controls.enabled = true;
+      host.pointerDownHit = null;
+      host.pointerDownHandle = null;
+      return;
+    }
+
     const isCanvasRelease = host.renderer.domElement && event.target === host.renderer.domElement;
     if (isCanvasRelease) {
       const dx = event.clientX - host.pointerDownClient.x;
@@ -727,4 +787,84 @@ export class PointerEventController {
     host.pointerDownHit = null;
     host.pointerDownHandle = null;
   };
+
+  // ── Marquee helpers ──────────────────────────────────────────────────
+
+  private createMarqueeEl(): void {
+    if (this.marqueeEl) return;
+    const el = document.createElement('div');
+    el.style.cssText =
+      'position:fixed;border:2px dashed red;pointer-events:none;z-index:9999;box-sizing:border-box;';
+    document.body.appendChild(el);
+    this.marqueeEl = el;
+  }
+
+  private lastMarqueeX = 0;
+  private lastMarqueeY = 0;
+
+  private updateMarqueeRect(event: PointerEvent): void {
+    this.lastMarqueeX = event.clientX;
+    this.lastMarqueeY = event.clientY;
+    if (!this.marqueeEl) return;
+    const x1 = Math.min(this.marqueeStartX, event.clientX);
+    const y1 = Math.min(this.marqueeStartY, event.clientY);
+    const x2 = Math.max(this.marqueeStartX, event.clientX);
+    const y2 = Math.max(this.marqueeStartY, event.clientY);
+    this.marqueeEl.style.left = x1 + 'px';
+    this.marqueeEl.style.top = y1 + 'px';
+    this.marqueeEl.style.width = (x2 - x1) + 'px';
+    this.marqueeEl.style.height = (y2 - y1) + 'px';
+  }
+
+  private finishMarquee(): void {
+    this.isMarqueeSelecting = false;
+    if (this.marqueeEl) {
+      this.marqueeEl.remove();
+      this.marqueeEl = null;
+    }
+    this.collectMarqueeNodes();
+  }
+
+  private collectMarqueeNodes(): void {
+    const host = this.host;
+    if (!host.camera || !host.containerEl) return;
+
+    const rect = host.containerEl.getBoundingClientRect();
+    const mx1 = Math.min(this.marqueeStartX, this.lastMarqueeX) - rect.left;
+    const my1 = Math.min(this.marqueeStartY, this.lastMarqueeY) - rect.top;
+    const mx2 = Math.max(this.marqueeStartX, this.lastMarqueeX) - rect.left;
+    const my2 = Math.max(this.marqueeStartY, this.lastMarqueeY) - rect.top;
+
+    const meshes = host.getSelectableMeshes();
+    const camera = host.camera;
+    const w = rect.width;
+    const h = rect.height;
+
+    const selected: ModelNode[] = [];
+    const wp = new THREE.Vector3();
+
+    for (const mesh of meshes) {
+      // Project mesh center to screen
+      mesh.updateMatrixWorld(true);
+      const box = new THREE.Box3().setFromObject(mesh);
+      box.getCenter(wp);
+      wp.project(camera);
+
+      const sx = (wp.x * 0.5 + 0.5) * w;
+      const sy = (-wp.y * 0.5 + 0.5) * h;
+
+      if (sx >= mx1 && sx <= mx2 && sy >= my1 && sy <= my2) {
+        const node = (mesh.userData as { node?: ModelNode }).node;
+        if (node && !selected.includes(node)) {
+          selected.push(node);
+        }
+      }
+    }
+
+    if (selected.length > 0) {
+      host.options.onMarqueeSelect?.(selected);
+    } else {
+      host.options.onDeselectAll?.();
+    }
+  }
 }

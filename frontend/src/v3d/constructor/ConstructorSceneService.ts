@@ -7,13 +7,14 @@ import type { ModelNode } from './nodes/ModelNode';
 import { GroupNode } from './nodes/GroupNode';
 import { Primitive } from './nodes/Primitive';
 import { ImportedMeshNode } from './nodes/ImportedMeshNode';
-import { ModificationGizmo, type HandleMesh } from './ModificationGizmo';
-import { ViewCubeNavigator } from './ViewCubeNavigator';
+import { ModificationGizmo, type HandleMesh } from './modes/ModificationGizmo';
+import { ViewCubeNavigator } from './services/ViewCubeNavigator';
 import { MirrorMode } from './modes/MirrorMode';
 import { CruiseMode } from './modes/CruiseMode';
 import { GridMode } from './modes/GridMode';
 import { AlignmentMode } from './modes/AlignmentMode';
 import { ChamferMode } from './modes/ChamferMode';
+import { GeneratorMode } from './generators/GeneratorMode';
 import {
   PointerEventController,
   type PointerEventHost,
@@ -65,6 +66,8 @@ export interface ConstructorSceneServiceOptions {
    * Use to push a SnapshotCommand with before/after JSON to HistoryManager.
    */
   onAfterDrag?: () => void;
+  /** Called when the user finishes a marquee (rectangle) selection on the canvas. */
+  onMarqueeSelect?: (nodes: ModelNode[]) => void;
 }
 
 // ─── Utility ─────────────────────────────────────────────────────────────────
@@ -106,6 +109,7 @@ export class ConstructorSceneService {
   private readonly gridMode = new GridMode();
   private readonly alignmentMode = new AlignmentMode();
   private readonly chamferMode = new ChamferMode();
+  private readonly generatorMode = new GeneratorMode();
 
   // ─── Debug center marker ──────────────────────────────────────────────────
   private centerMarker: THREE.Mesh | null = null;
@@ -162,6 +166,12 @@ export class ConstructorSceneService {
   /** Returns the export helper (STL/OBJ download). */
   getExporter(): ModelExporter {
     return this.exporter;
+  }
+
+  /** Captures a screenshot of the current scene as a data URL. */
+  getScreenshotDataUrl(): string | null {
+    if (!this.renderer) return null;
+    return this.renderer.domElement.toDataURL('image/png');
   }
 
   /**
@@ -236,6 +246,21 @@ export class ConstructorSceneService {
 
   getChamferMode(): ChamferMode {
     return this.chamferMode;
+  }
+
+  setGeneratorMode(active: boolean): void {
+    this.generatorMode.setActive(active);
+    if (this.modificationGizmo) {
+      if (active) {
+        this.modificationGizmo.clearTarget();
+      } else {
+        this.updateGizmoTarget();
+      }
+    }
+  }
+
+  getGeneratorMode(): GeneratorMode {
+    return this.generatorMode;
   }
 
   setDebugPanelVisible(visible: boolean): void {
@@ -329,6 +354,7 @@ export class ConstructorSceneService {
     this.alignmentMode.init(this.scene, this.modelRootGroup!, this.camera);
     this.alignmentMode.setContainerHeight(height);
     this.chamferMode.init(this.scene, this.camera);
+    this.generatorMode.init(this.scene);
 
     // View cube navigator
     this.viewCube = new ViewCubeNavigator();
@@ -371,6 +397,7 @@ export class ConstructorSceneService {
     this.cruiseModeCtrl.dispose();
     this.alignmentMode.dispose();
     this.chamferMode.dispose();
+    this.generatorMode.dispose();
     this.viewCube?.dispose();
 
     if (this.resizeHandler) {
@@ -539,6 +566,9 @@ export class ConstructorSceneService {
 
     // Dashed projection of active object onto the grid
     this.gridMode.updateProjection(this.selectedObject3D);
+
+    // Soft shadows for non-selected objects
+    this.gridMode.updateShadows(this.getSelectableMeshes(), this.selectedObject3D);
 
     // Debug center marker
     this.updateCenterMarker();
@@ -1139,8 +1169,13 @@ export class ConstructorSceneService {
       this.selectedObject3D.getWorldPosition(objectPos);
     }
 
-    // Точка на плоскости проекции (Y=0) под центром объекта
-    const projOrigin = new THREE.Vector3(objectPos.x, 0, objectPos.z);
+    // Точка на уровне нижней грани объекта (для constraint plane)
+    let botY = 0;
+    if (this.selectedObject3D) {
+      const box = new THREE.Box3().setFromObject(this.selectedObject3D);
+      botY = box.min.y;
+    }
+    const projOrigin = new THREE.Vector3(objectPos.x, botY, objectPos.z);
 
     // Оси проекции — мировые, ручки работают в визуальном пространстве
     let worldAxis: THREE.Vector3;
@@ -1234,10 +1269,10 @@ export class ConstructorSceneService {
     // Dispose old indicator geometry to recreate with correct size
     if (this.yZeroIndicator) {
       this.yZeroIndicator.geometry.dispose();
-      const geo = new THREE.PlaneBufferGeometry(sizeX, sizeZ);
+      const geo = new THREE.PlaneGeometry(sizeX, sizeZ);
       this.yZeroIndicator.geometry = geo;
     } else {
-      const geo = new THREE.PlaneBufferGeometry(sizeX, sizeZ);
+      const geo = new THREE.PlaneGeometry(sizeX, sizeZ);
       const mat = new THREE.MeshBasicMaterial({
         color: 0x00ff88,
         side: THREE.DoubleSide,

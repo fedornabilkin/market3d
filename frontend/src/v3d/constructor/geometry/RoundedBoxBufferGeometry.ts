@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { BufferGeometryUtils } from 'three/examples/jsm/utils/BufferGeometryUtils';
+import * as BufferGeometryUtils from 'three/examples/jsm/utils/BufferGeometryUtils';
 
 /**
  * Indexed BufferGeometry for a box with rounded (beveled) edges.
@@ -25,7 +25,7 @@ export class RoundedBoxBufferGeometry extends THREE.BufferGeometry {
     radius = Math.min(width / 2, height / 2, depth / 2, radius);
     if (radius <= 0) {
       // No rounding — just copy a plain box
-      const plain = new THREE.BoxBufferGeometry(width, height, depth);
+      const plain = new THREE.BoxGeometry(width, height, depth);
       this.index = plain.index;
       this.attributes = plain.attributes;
       this.groups = plain.groups.slice();
@@ -33,7 +33,7 @@ export class RoundedBoxBufferGeometry extends THREE.BufferGeometry {
     }
 
     // Build a subdivided unit box, then deform it
-    const srcBox = new THREE.BoxBufferGeometry(1, 1, 1, segments, segments, segments);
+    const srcBox = new THREE.BoxGeometry(1, 1, 1, segments, segments, segments);
     const srcNonIndexed = srcBox.toNonIndexed();
 
     const positions = new Float32Array(srcNonIndexed.attributes.position.array);

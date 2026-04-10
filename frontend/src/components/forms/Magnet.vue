@@ -3,7 +3,7 @@ const props = defineProps(['options', 'unit'])
 </script>
 
 <template lang="pug">
-.field.is-horizontal
+.field.is-horizontal.gen-activation
   .field-label.is-small
     label.label {{$t('form.magnet.active')}}
   .field-body

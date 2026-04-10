@@ -36,7 +36,7 @@ export class ViewCubeNavigator {
   }
 
   private buildCube(): void {
-    const geo = new THREE.BoxBufferGeometry(CUBE_SIZE, CUBE_SIZE, CUBE_SIZE);
+    const geo = new THREE.BoxGeometry(CUBE_SIZE, CUBE_SIZE, CUBE_SIZE);
 
     // Per-face materials: +X, -X, +Y, -Y, +Z, -Z
     const faceColors = [0xcc4444, 0x884444, 0x44cc44, 0x448844, 0x4488cc, 0x446688];
@@ -143,7 +143,7 @@ export class ViewCubeNavigator {
     // The cube group should rotate opposite to the camera so it reflects
     // what direction we're looking from.
     const q = mainCamera.quaternion.clone();
-    this.cubeGroup.quaternion.copy(q).inverse();
+    this.cubeGroup.quaternion.copy(q).invert();
 
     // Save renderer state
     const prevScissorTest = renderer.getScissorTest();

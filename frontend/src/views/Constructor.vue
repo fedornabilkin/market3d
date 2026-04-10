@@ -12,9 +12,9 @@
       .panel-header
         span Узлы
         .panel-header-actions
-          button.btn-icon(@click="saveToLocalStorage" title="Сохранить сцену")
+          button.btn-icon(@click="saveSceneToFile" title="Сохранить сцену в файл")
             i.fas.fa-save
-          button.btn-icon(@click="loadFromLocalStorage" title="Загрузить сцену")
+          button.btn-icon(@click="loadSceneFromFile" title="Загрузить сцену из файла")
             i.fas.fa-folder-open
           button.btn-icon(@click="clearScene" title="Очистить сцену")
             i.fas.fa-trash-alt
@@ -41,7 +41,32 @@
               path(:d="shape.icon")
 
     .constructor-panel.constructor-panel--settings
-      template(v-if="chamferModeActive")
+      template(v-if="generatorModeActive")
+        .panel-header Генератор
+        .settings-content
+          .field
+            label.label Тип
+            select.input.is-small(v-model="generatorType")
+              option(value="thread") Резьба
+          template(v-if="generatorType === 'thread'")
+            .field
+              label.label Внешний диаметр (мм)
+              input.input.is-small(type="number" step="0.5" min="1" v-model.number="threadSettings.outerDiameter")
+            .field
+              label.label Внутренний диаметр (мм)
+              input.input.is-small(type="number" step="0.5" min="0.5" v-model.number="threadSettings.innerDiameter")
+            .field
+              label.label Шаг (мм)
+              input.input.is-small(type="number" step="0.25" min="0.25" v-model.number="threadSettings.pitch")
+            .field
+              label.label Витки
+              input.input.is-small(type="number" step="1" min="1" v-model.number="threadSettings.turns")
+            .field
+              label.label Сегментов на виток
+              input.input.is-small(type="number" step="8" min="8" v-model.number="threadSettings.segmentsPerTurn")
+          .field
+            button.button.is-small.is-primary(@click="confirmGenerator" style="width:100%") Применить
+      template(v-else-if="chamferModeActive")
         .panel-header Фаска
         .settings-content
           .field
@@ -168,6 +193,12 @@
         title="Фаска (F)"
       )
         i.fas.fa-bezier-curve
+      button.btn-icon(
+        :class="{ 'is-active-tool': generatorModeActive }"
+        @click="toggleGeneratorMode"
+        title="Генератор"
+      )
+        i.fas.fa-cogs
       .toolbar-separator
       button.btn-icon.btn-delete(@click="deleteSelected" :disabled="!canDeleteSelected" title="Удалить (Del)")
         i.fas.fa-trash
@@ -311,6 +342,7 @@ import {
 } from '@/v3d/constructor';
 import type { PrimitiveType } from '@/v3d/constructor';
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader';
+import { dataURItoBlob } from '@/utils';
 import NodeTree from '@/components/constructor/NodeTree.vue';
 
 const SCENE_COUNT = 3;
@@ -384,6 +416,16 @@ const cruiseModeActive = ref(false);
 const alignmentModeActive = ref(false);
 const chamferModeActive = ref(false);
 const chamferRadius = ref(2);
+
+const generatorModeActive = ref(false);
+const generatorType = ref<'thread'>('thread');
+const threadSettings = ref({
+  outerDiameter: 10,
+  innerDiameter: 8,
+  pitch: 2,
+  turns: 5,
+  segmentsPerTurn: 64,
+});
 watch([chamferRadius], () => {
   if (sceneService && chamferModeActive.value) {
     const cm = sceneService.getChamferMode();
@@ -392,6 +434,15 @@ watch([chamferRadius], () => {
     cm.refreshPreview();
   }
 });
+watch(threadSettings, () => {
+  if (sceneService && generatorModeActive.value) {
+    const gm = sceneService.getGeneratorMode();
+    const s = threadSettings.value;
+    gm.settings.thread = { ...s, profile: 'trapezoid' };
+    gm.updatePreview();
+  }
+}, { deep: true });
+
 const selectedGroupOperation = ref('union');
 const selectedPosition = ref({ x: 0, y: 0, z: 0 });
 const selectedScale = ref({ x: 1, y: 1, z: 1 });
@@ -676,6 +727,51 @@ function loadFromLocalStorage() {
   }
 }
 
+function saveSceneToFile() {
+  try {
+    const serializer = modelApp.value!.getSerializer();
+    const root = modelApp.value!.getModelManager().getTree();
+    const json = JSON.stringify(serializer.toJSON(root), null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `scene_${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    console.warn('[Constructor] Failed to save scene to file:', e);
+  }
+}
+
+function loadSceneFromFile() {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.json';
+  input.onchange = () => {
+    const file = input.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const json = JSON.parse(reader.result as string);
+        const serializer = modelApp.value!.getSerializer();
+        const newRoot = serializer.fromJSON(json);
+        withHistory(() => {
+          modelApp.value!.getModelManager().setTree(newRoot);
+        });
+        setSelection([]);
+        treeVersion.value++;
+        if (sceneService) sceneService.rebuildSceneFromTree();
+      } catch (e) {
+        console.warn('[Constructor] Failed to load scene from file:', e);
+      }
+    };
+    reader.readAsText(file);
+  };
+  input.click();
+}
+
 function switchScene(index: number) {
   if (index === activeSceneIndex.value) return;
   // Save current scene
@@ -766,26 +862,102 @@ function addPrimitiveOfType(type: PrimitiveType) {
   setTimeout(() => { addCooldown.value = false; }, 3000);
 }
 
+/**
+ * Smart duplicate state.
+ * First Ctrl+D clones in place with no offset.
+ * After the user modifies the clone (position/scale/rotation), subsequent
+ * Ctrl+D duplicates the last clone and applies the same delta again.
+ */
+const smartDup = {
+  /** The node that was last created via duplication. */
+  lastClone: null as ModelNode | null,
+  /** Snapshot of clone params right after creation — used to detect user changes. */
+  snapshotParams: null as Record<string, any> | null,
+  /** Remembered delta from the last duplication (reused when user doesn't modify). */
+  lastDelta: null as { pos: {x:number,y:number,z:number}, scale: {x:number,y:number,z:number}, rot: {x:number,y:number,z:number} } | null,
+};
+
 function duplicateSelected() {
   const node = selectedNode.value;
   const r = modelApp.value!.getModelManager().getTree();
   if (!node || !r) return;
-  // Don't duplicate root
   const nodeUuid = node.uuidMesh;
   if (nodeUuid && r.uuidMesh === nodeUuid) return;
   const parent = sceneService ? sceneService.getParentOf(node) : null;
   if (!parent || !(parent instanceof GroupNode)) return;
 
   const cloned = node.clone();
-  // Offset position so the clone is visible
   cloned.params = cloned.params || {};
-  cloned.params.position = cloned.params.position
-    ? { ...cloned.params.position, x: cloned.params.position.x + 10 }
-    : { x: 10, y: 0, z: 0 };
+
+  // If duplicating the previous clone, compute or reuse delta
+  if (smartDup.lastClone && toRaw(node) === toRaw(smartDup.lastClone) && smartDup.snapshotParams) {
+    const snap = smartDup.snapshotParams;
+    const cur = node.params || {};
+
+    // Compute fresh delta from user modifications
+    const dp = {
+      x: (cur.position?.x ?? 0) - (snap.position?.x ?? 0),
+      y: (cur.position?.y ?? 0) - (snap.position?.y ?? 0),
+      z: (cur.position?.z ?? 0) - (snap.position?.z ?? 0),
+    };
+    const ds = {
+      x: (cur.scale?.x ?? 1) / (snap.scale?.x ?? 1),
+      y: (cur.scale?.y ?? 1) / (snap.scale?.y ?? 1),
+      z: (cur.scale?.z ?? 1) / (snap.scale?.z ?? 1),
+    };
+    const dr = {
+      x: (cur.rotation?.x ?? 0) - (snap.rotation?.x ?? 0),
+      y: (cur.rotation?.y ?? 0) - (snap.rotation?.y ?? 0),
+      z: (cur.rotation?.z ?? 0) - (snap.rotation?.z ?? 0),
+    };
+
+    const hasChange = dp.x || dp.y || dp.z
+      || ds.x !== 1 || ds.y !== 1 || ds.z !== 1
+      || dr.x || dr.y || dr.z;
+
+    // If user modified the clone, save new delta; otherwise reuse previous
+    if (hasChange) {
+      smartDup.lastDelta = { pos: dp, scale: ds, rot: dr };
+    }
+
+    const delta = smartDup.lastDelta;
+    if (delta) {
+      cloned.params.position = {
+        x: (cur.position?.x ?? 0) + delta.pos.x,
+        y: (cur.position?.y ?? 0) + delta.pos.y,
+        z: (cur.position?.z ?? 0) + delta.pos.z,
+      };
+      if (delta.scale.x !== 1 || delta.scale.y !== 1 || delta.scale.z !== 1) {
+        cloned.params.scale = {
+          x: (cur.scale?.x ?? 1) * delta.scale.x,
+          y: (cur.scale?.y ?? 1) * delta.scale.y,
+          z: (cur.scale?.z ?? 1) * delta.scale.z,
+        };
+      }
+      if (delta.rot.x || delta.rot.y || delta.rot.z) {
+        cloned.params.rotation = {
+          x: (cur.rotation?.x ?? 0) + delta.rot.x,
+          y: (cur.rotation?.y ?? 0) + delta.rot.y,
+          z: (cur.rotation?.z ?? 0) + delta.rot.z,
+        };
+      }
+    }
+  } else {
+    // First duplicate of a new source — reset delta
+    smartDup.lastDelta = null;
+  }
 
   withHistory(() => {
     parent.children.push(cloned);
   });
+
+  // Snapshot the clone's params at creation time
+  smartDup.lastClone = cloned;
+  smartDup.snapshotParams = {
+    position: cloned.params.position ? { ...cloned.params.position } : undefined,
+    scale: cloned.params.scale ? { ...cloned.params.scale } : undefined,
+    rotation: cloned.params.rotation ? { ...cloned.params.rotation } : undefined,
+  };
 
   if (sceneService) sceneService.rebuildSceneFromTree();
   onSelectNode(cloned);
@@ -812,6 +984,30 @@ function toggleAlignmentMode() {
   if (!sceneService) return;
   alignmentModeActive.value = !alignmentModeActive.value;
   sceneService.setAlignmentMode(alignmentModeActive.value);
+}
+
+function toggleGeneratorMode() {
+  if (!sceneService) return;
+  generatorModeActive.value = !generatorModeActive.value;
+  sceneService.setGeneratorMode(generatorModeActive.value);
+  if (generatorModeActive.value) {
+    const gm = sceneService.getGeneratorMode();
+    gm.settings.type = generatorType.value;
+    const s = threadSettings.value;
+    gm.settings.thread = { ...s, profile: 'trapezoid' };
+    gm.updatePreview();
+    // Deactivate other exclusive modes
+    if (chamferModeActive.value) {
+      chamferModeActive.value = false;
+      sceneService.setChamferMode(false);
+    }
+  }
+}
+
+function confirmGenerator() {
+  if (!sceneService || !modelApp.value) return;
+  const gm = sceneService.getGeneratorMode();
+  gm.confirm();
 }
 
 function toggleChamferMode() {
@@ -1327,6 +1523,10 @@ async function doExport() {
 
     exportPercent.value = 100;
     exportStatusText.value = 'Готово!';
+
+    // Send screenshot to backend
+    sendSceneScreenshot();
+
     await new Promise((r) => setTimeout(r, 400));
   } catch (e) {
     console.error('[Export] failed:', e);
@@ -1337,6 +1537,26 @@ async function doExport() {
     exportPercent.value = 0;
     showExportModal.value = false;
   }
+}
+
+function sendSceneScreenshot() {
+  if (!sceneService) return;
+  const image = sceneService.getScreenshotDataUrl();
+  if (!image) return;
+
+  const host = window.location.host;
+  if (host.includes('localhost')) return;
+
+  const url = `${window.location.origin}/constructor`;
+  const endpoint = `/api/image?${new URLSearchParams({ url, host }).toString()}`;
+
+  fetch(endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'image/png' },
+    body: dataURItoBlob(image),
+  }).catch((err) => {
+    console.warn('[Constructor] Failed to send screenshot:', err);
+  });
 }
 
 // ─── Import STL ──────────────────────────────────────────────────────────
@@ -1420,6 +1640,9 @@ onMounted(() => {
     onDeselectAll() {
       setSelection([]);
     },
+    onMarqueeSelect(nodes) {
+      setSelection(nodes);
+    },
     onDebugInfoUpdate(info) {
       updateDebugFps();
       if (!showDebugPanel.value) return;
@@ -1491,6 +1714,35 @@ onMounted(() => {
   // Chamfer mode: wire up edge click callback
   sceneService.getChamferMode().onEdgeClick = (obj, edge, settings) => {
     applyChamferToEdge(obj, edge, settings);
+  };
+
+  // Generator mode: wire up generate callback
+  sceneService.getGeneratorMode().onGenerate = (_geometry, _height, name) => {
+    const r = modelApp.value!.getModelManager().getTree();
+    if (!(r instanceof GroupNode)) return;
+
+    const ts = sceneService!.getGeneratorMode().settings.thread;
+    const prim = new Primitive('thread', {
+      outerDiameter: ts.outerDiameter,
+      innerDiameter: ts.innerDiameter,
+      pitch: ts.pitch,
+      turns: ts.turns,
+      threadProfile: ts.profile,
+      segments: ts.segmentsPerTurn,
+    }, { position: { x: 0, y: 0, z: 0 } });
+    prim.name = name;
+
+    withHistory(() => {
+      r.children.push(prim);
+    });
+
+    sceneService!.rebuildSceneFromTree();
+    onSelectNode(prim);
+    treeVersion.value++;
+
+    // Deactivate generator mode
+    generatorModeActive.value = false;
+    sceneService!.setGeneratorMode(false);
   };
 
   // Migrate old single-scene data to scene 0

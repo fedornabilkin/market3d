@@ -39,7 +39,7 @@ function buildAxisWidget(axis: MirrorAxis): THREE.Group {
   triShape.lineTo(-0.5, 0.4);
   triShape.lineTo(-0.5, -0.4);
   triShape.closePath();
-  const triGeo = new THREE.ShapeBufferGeometry(triShape) as unknown as THREE.BufferGeometry;
+  const triGeo = new THREE.ShapeGeometry(triShape) as unknown as THREE.BufferGeometry;
 
   const mat = new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide, depthTest: false });
 

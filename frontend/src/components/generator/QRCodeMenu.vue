@@ -1,61 +1,51 @@
 <template lang="pug">
-button.mr-1.button.is-info(@click="scannerModalVisible=true")
-  span.icon
-    i.fa.fa-camera
-  span.is-hidden-mobile {{$t('form.scanQRButton')}}
-button.button.is-info(@click="readModalVisible=true")
-  span.icon
-    i.fa.fa-file
-  span.is-hidden-mobile {{$t('form.readQRButton')}}
-a.ml-2.button.is-warning.is-pulled-right(href="https://t.me/+W4Rsqz4svmBkZmMy" target="_blank")
-  span.icon
-    i.fab.fa-telegram
-  span.is-hidden-mobile {{$t('t.tgChannelButton')}}
-
-.panel.mt-1
-  p.panel-heading {{$t('form.optionsTitle')}}
-  .panel-block.form-options(:class="{'need-generate-color': needGenerating}")
-    .columns
-      .column
-        // Base Settings
-        Base(:options='options' :unit='unit')
-        // QR Settings
-        Qr(:options='options' :unit='unit')
-        // Text Settings
-        Text(:options='options' :unit='unit')
-        // Border Settings
-        Border(:options='options' :unit='unit')
-        // Keychain Settings
-        Keychain(:options='options' :unit='unit')
-        // Icon Settings
-        Icon(:options='options' :unit='unit')
-        // NFC Tag Section
-        Magnet(:options='options' :unit='unit')
-
-.notification.is-danger.is-light(v-if="generateError" style="margin-top: 20px 0;") {{generateError}}
-
-.columns
-  .column
-    button.button.is-success.is-large(:class="{'is-loading': isGenerating}" @click="prepareData")
+.gen-toolbar
+  .gen-toolbar-left
+    button.button.is-small.gen-toolbar-btn(@click="scannerModalVisible=true")
       span.icon
-        i.fa.fa-cube
-      span {{$t('g.generateButton')}}
-  .column
-    progress.progress.is-success(v-if="isGenerating" :value="progressGenerating" max='100')
-      | {{ progressGenerating }}
+        i.fa.fa-camera
+      span.is-hidden-mobile {{$t('form.scanQRButton')}}
+    button.button.is-small.gen-toolbar-btn(@click="readModalVisible=true")
+      span.icon
+        i.fa.fa-file
+      span.is-hidden-mobile {{$t('form.readQRButton')}}
 
-.columns.mt-2
-  .column
-    button.button.is-info.is-light(@click="exportSettingsAsJson")
-      span.icon
-        i.fa.fa-download
-      span {{ $t('form.exportSettings') }}
-  .column
-    button.button.is-info.is-light(@click="$refs.importFileInput?.click()")
-      span.icon
-        i.fa.fa-upload
-      span {{ $t('form.importSettings') }}
-    input(ref="importFileInput" type="file" accept=".json" style="display: none" @change="importSettingsFromFile")
+.gen-settings-panel
+  .gen-settings-header
+    span.icon
+      i.fa.fa-sliders-h
+    span {{$t('form.optionsTitle')}}
+  .gen-settings-body(:class="{'need-generate-color': needGenerating}")
+    Base(:options='options' :unit='unit')
+    Qr(:options='options' :unit='unit')
+    Text(:options='options' :unit='unit')
+    Border(:options='options' :unit='unit')
+    Keychain(:options='options' :unit='unit')
+    Icon(:options='options' :unit='unit')
+    Magnet(:options='options' :unit='unit')
+
+.gen-error(v-if="generateError") {{generateError}}
+
+.gen-generate-section
+  button.gen-generate-btn(:class="{'is-loading': isGenerating}" @click="prepareData")
+    span.icon
+      i.fa.fa-cube
+    span {{$t('g.generateButton')}}
+  .gen-progress-wrapper(v-if="isGenerating")
+    .gen-progress-bar
+      .gen-progress-fill(:style="{width: progressGenerating + '%'}")
+    .gen-progress-text {{ progressGenerating }}%
+
+.gen-io-actions
+  button.button.is-small.gen-io-btn(@click="exportSettingsAsJson")
+    span.icon
+      i.fa.fa-download
+    span {{ $t('form.exportSettings') }}
+  button.button.is-small.gen-io-btn(@click="$refs.importFileInput?.click()")
+    span.icon
+      i.fa.fa-upload
+    span {{ $t('form.importSettings') }}
+  input(ref="importFileInput" type="file" accept=".json" style="display: none" @change="importSettingsFromFile")
 
 ScannerModal(v-if="scannerModalVisible" :isActive="scannerModalVisible" @decode="onDecode" @close="scannerModalVisible=false")
 ReaderModal(v-if="readModalVisible" :isActive="readModalVisible" @decode="onDecode" @close="readModalVisible=false")
@@ -414,17 +404,158 @@ export default {
 </script>
 
 <style scoped>
-#mode-buttons>button {
-  margin-right: 20px;
+/* === Toolbar === */
+.gen-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.gen-toolbar-left {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.gen-toolbar-btn {
+  border-radius: 8px !important;
+  font-weight: 500;
+  border-color: #3273dc !important;
+  color: #3273dc !important;
+  background: transparent !important;
+  transition: all 0.15s ease;
+}
+.gen-toolbar-btn:hover {
+  background: #3273dc !important;
+  color: #fff !important;
+}
+
+/* === Settings Panel === */
+.gen-settings-panel {
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  background: #fff;
+}
+
+.gen-settings-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.7rem 1rem;
+  font-weight: 600;
+  font-size: 0.95rem;
+  background: #f5f7fa;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  color: #363636;
+}
+
+.gen-settings-body {
+  padding: 0.75rem;
+  transition: border-color 0.3s ease;
+  border: 2px solid transparent;
+  border-top: 0;
+  border-radius: 0 0 10px 10px;
 }
 
 .need-generate-color {
-  border: 0.1rem solid rgb(255 183 15 / 80%);
-  border-top: 0;
+  border-color: rgb(255 183 15 / 70%);
   animation: linearGradientMove 1.5s infinite alternate;
 }
 
 @keyframes linearGradientMove {
-  100% {border-color: rgb(255 183 15 / 10%);}
+  100% { border-color: rgb(255 183 15 / 10%); }
+}
+
+/* === Error === */
+.gen-error {
+  margin-top: 0.75rem;
+  padding: 0.65rem 1rem;
+  border-radius: 8px;
+  background: #fef2f2;
+  color: #dc2626;
+  border: 1px solid #fecaca;
+  font-size: 0.875rem;
+}
+
+/* === Generate Button === */
+.gen-generate-section {
+  margin-top: 0.75rem;
+}
+
+.gen-generate-btn {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.85rem 1.5rem;
+  border: none;
+  border-radius: 10px;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #fff;
+  background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 8px rgba(34, 197, 94, 0.3);
+}
+
+.gen-generate-btn:hover {
+  background: linear-gradient(135deg, #16a34a 0%, #15803d 100%);
+  box-shadow: 0 4px 16px rgba(34, 197, 94, 0.4);
+  transform: translateY(-1px);
+}
+
+.gen-generate-btn:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 8px rgba(34, 197, 94, 0.3);
+}
+
+.gen-generate-btn.is-loading {
+  pointer-events: none;
+  opacity: 0.85;
+}
+
+/* === Progress Bar === */
+.gen-progress-wrapper {
+  margin-top: 0.6rem;
+}
+
+.gen-progress-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: #e5e7eb;
+  overflow: hidden;
+}
+
+.gen-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #22c55e 0%, #16a34a 100%);
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.gen-progress-text {
+  text-align: right;
+  font-size: 0.75rem;
+  margin-top: 0.2rem;
+  color: #6b7280;
+  font-weight: 500;
+}
+
+/* === Import/Export === */
+.gen-io-actions {
+  display: flex;
+  gap: 0.4rem;
+  margin-top: 0.6rem;
+}
+
+.gen-io-btn {
+  flex: 1;
+  border-radius: 8px !important;
+  font-weight: 500;
+  justify-content: center;
 }
 </style>

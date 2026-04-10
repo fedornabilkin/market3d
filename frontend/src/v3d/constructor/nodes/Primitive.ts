@@ -7,6 +7,7 @@ import { ModelMemento as ModelMementoClass } from '../memento/ModelMemento';
 import { applyHoleStyle } from '../holeMaterial';
 import { RoundedBoxBufferGeometry } from '../geometry/RoundedBoxBufferGeometry';
 import { RoundedCylinderBufferGeometry } from '../geometry/RoundedCylinderBufferGeometry';
+import { generateThreadGeometry } from '../generators/ThreadGenerator';
 
 /** Creates a fresh PhongMaterial per mesh — no shared global state. */
 function createMaterial(color?: string, isHole?: boolean): THREE.MeshPhongMaterial {
@@ -92,6 +93,11 @@ export class Primitive extends ModelNode {
         return g.tube ?? 0.2;
       case 'ring':
         return g.outerRadius ?? r;
+      case 'thread': {
+        const pitch = g.pitch ?? 2;
+        const turns = g.turns ?? 5;
+        return (pitch * turns) / 2;
+      }
       default:
         return h / 2;
     }
@@ -120,33 +126,42 @@ export class Primitive extends ModelNode {
         if (bevelR > 0) {
           return new RoundedBoxBufferGeometry(w, h, d, bevelSeg, bevelR);
         }
-        return new THREE.BoxBufferGeometry(w, h, d);
+        return new THREE.BoxGeometry(w, h, d);
       case 'sphere':
-        return new THREE.SphereBufferGeometry(r, wSeg, hSeg);
+        return new THREE.SphereGeometry(r, wSeg, hSeg);
       case 'cylinder': {
         const rTop = p.radiusTop ?? r;
         const rBottom = p.radiusBottom ?? r;
         if (bevelR > 0) {
           return new RoundedCylinderBufferGeometry(rTop, rBottom, h, seg, bevelR, bevelSeg);
         }
-        return new THREE.CylinderBufferGeometry(rTop, rBottom, h, seg);
+        return new THREE.CylinderGeometry(rTop, rBottom, h, seg);
       }
       case 'cone':
         // Use tiny non-zero top radius to avoid degenerate triangles that break CSG
-        return new THREE.CylinderBufferGeometry(0.001, r, h, seg);
+        return new THREE.CylinderGeometry(0.001, r, h, seg);
       case 'torus': {
         const tube = p.tube ?? 0.2;
-        return new THREE.TorusBufferGeometry(r, tube, 16, seg);
+        return new THREE.TorusGeometry(r, tube, 16, seg);
       }
       case 'plane':
-        return new THREE.PlaneBufferGeometry(w, h, 1, 1);
+        return new THREE.PlaneGeometry(w, h, 1, 1);
       case 'ring': {
         const inner = p.innerRadius ?? r * 0.5;
         const outer = p.outerRadius ?? r;
-        return new THREE.RingBufferGeometry(inner, outer, seg);
+        return new THREE.RingGeometry(inner, outer, seg);
       }
+      case 'thread':
+        return generateThreadGeometry({
+          outerDiameter: p.outerDiameter ?? 10,
+          innerDiameter: p.innerDiameter ?? 8,
+          pitch: p.pitch ?? 2,
+          turns: p.turns ?? 5,
+          profile: (p.threadProfile as 'trapezoid') ?? 'trapezoid',
+          segmentsPerTurn: seg,
+        });
       default:
-        return new THREE.BoxBufferGeometry(1, 1, 1);
+        return new THREE.BoxGeometry(1, 1, 1);
     }
   }
 

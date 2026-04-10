@@ -12,7 +12,8 @@ export type PrimitiveType =
   | 'cone'
   | 'torus'
   | 'plane'
-  | 'ring';
+  | 'ring'
+  | 'thread';
 
 /** Transform params compatible with Three.js (position, scale, rotation). */
 export interface NodeParams {
@@ -49,6 +50,12 @@ export interface PrimitiveParams {
   // Bevel (edge rounding)
   bevelRadius?: number;
   bevelSegments?: number;
+  // Thread
+  outerDiameter?: number;
+  innerDiameter?: number;
+  pitch?: number;
+  turns?: number;
+  threadProfile?: string;
   [key: string]: unknown;
 }
 

@@ -4,7 +4,7 @@ import * as THREE from 'three';
  * CylinderBufferGeometry with rounded (filleted) top and bottom edges.
  * Uses LatheBufferGeometry with a profile that has quarter-circle fillets.
  */
-export class RoundedCylinderBufferGeometry extends THREE.LatheBufferGeometry {
+export class RoundedCylinderBufferGeometry extends THREE.LatheGeometry {
   constructor(
     radiusTop = 1,
     radiusBottom = 1,

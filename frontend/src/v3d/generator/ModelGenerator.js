@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import {Font} from 'three/examples/jsm/loaders/FontLoader';
+import {TextGeometry} from 'three/examples/jsm/geometries/TextGeometry';
 import fontInterSemiBold from '@/assets/fonts/Inter_SemiBold.json';
 import fontInterSemiBoldItalic from '@/assets/fonts/Inter_SemiBold_Italic.json';
 import fontInterExtraBold from '@/assets/fonts/Inter_ExtraBold.json';
@@ -139,17 +141,17 @@ export default class ModelGenerator extends BaseGenerator {
     const textGroup = new THREE.Group()
 
     const correctText = (text) => {
-      let font = new THREE.Font(fontInterSemiBold)
+      let font = new Font(fontInterSemiBold)
       if (text.startsWith('*') && text.endsWith('*')) {
-        font = new THREE.Font(fontInterSemiBoldItalic)
+        font = new Font(fontInterSemiBoldItalic)
         text = text.slice(1, -1)
       }
       if (text.startsWith('**') && text.endsWith('**')) {
-        font = new THREE.Font(fontInterExtraBold)
+        font = new Font(fontInterExtraBold)
         text = text.slice(2, -2)
       }
       if (text.startsWith('***') && text.endsWith('***')) {
-        font = new THREE.Font(fontInterExtraBoldItalic)
+        font = new Font(fontInterExtraBoldItalic)
         text = text.slice(3, -3)
       }
       return {text, font}
@@ -165,10 +167,10 @@ export default class ModelGenerator extends BaseGenerator {
     for (let i = 0; i < numLines; i++) {
       const {text, font} = correctText(textLines[i])
 
-      const tempTextGeometry = new THREE.TextGeometry(text, {
+      const tempTextGeometry = new TextGeometry(text, {
         font: font,
         size: this.options.text.size,
-        height: this.options.text.depth,
+        depth: this.options.text.depth,
       })
       const subtitleMesh = new THREE.Mesh(tempTextGeometry, materialText)
       const textSize = this.getBoundingBoxSize(subtitleMesh)

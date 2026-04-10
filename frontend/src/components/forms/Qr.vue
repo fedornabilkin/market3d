@@ -82,12 +82,10 @@ const setActiveTab = (idx) => {
             p.control
               a.button.is-static.is-small {{unit}}
       .field.is-horizontal
-        .field-label.is-small
-          label.label {{ $t('form.color') }}
         .field-body
           .field
             .control
-              input.input.is-small(type='color' :value='props.options.code.color || "#000000"' @input='props.options.code.color = $event.target.value')
+              input.gen-color-input(type='color' :value='props.options.code.color || "#000000"' @input='props.options.code.color = $event.target.value')
 
       // Error Correction
       .field.is-horizontal

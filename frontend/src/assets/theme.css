@@ -72,20 +72,117 @@ html.dark .box {
   border: 1px solid #374151;
 }
 
-/* ─── Form section backgrounds (light theme variants) ─────────── */
-.form-bg-diff.form-bg--text { background: azure; }
-.form-bg-diff.form-bg--border { background: gainsboro; }
-.form-bg-diff.form-bg--icon { background: lightyellow; }
-.form-bg-diff.form-bg--qr { background: aliceblue; }
-.form-bg-diff.form-bg--keychain { background: ghostwhite; }
+/* ─── Form section backgrounds (light theme) ─────────────────── */
+.gen-settings-body .form-bg-diff.form-bg--qr { background: #eff6ff !important; }
+.gen-settings-body .form-bg-diff.form-bg--text { background: #f0fafa !important; }
+.gen-settings-body .form-bg-diff.form-bg--border { background: #f0f0f0 !important; }
+.gen-settings-body .form-bg-diff.form-bg--icon { background: #fefce8 !important; }
+.gen-settings-body .form-bg-diff.form-bg--keychain { background: #f3f0ff !important; }
 
-/* Секции QR, Текст, Рамка, Брелок, Иконка — переопределяем светлые фоны */
+/* Box inside form sections */
+.gen-settings-body .box {
+  border-radius: 8px;
+  box-shadow: none;
+  margin-bottom: 0.5rem;
+  transition: border-color 0.15s ease;
+}
+.gen-settings-body .box.form-bg-diff {
+  border: none;
+}
+.gen-settings-body .box:not(.form-bg-diff) {
+  border: 1px solid rgba(0, 0, 0, 0.06);
+}
+.gen-settings-body .box:not(.form-bg-diff):hover {
+  border-color: rgba(0, 0, 0, 0.12);
+}
+
+.gen-settings-body .form-bg-diff {
+  border-radius: 6px;
+  transition: background 0.15s ease;
+}
+
+/* Activation checkbox row labels — bigger (toggle rows only) */
+.gen-settings-body .field.is-horizontal.form-bg-diff .checkbox span.is-size-7,
+.gen-settings-body .gen-activation .checkbox span.is-size-7 {
+  font-size: 0.95rem !important;
+  font-weight: 600;
+}
+
+.gen-settings-body > .field {
+  margin-bottom: 0.4rem;
+}
+
+/* Label и checkbox spacing в формах генератора */
+.gen-settings-body .field.is-horizontal .field-label {
+  margin-right: 0.75rem;
+  flex-shrink: 0;
+}
+
+.gen-settings-body .field.is-horizontal .field-label .label {
+  background: none;
+  padding: 0;
+  white-space: nowrap;
+}
+
+.gen-settings-body .checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.gen-settings-body .checkbox input[type="checkbox"] {
+  margin-right: 0.25rem;
+}
+
+/* Color picker — square, no label */
+.gen-color-input {
+  width: 32px;
+  height: 32px;
+  padding: 2px;
+  border: 1px solid #dbdbdb;
+  border-radius: 6px;
+  cursor: pointer;
+  background: none;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.gen-color-input::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+.gen-color-input::-webkit-color-swatch {
+  border: none;
+  border-radius: 4px;
+}
+.gen-color-input::-moz-color-swatch {
+  border: none;
+  border-radius: 4px;
+}
+.gen-color-input:hover {
+  border-color: #b5b5b5;
+}
+
+html.dark .gen-color-input {
+  border-color: #4b5563;
+}
+html.dark .gen-color-input:hover {
+  border-color: #6b7280;
+}
+
+.gen-settings-body .form-bg-diff {
+  padding: 0.5rem 0.75rem;
+  margin-bottom: 0.35rem;
+}
+
+/* Секции QR, Текст, Рамка, Брелок, Иконка — тёмные тонированные фоны */
 html.dark .form-bg-diff {
-  background-color: #252529 !important;
-  background: #252529 !important;
   color: #e5e7eb;
   border-color: #374151;
 }
+html.dark .form-bg-diff.form-bg--qr { background: #1a2332 !important; }
+html.dark .form-bg-diff.form-bg--text { background: #1a2828 !important; }
+html.dark .form-bg-diff.form-bg--border { background: #282828 !important; }
+html.dark .form-bg-diff.form-bg--icon { background: #28261a !important; }
+html.dark .form-bg-diff.form-bg--keychain { background: #221e30 !important; }
 html.dark .option-pane {
   background-color: transparent;
   color: #e5e7eb;
@@ -156,6 +253,7 @@ html.dark .select select:focus {
 /* Подписи и единицы измерения (mm) */
 html.dark .label {
   color: #e5e7eb;
+  background: none;
 }
 html.dark .button.is-static {
   background-color: #374151;
@@ -255,6 +353,103 @@ html.dark .help.content {
 }
 html.dark .field .help {
   color: #9ca3af;
+}
+
+/* ─── Generator Page — Dark Theme ─────────────────────────────── */
+html.dark .generator-page {
+  color: #e5e7eb;
+}
+
+/* 3D Viewport */
+html.dark #container3d {
+  border-color: #374151;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+}
+html.dark #container3d:hover {
+  box-shadow: 0 6px 32px rgba(0, 0, 0, 0.5);
+}
+
+/* Tooltip */
+html.dark .gen-tooltip {
+  background: #1e293b;
+  border-left-color: #60a5fa;
+  color: #e5e7eb;
+}
+
+/* Export Panel */
+html.dark .gen-export-panel {
+  background: #252529;
+  border-color: #374151;
+}
+html.dark .gen-export-title {
+  color: #e5e7eb;
+}
+html.dark .gen-export-option {
+  background: #374151;
+  border-color: #4b5563;
+  color: #e5e7eb;
+}
+html.dark .gen-export-option:hover {
+  background: #4b5563;
+  border-color: #6b7280;
+}
+
+/* Donate Card */
+html.dark .gen-donate-card {
+  background: linear-gradient(135deg, #292524 0%, #1c1917 100%);
+  border-color: #57534e;
+}
+html.dark .gen-donate-text {
+  color: #e5e7eb;
+}
+
+/* Settings Panel */
+html.dark .gen-settings-panel {
+  background: #252529;
+  border-color: #374151;
+}
+html.dark .gen-settings-header {
+  background: #2d2d32;
+  border-bottom-color: #374151;
+  color: #f3f4f6;
+}
+html.dark .gen-settings-body {
+  background: #252529;
+}
+
+/* Error */
+html.dark .gen-error {
+  background: #451a1a;
+  color: #fecaca;
+  border-color: #7f1d1d;
+}
+
+/* Progress */
+html.dark .gen-progress-bar {
+  background: #374151;
+}
+html.dark .gen-progress-text {
+  color: #9ca3af;
+}
+
+/* Form cards in dark settings panel */
+html.dark .gen-settings-body .box {
+  border-color: #374151;
+  background: #252529;
+}
+html.dark .gen-settings-body .box:hover {
+  border-color: #4b5563;
+}
+
+/* Scrollbar dark */
+html.dark .container-settings {
+  scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+}
+html.dark .container-settings::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+}
+html.dark .container-settings::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.25);
 }
 
 /* Главная страница */
@@ -440,7 +635,9 @@ html.theme-light .select select {
   border-color: #dbdbdb;
   color: #363636;
 }
-html.theme-light .label,
+html.theme-light .label {
+  color: #363636;
+}
 html.theme-light .button.is-static {
   color: #363636;
   background-color: #f5f5f5;
@@ -493,4 +690,53 @@ html.theme-light .container-3d,
 html.theme-light .container-settings,
 html.theme-light .help {
   color: #363636;
+}
+
+/* ─── Generator Page — Light Theme ────────────────────────────── */
+html.theme-light .gen-settings-panel {
+  background: #fff;
+  border-color: #dbdbdb;
+}
+html.theme-light .gen-settings-header {
+  background: #f5f5f5;
+  border-bottom-color: #dbdbdb;
+  color: #363636;
+}
+html.theme-light .gen-settings-body {
+  background: #fff;
+}
+html.theme-light .gen-tooltip {
+  background: #f0f4ff;
+  border-left-color: #3273dc;
+  color: #363636;
+}
+html.theme-light .gen-export-panel {
+  background: #f8f9fb;
+  border-color: #dbdbdb;
+}
+html.theme-light .gen-export-title {
+  color: #363636;
+}
+html.theme-light .gen-export-option {
+  background: #fff;
+  border-color: #dbdbdb;
+  color: #363636;
+}
+html.theme-light .gen-donate-card {
+  background: linear-gradient(135deg, #fff8e1 0%, #fff3cd 100%);
+  border-color: #f0d98c;
+}
+html.theme-light .gen-donate-text {
+  color: #363636;
+}
+html.theme-light .gen-error {
+  background: #fef2f2;
+  color: #dc2626;
+  border-color: #fecaca;
+}
+html.theme-light .gen-progress-bar {
+  background: #e5e7eb;
+}
+html.theme-light .gen-progress-text {
+  color: #6b7280;
 }

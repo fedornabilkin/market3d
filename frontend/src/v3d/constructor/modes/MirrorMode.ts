@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { MirrorGizmo } from '../MirrorGizmo';
+import { MirrorGizmo } from './MirrorGizmo';
 
 /**
  * Manages the mirror-mode state and the associated MirrorGizmo lifecycle.

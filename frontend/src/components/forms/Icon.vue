@@ -153,12 +153,10 @@ const icons = [
             .control
               input(type="checkbox" v-model.number='props.options.icon.inverted')
       .field.is-horizontal
-        .field-label.is-small
-          label.label {{ $t('form.color') }}
         .field-body
           .field
             .control
-              input.input.is-small(type='color' :value='props.options.icon.color || "#000000"' @input='props.options.icon.color = $event.target.value')
+              input.gen-color-input(type='color' :value='props.options.icon.color || "#000000"' @input='props.options.icon.color = $event.target.value')
 
     .column
       .field.is-horizontal

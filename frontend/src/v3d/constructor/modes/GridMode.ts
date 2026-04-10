@@ -65,4 +65,9 @@ export class GridMode {
   updateProjection(obj: THREE.Object3D | null): void {
     this.service?.updateProjection(obj);
   }
+
+  /** Draw soft shadows for non-selected objects on the grid. */
+  updateShadows(allObjects: THREE.Object3D[], selectedObj: THREE.Object3D | null): void {
+    this.service?.updateShadows(allObjects, selectedObj);
+  }
 }

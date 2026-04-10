@@ -47,6 +47,11 @@ const props = defineProps(['options', 'unit'])
               .field
                 input(type='checkbox' v-model='props.options.keychain.mirror')
                 span.is-size-7 {{ $t('form.keychain.mirrorLabel') }}
+      .field.is-horizontal
+        .field-body
+          .field
+            .control
+              input.gen-color-input(type='color' :value='props.options.keychain.color || "#ffffff"' @input='props.options.keychain.color = $event.target.value')
 
     .column
       .field.is-horizontal
@@ -91,12 +96,5 @@ const props = defineProps(['options', 'unit'])
               input.input.is-small(type='number' v-model.number='props.options.keychain.offsetY')
             p.control
               a.button.is-static.is-small {{unit}}
-      .field.is-horizontal
-        .field-label.is-small
-          label.label {{ $t('form.color') }}
-        .field-body
-          .field
-            .control
-              input.input.is-small(type='color' :value='props.options.keychain.color || "#ffffff"' @input='props.options.keychain.color = $event.target.value')
 </template>
 

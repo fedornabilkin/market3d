@@ -9,8 +9,12 @@ export class GridService {
   private mmGridLabelTexture: THREE.Texture | null = null;
   private mmGridLabelSprite: THREE.Sprite | null = null;
 
-  /** Dashed-rectangle + filled-area projection of an object onto the Y=0 plane. */
+  /** Dashed-rectangle + filled-area projection of the selected object onto the Y=0 plane. */
   private projectionGroup: THREE.Group | null = null;
+
+  /** Soft shadows for non-selected objects. */
+  private shadowPool: THREE.Mesh[] = [];
+  private activeShadowCount = 0;
 
   private gridVisible = true;
   private gridWidthMm = 200;
@@ -125,6 +129,10 @@ export class GridService {
     this.addAxisLabel(group, 'Y', 0x44cc44,
       new THREE.Vector3(axisOrigin.x, axisLen + 2, axisOrigin.z));
 
+    // Brand label at left-front corner
+    this.addBrandLabel(group, 'VSQR.RU',
+      new THREE.Vector3(-halfWidth + axisLen + 6, 0.01, halfLength));
+
     group.visible = this.gridVisible;
     this.mmGridGroup = group;
     this.scene.add(group);
@@ -149,11 +157,96 @@ export class GridService {
     parent.add(sprite);
   }
 
+  private addBrandLabel(parent: THREE.Group, text: string, position: THREE.Vector3): void {
+    const canvas = document.createElement('canvas');
+    canvas.width = 512;
+    canvas.height = 128;
+    const ctx = canvas.getContext('2d')!;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.font = 'bold 80px Arial';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#aaaaaa';
+    ctx.fillText(text, 8, 64);
+    const texture = new THREE.CanvasTexture(canvas);
+    const mat = new THREE.MeshBasicMaterial({
+      map: texture,
+      transparent: true,
+      depthTest: true,
+      side: THREE.DoubleSide,
+    });
+    // Aspect ratio of canvas content
+    const aspect = canvas.width / canvas.height; // 4
+    const depth = 30; // 30 mm along Z
+    const width = depth * aspect;
+    const geo = new THREE.PlaneGeometry(width, depth);
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.position.set(position.x + width / 2, position.y, position.z - depth / 2);
+    parent.add(mesh);
+  }
+
   /** Billboard — call each animation frame to keep the label facing the camera. */
   updateLabelBillboard(camera: THREE.Camera): void {
     if (this.mmGridLabelSprite) {
       this.mmGridLabelSprite.quaternion.copy(camera.quaternion);
     }
+  }
+
+  /**
+   * Draws soft shadows on the grid for all non-selected objects.
+   * Call once per frame before updateProjection.
+   */
+  updateShadows(allObjects: THREE.Object3D[], selectedObj: THREE.Object3D | null): void {
+    const gridY = 0.005;
+    let idx = 0;
+
+    for (const obj of allObjects) {
+      if (obj === selectedObj) continue;
+
+      const box = new THREE.Box3().setFromObject(obj);
+      if (box.isEmpty()) continue;
+
+      const { min, max } = box;
+      // Only show shadow if object is raised above the grid
+      if (min.y < 0.01) continue;
+
+      const cx = (min.x + max.x) / 2;
+      const cz = (min.z + max.z) / 2;
+      const w = max.x - min.x;
+      const d = max.z - min.z;
+      if (w < 0.001 || d < 0.001) continue;
+
+      let shadow: THREE.Mesh;
+      if (idx < this.shadowPool.length) {
+        shadow = this.shadowPool[idx];
+      } else {
+        const geo = new THREE.PlaneGeometry(1, 1);
+        const mat = new THREE.MeshBasicMaterial({
+          color: 0x000000,
+          transparent: true,
+          opacity: 0.06,
+          side: THREE.DoubleSide,
+          depthTest: false,
+        });
+        shadow = new THREE.Mesh(geo, mat);
+        shadow.rotation.x = -Math.PI / 2;
+        shadow.renderOrder = 0;
+        this.scene.add(shadow);
+        this.shadowPool.push(shadow);
+      }
+
+      shadow.position.set(cx, gridY, cz);
+      shadow.scale.set(w, d, 1);
+      shadow.visible = true;
+      idx++;
+    }
+
+    // Hide unused pool entries
+    for (let i = idx; i < this.activeShadowCount; i++) {
+      this.shadowPool[i].visible = false;
+    }
+    this.activeShadowCount = idx;
   }
 
   /**
@@ -250,6 +343,13 @@ export class GridService {
 
   dispose(): void {
     this.disposeProjection();
+    for (const shadow of this.shadowPool) {
+      shadow.geometry.dispose();
+      (shadow.material as THREE.Material).dispose();
+      this.scene.remove(shadow);
+    }
+    this.shadowPool = [];
+    this.activeShadowCount = 0;
     if (this.mmGridGroup) {
       this.scene.remove(this.mmGridGroup);
       this.mmGridGroup.traverse((obj) => {

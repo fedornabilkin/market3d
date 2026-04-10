@@ -33,7 +33,6 @@ export default defineConfig(({mode}) => {
                 [
                   'three',
                   'three-csg-ts',
-                  'three-text-geometry',
                 ],
               network:
                 [
