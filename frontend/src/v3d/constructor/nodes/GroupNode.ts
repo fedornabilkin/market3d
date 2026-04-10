@@ -65,7 +65,7 @@ export class GroupNode extends ModelNode {
       const mesh = child.getMesh();
       mesh.updateMatrix();
       mesh.updateMatrixWorld(true);
-      return mesh;
+      return GroupNode.normalizeForCSG(mesh);
     };
 
     let result: THREE.Mesh;
@@ -162,7 +162,7 @@ export class GroupNode extends ModelNode {
       const mesh = await child.getMeshAsync(onProgress, _counter);
       mesh.updateMatrix();
       mesh.updateMatrixWorld(true);
-      return mesh;
+      return GroupNode.normalizeForCSG(mesh);
     };
 
     let result: THREE.Mesh;
@@ -226,6 +226,93 @@ export class GroupNode extends ModelNode {
 
     this.applyParamsToMesh(result);
     return result;
+  }
+
+  /**
+   * Bakes a mesh's matrix into its geometry so it can be safely consumed by CSG.
+   * If the matrix has a negative determinant (mirror via negative scale), the
+   * triangle winding is reversed and normals are recomputed — otherwise CSG
+   * would treat the BSP as inside-out and a hole would subtract everything
+   * outside its volume instead of inside it.
+   */
+  private static normalizeForCSG(mesh: THREE.Mesh): THREE.Mesh {
+    const det = mesh.matrix.determinant();
+    if (det >= 0) return mesh;
+
+    // mesh.geometry may be either BufferGeometry (Primitive children) or
+    // legacy Geometry (GroupNode children, since CSG.toMesh returns Geometry).
+    // Both must be handled.
+    const src = mesh.geometry as THREE.BufferGeometry | THREE.Geometry;
+    const isBuffer = (src as THREE.BufferGeometry).isBufferGeometry === true;
+
+    let fixedGeom: THREE.BufferGeometry | THREE.Geometry;
+
+    if (isBuffer) {
+      const geom = (src as THREE.BufferGeometry).clone();
+      geom.applyMatrix4(mesh.matrix);
+
+      const idx = geom.getIndex();
+      if (idx) {
+        const arr = idx.array as { [k: number]: number; length: number };
+        for (let i = 0; i < arr.length; i += 3) {
+          const t = arr[i];
+          arr[i] = arr[i + 2];
+          arr[i + 2] = t;
+        }
+        idx.needsUpdate = true;
+      } else {
+        const pos = geom.getAttribute('position') as THREE.BufferAttribute | undefined;
+        if (pos) {
+          const a = pos.array as Float32Array;
+          for (let i = 0; i < a.length; i += 9) {
+            for (let j = 0; j < 3; j++) {
+              const t = a[i + j];
+              a[i + j] = a[i + 6 + j];
+              a[i + 6 + j] = t;
+            }
+          }
+          pos.needsUpdate = true;
+        }
+      }
+      geom.computeVertexNormals();
+      fixedGeom = geom;
+    } else {
+      const geom = (src as THREE.Geometry).clone();
+      geom.applyMatrix4(mesh.matrix);
+      for (const f of geom.faces) {
+        const tA = f.a;
+        f.a = f.c;
+        f.c = tA;
+        if (f.vertexNormals && f.vertexNormals.length === 3) {
+          const tN = f.vertexNormals[0];
+          f.vertexNormals[0] = f.vertexNormals[2];
+          f.vertexNormals[2] = tN;
+        }
+      }
+      // Swap UVs to match the new winding so face attributes stay aligned.
+      const fvuvs = geom.faceVertexUvs && geom.faceVertexUvs[0];
+      if (fvuvs) {
+        for (const tri of fvuvs) {
+          if (tri && tri.length === 3) {
+            const tU = tri[0];
+            tri[0] = tri[2];
+            tri[2] = tU;
+          }
+        }
+      }
+      geom.computeFaceNormals();
+      geom.computeVertexNormals();
+      geom.elementsNeedUpdate = true;
+      geom.normalsNeedUpdate = true;
+      geom.verticesNeedUpdate = true;
+      fixedGeom = geom;
+    }
+
+    const fixed = new THREE.Mesh(fixedGeom as THREE.BufferGeometry, mesh.material);
+    fixed.matrixAutoUpdate = false;
+    fixed.matrix.identity();
+    fixed.updateMatrixWorld(true);
+    return fixed;
   }
 
   private applyParamsToMesh(mesh: THREE.Mesh): void {

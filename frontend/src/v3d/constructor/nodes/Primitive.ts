@@ -5,6 +5,8 @@ import type { PrimitiveNodeJSON } from '../types';
 import { ModelNode } from './ModelNode';
 import { ModelMemento as ModelMementoClass } from '../memento/ModelMemento';
 import { applyHoleStyle } from '../holeMaterial';
+import { RoundedBoxBufferGeometry } from '../geometry/RoundedBoxBufferGeometry';
+import { RoundedCylinderBufferGeometry } from '../geometry/RoundedCylinderBufferGeometry';
 
 /** Creates a fresh PhongMaterial per mesh — no shared global state. */
 function createMaterial(color?: string, isHole?: boolean): THREE.MeshPhongMaterial {
@@ -109,16 +111,24 @@ export class Primitive extends ModelNode {
     const seg = p.segments ?? 32;
     const wSeg = p.widthSegments ?? 16;
     const hSeg = p.heightSegments ?? 16;
+    const bevelR = Number(p.bevelRadius) || 0;
+    const bevelSeg = Math.max(1, Math.round(Number(p.bevelSegments) || 3));
 
     // Three.js 0.118 uses *BufferGeometry variants for BufferGeometry subclasses
     switch (this.type) {
       case 'box':
+        if (bevelR > 0) {
+          return new RoundedBoxBufferGeometry(w, h, d, bevelSeg, bevelR);
+        }
         return new THREE.BoxBufferGeometry(w, h, d);
       case 'sphere':
         return new THREE.SphereBufferGeometry(r, wSeg, hSeg);
       case 'cylinder': {
         const rTop = p.radiusTop ?? r;
         const rBottom = p.radiusBottom ?? r;
+        if (bevelR > 0) {
+          return new RoundedCylinderBufferGeometry(rTop, rBottom, h, seg, bevelR, bevelSeg);
+        }
         return new THREE.CylinderBufferGeometry(rTop, rBottom, h, seg);
       }
       case 'cone':

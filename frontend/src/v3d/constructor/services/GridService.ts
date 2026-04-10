@@ -9,6 +9,9 @@ export class GridService {
   private mmGridLabelTexture: THREE.Texture | null = null;
   private mmGridLabelSprite: THREE.Sprite | null = null;
 
+  /** Dashed-rectangle + filled-area projection of an object onto the Y=0 plane. */
+  private projectionGroup: THREE.Group | null = null;
+
   private gridVisible = true;
   private gridWidthMm = 200;
   private gridLengthMm = 200;
@@ -153,7 +156,100 @@ export class GridService {
     }
   }
 
+  /**
+   * Updates the dashed footprint + translucent fill drawn on the Y=0 plane
+   * beneath the given object's bounding box. Pass `null` to hide the projection.
+   * Call once per animation frame.
+   */
+  updateProjection(obj: THREE.Object3D | null): void {
+    if (!obj) {
+      if (this.projectionGroup) this.projectionGroup.visible = false;
+      return;
+    }
+
+    const box = new THREE.Box3().setFromObject(obj);
+    const { min, max } = box;
+
+    // Slightly above 0 to avoid z-fighting with the grid lines
+    const gy = 0.02;
+
+    const sizeX = max.x - min.x;
+    const sizeZ = max.z - min.z;
+    const centerX = (min.x + max.x) / 2;
+    const centerZ = (min.z + max.z) / 2;
+
+    const c0 = new THREE.Vector3(min.x, gy, min.z);
+    const c1 = new THREE.Vector3(max.x, gy, min.z);
+    const c2 = new THREE.Vector3(max.x, gy, max.z);
+    const c3 = new THREE.Vector3(min.x, gy, max.z);
+    const rectPoints = [c0, c1, c2, c3, c0];
+
+    if (!this.projectionGroup) {
+      this.projectionGroup = new THREE.Group();
+      this.projectionGroup.renderOrder = 2;
+
+      // Filled area
+      const fillGeo = new THREE.PlaneGeometry(1, 1);
+      const fillMat = new THREE.MeshBasicMaterial({
+        color: 0x888888,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.15,
+        depthTest: false,
+      });
+      const fillMesh = new THREE.Mesh(fillGeo, fillMat);
+      fillMesh.rotation.x = -Math.PI / 2;
+      fillMesh.name = 'projFill';
+      this.projectionGroup.add(fillMesh);
+
+      // Dashed rectangle outline
+      const rectGeo = new THREE.BufferGeometry().setFromPoints(rectPoints);
+      const rectMat = new THREE.LineDashedMaterial({
+        color: 0x888888,
+        dashSize: 0.3,
+        gapSize: 0.15,
+        depthTest: false,
+        transparent: true,
+        opacity: 0.6,
+      });
+      const rectLine = new THREE.Line(rectGeo, rectMat);
+      rectLine.computeLineDistances();
+      rectLine.name = 'projRect';
+      this.projectionGroup.add(rectLine);
+
+      this.scene.add(this.projectionGroup);
+    } else {
+      const rectLine = this.projectionGroup.getObjectByName('projRect') as THREE.Line | undefined;
+      if (rectLine) {
+        rectLine.geometry.dispose();
+        rectLine.geometry = new THREE.BufferGeometry().setFromPoints(rectPoints);
+        rectLine.computeLineDistances();
+      }
+    }
+
+    const fillMesh = this.projectionGroup.getObjectByName('projFill') as THREE.Mesh | undefined;
+    if (fillMesh) {
+      fillMesh.position.set(centerX, gy + 0.001, centerZ);
+      fillMesh.scale.set(sizeX, sizeZ, 1);
+    }
+
+    this.projectionGroup.visible = true;
+  }
+
+  private disposeProjection(): void {
+    if (!this.projectionGroup) return;
+    this.projectionGroup.traverse((child) => {
+      const line = child as THREE.Line;
+      if (line.geometry) line.geometry.dispose();
+      const mat = (child as THREE.Mesh).material as THREE.Material | undefined;
+      if (mat) mat.dispose();
+    });
+    this.scene.remove(this.projectionGroup);
+    this.projectionGroup = null;
+  }
+
   dispose(): void {
+    this.disposeProjection();
     if (this.mmGridGroup) {
       this.scene.remove(this.mmGridGroup);
       this.mmGridGroup.traverse((obj) => {

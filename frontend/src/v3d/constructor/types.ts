@@ -46,6 +46,9 @@ export interface PrimitiveParams {
   // Ring
   innerRadius?: number;
   outerRadius?: number;
+  // Bevel (edge rounding)
+  bevelRadius?: number;
+  bevelSegments?: number;
   [key: string]: unknown;
 }
 

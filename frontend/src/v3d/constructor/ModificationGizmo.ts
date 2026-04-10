@@ -552,13 +552,18 @@ export class ModificationGizmo {
       hRY.position.set(midX, min.y, nearZ + rotOff * Math.sign(camZ - midZ));
     }
     {
-      const camDir = this.camera!.position.clone().sub(hRY.position);
-      camDir.y = 0; // project onto grid plane
-      if (camDir.lengthSq() > 0.001) {
-        camDir.normalize();
+      // For Y rotation the handle lies at min.y — direction from gridPoint is purely vertical
+      // and collapses to zero after projection. Use horizontal direction from center instead.
+      const dir = new THREE.Vector3(
+        hRY.position.x - midX,
+        0,
+        hRY.position.z - midZ,
+      );
+      if (dir.lengthSq() > 0.001) {
+        dir.normalize();
         const rotAxis = new THREE.Vector3(0, 1, 0);
-        const localY = new THREE.Vector3().crossVectors(rotAxis, camDir).normalize();
-        const m = new THREE.Matrix4().makeBasis(camDir, localY, rotAxis);
+        const localY = new THREE.Vector3().crossVectors(rotAxis, dir).normalize();
+        const m = new THREE.Matrix4().makeBasis(dir, localY, rotAxis);
         hRY.quaternion.setFromRotationMatrix(m);
       }
     }

@@ -1,24 +1,25 @@
 import * as THREE from 'three';
 import { MOUSE } from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
-import { STLExporter } from 'three/examples/jsm/exporters/STLExporter';
-import { OBJExporter } from 'three/examples/jsm/exporters/OBJExporter';
 import type { ModelApp } from './ModelApp';
+import { ModelExporter } from './ModelExporter';
 import type { ModelNode } from './nodes/ModelNode';
 import { GroupNode } from './nodes/GroupNode';
 import { Primitive } from './nodes/Primitive';
 import { ImportedMeshNode } from './nodes/ImportedMeshNode';
 import { ModificationGizmo, type HandleMesh } from './ModificationGizmo';
-import { MirrorGizmo, type MirrorHandleMesh } from './MirrorGizmo';
 import { ViewCubeNavigator } from './ViewCubeNavigator';
-import { GridService } from './services/GridService';
+import { MirrorMode } from './modes/MirrorMode';
+import { CruiseMode } from './modes/CruiseMode';
+import { GridMode } from './modes/GridMode';
+import { AlignmentMode } from './modes/AlignmentMode';
+import {
+  PointerEventController,
+  type PointerEventHost,
+  type HandleDragState,
+} from './events/PointerEventController';
 import { applyHoleStyle, removeHoleStyle } from './holeMaterial';
 import { bakeRotation, remapAxisForRotatedGroup } from './primitiveTransforms';
-
-// ─── Tuning constants ────────────────────────────────────────────────────────
-
-/** Pixels a pointer must move before a click becomes a drag. */
-const DRAG_THRESHOLD = 4;
 
 /** Normalize angle to [-π, π] range. */
 function normalizeAngle(a: number): number {
@@ -26,65 +27,6 @@ function normalizeAngle(a: number): number {
   if (a > Math.PI) a -= 2 * Math.PI;
   if (a < -Math.PI) a += 2 * Math.PI;
   return a;
-}
-
-/**
- * Compute the angle on a rotation plane defined by its normal and two
- * tangent axes.  The hit point is projected onto the plane through center,
- * then atan2 of the two tangent coordinates gives the angle.
- */
-function planeAngle(
-  hit: THREE.Vector3,
-  center: THREE.Vector3,
-  tangentU: THREE.Vector3,
-  tangentV: THREE.Vector3,
-): number {
-  const d = hit.clone().sub(center);
-  return Math.atan2(d.dot(tangentU), d.dot(tangentV));
-}
-
-/**
- * Build the world-space rotation-plane normal and tangent axes for a given
- * Euler handle, taking into account preceding rotations (XYZ order).
- *
- *  rotateX  → plane normal = X            (no prior rotations)
- *  rotateY  → plane normal = Rx · Y       (after X rotation)
- *  rotateZ  → plane normal = Rx · Ry · Z  (after X and Y rotations)
- *
- * Returns { normal, tangentU, tangentV } where U × V = normal (right-hand).
- * tangentU / tangentV define the 2-D coordinate system on the plane.
- */
-function rotationPlaneAxes(
-  handleType: string,
-  _rotation: { x: number; y: number; z: number },
-): { normal: THREE.Vector3; tangentU: THREE.Vector3; tangentV: THREE.Vector3 } {
-  let normal: THREE.Vector3;
-  let tangentU: THREE.Vector3;
-  let tangentV: THREE.Vector3;
-
-  switch (handleType) {
-    case 'rotateX':
-      normal   = new THREE.Vector3(1, 0, 0);
-      tangentU = new THREE.Vector3(0, 0, 1);
-      tangentV = new THREE.Vector3(0, 1, 0);
-      break;
-    case 'rotateY':
-      normal   = new THREE.Vector3(0, 1, 0);
-      tangentU = new THREE.Vector3(-1, 0, 0);
-      tangentV = new THREE.Vector3(0, 0, -1);
-      break;
-    case 'rotateZ':
-      normal   = new THREE.Vector3(0, 0, 1);
-      tangentU = new THREE.Vector3(-1, 0, 0);
-      tangentV = new THREE.Vector3(0, 1, 0);
-      break;
-    default:
-      normal   = new THREE.Vector3(0, 0, 1);
-      tangentU = new THREE.Vector3(1, 0, 0);
-      tangentV = new THREE.Vector3(0, 1, 0);
-  }
-
-  return { normal, tangentU, tangentV };
 }
 
 // ─── Debug / callback types ───────────────────────────────────────────────────
@@ -152,16 +94,20 @@ export class ConstructorSceneService {
   private renderer: THREE.WebGLRenderer | null = null;
   private controls: OrbitControls | null = null;
   private modificationGizmo: ModificationGizmo | null = null;
-  private mirrorGizmo: MirrorGizmo | null = null;
-  private mirrorMode = false;
   private viewCube: ViewCubeNavigator | null = null;
   private modelRootGroup: THREE.Group | null = null;
   private raycaster: THREE.Raycaster | null = null;
   private mouse: THREE.Vector2 | null = null;
-  private gridService: GridService | null = null;
+
+  // ─── Modes ────────────────────────────────────────────────────────────────
+  private readonly mirrorMode = new MirrorMode();
+  private readonly cruiseModeCtrl = new CruiseMode();
+  private readonly gridMode = new GridMode();
+  private readonly alignmentMode = new AlignmentMode();
 
   // ─── Debug center marker ──────────────────────────────────────────────────
   private centerMarker: THREE.Mesh | null = null;
+  private debugPanelVisible = false;
 
   // ─── Drag state ────────────────────────────────────────────────────────────
   private dragPlane: THREE.Plane | null = null;
@@ -172,58 +118,7 @@ export class ConstructorSceneService {
   private pointerDownShift = false;
   private pointerDownHandle: HandleMesh | null = null;
   private isHandleDragging = false;
-  private handleDragState: {
-    handleType: string;
-    node: ModelNode | null;
-    /** Constraint plane for raycasting during drag. */
-    plane: THREE.Plane;
-    /** World-space intersection point at drag start. */
-    startWorldPoint: THREE.Vector3;
-    /** World axis/axes this handle operates along. */
-    worldAxis: THREE.Vector3;
-    /** Whether this is a vertical (Y-axis) handle. */
-    isVertical: boolean;
-    /** Whether this is a corner handle (tracks X and Z independently). */
-    isCorner: boolean;
-    /** Accumulated raw world-space delta (before snapping). */
-    totalDeltaX: number;
-    totalDeltaY: number;
-    /** Already-applied (snapped) delta. */
-    appliedDeltaX: number;
-    appliedDeltaY: number;
-    /** Screen-space start for rotation handles. */
-    startClientX: number;
-    startClientY: number;
-    /** Rotation plane for raycasting (perpendicular to the rotation axis). */
-    rotationPlane?: THREE.Plane;
-    /** Center of the object in world space (rotation pivot). */
-    rotationCenter?: THREE.Vector3;
-    /** Angle on the rotation plane at drag start. */
-    startPlaneAngle?: number;
-    /** Rotation value at drag start (radians) for the active axis. */
-    startRotation?: number;
-    /** Tangent axes of the rotation plane (for planeAngle computation). */
-    rotationTangentU?: THREE.Vector3;
-    rotationTangentV?: THREE.Vector3;
-    /** Fixed world-space pivot for rotation. */
-    groupPivotWorld?: THREE.Vector3;
-    /** Pivot in group's local space at drag start. */
-    groupPivotLocal?: THREE.Vector3;
-    /** Quaternion of the object at drag start (for world-axis rotation). */
-    startQuaternion?: THREE.Quaternion;
-    /** World axis for the active rotation handle. */
-    rotationWorldAxis?: THREE.Vector3;
-    /** World-space radius of the rotation ring (for dual-ring snap detection). */
-    ringRadius?: number;
-    /** Screen-space center of rotation (projected rotation center). */
-    screenCenter?: THREE.Vector2;
-    /** Screen-space angle at drag start. */
-    startScreenAngle?: number;
-    /** Object's local X axis in world space (for corner drag). */
-    localAxisX?: THREE.Vector3;
-    /** Object's local Z axis in world space (for corner drag). */
-    localAxisZ?: THREE.Vector3;
-  } | null = null;
+  private handleDragState: HandleDragState | null = null;
 
   /** Offset between the pointer click point and the object center on the XZ plane. */
   private dragOffset = new THREE.Vector2(0, 0);
@@ -238,53 +133,94 @@ export class ConstructorSceneService {
   private resizeHandler: (() => void) | null = null;
   private containerEl: HTMLElement | null = null;
   private debugFrameCount = 0;
-  private showDebug = false;
 
   /** Visual ring shown at Y=0 when dragging an object vertically. */
   private yZeroIndicator: THREE.Mesh | null = null;
   private yZeroIndicatorTimeout: ReturnType<typeof setTimeout> | null = null;
 
-  /** Dashed-line projection of the active object onto the Y=0 grid plane. */
-  private gridProjection: THREE.Group | null = null;
-
-  // ─── Cruise mode (object-to-object snapping) ──────────────────────────────
-  private cruiseMode = false;
-  private cruiseThreshold = 5; // snap distance in mm
-  private cruiseGuides: THREE.Line[] = [];
-
-  // ─── Middle-button camera cruise ─────────────────────────────────────────
-  private middleDragging = false;
-  private middleLastX = 0;
-  private middleLastY = 0;
 
   // ─── Scene settings (applied before mount or via setters) ──────────────���───
-  private snapStep = 1;
-  /** @deprecated Rotation snap is now determined by dual-ring position (5° inner / 1° outer). */
-  // private rotationSnapStep = Math.PI / 12;
   private backgroundColor: number | string = 0xf0f0f0;
   private zoomSpeed = 1;
-  private gridWidthMm = 200;
-  private gridLengthMm = 200;
-  private gridVisible = true;
+
+  private readonly exporter: ModelExporter;
+  private readonly pointerController: PointerEventController;
 
   constructor(
     private readonly modelApp: ModelApp,
     private readonly options: ConstructorSceneServiceOptions = {}
-  ) {}
+  ) {
+    this.exporter = new ModelExporter(
+      () => this.modelApp.getModelManager().getTree(),
+      () => this.selectedNode,
+    );
+    this.pointerController = new PointerEventController(this._host);
+  }
+
+  /** Returns the export helper (STL/OBJ download). */
+  getExporter(): ModelExporter {
+    return this.exporter;
+  }
+
+  /**
+   * Returns this service cast to PointerEventHost.
+   * Also serves as a compile-time reference so TS doesn't flag host-interface
+   * members as unused (they are accessed at runtime by PointerEventController).
+   * @internal
+   */
+  private get _host(): PointerEventHost {
+    void this.raycaster; void this.mouse;
+    void this.dragPlane; void this.dragTarget; void this.isPlaneDragging;
+    void this.pointerDownHit; void this.pointerDownClient;
+    void this.pointerDownShift; void this.pointerDownHandle;
+    void this.isHandleDragging; void this.dragOffset;
+    void this.getSelectableMeshes; void this.applyHandleDragDelta;
+    void this.bakeRotationIntoDimensions; void this.computeHandleConstraintPlane;
+    void this.collectNeighborEdges; void this.applyCruiseSnap;
+    void this.showCruiseGuides; void this.clearCruiseGuides;
+    return this as unknown as PointerEventHost;
+  }
 
   // ─── Public setters ────────────────────────────────────────────────────────
 
   setSnapStep(step: number): void {
-    this.snapStep = Number.isFinite(step) && step > 0 ? step : 1;
+    this.gridMode.setSnapStep(step);
+  }
+
+  /** Convenience getter used by PointerEventHost. */
+  get snapStep(): number {
+    return this.gridMode.snapStep;
   }
 
   setCruiseMode(active: boolean): void {
-    this.cruiseMode = active;
-    if (!active) this.clearCruiseGuides();
+    this.cruiseModeCtrl.setActive(active);
   }
 
   isCruiseMode(): boolean {
-    return this.cruiseMode;
+    return this.cruiseModeCtrl.isActive();
+  }
+
+  setAlignmentMode(active: boolean): void {
+    this.alignmentMode.setActive(active);
+    // Hide modification gizmo in alignment mode to avoid interference
+    if (this.modificationGizmo) {
+      if (active) {
+        this.modificationGizmo.clearTarget();
+      } else {
+        this.updateGizmoTarget();
+      }
+    }
+  }
+
+  isAlignmentMode(): boolean {
+    return this.alignmentMode.isActive();
+  }
+
+  setDebugPanelVisible(visible: boolean): void {
+    this.debugPanelVisible = visible;
+    if (!visible && this.centerMarker) {
+      this.centerMarker.visible = false;
+    }
   }
 
   /** Find the Three.js object corresponding to a model node. */
@@ -293,8 +229,7 @@ export class ConstructorSceneService {
   }
 
   setGridVisible(visible: boolean): void {
-    this.gridVisible = !!visible;
-    this.gridService?.setVisible(this.gridVisible);
+    this.gridMode.setVisible(visible);
   }
 
   setBackgroundColor(hex: number | string): void {
@@ -308,9 +243,7 @@ export class ConstructorSceneService {
   }
 
   setGridSize(widthMm: number, lengthMm: number): void {
-    this.gridWidthMm = Math.max(10, widthMm);
-    this.gridLengthMm = Math.max(10, lengthMm);
-    this.gridService?.setSize(this.gridWidthMm, this.gridLengthMm);
+    this.gridMode.setSize(widthMm, lengthMm);
   }
 
   // ─── Lifecycle ─────────────────────────────────────────────────────────────
@@ -325,12 +258,10 @@ export class ConstructorSceneService {
     this.scene.background = new THREE.Color(this.backgroundColor as Parameters<THREE.Color['set']>[0]);
 
     // Grid
-    this.gridService = new GridService(this.scene);
-    this.gridService.setSize(this.gridWidthMm, this.gridLengthMm);
-    this.gridService.setVisible(this.gridVisible);
+    this.gridMode.init(this.scene);
 
     // Camera
-    this.camera = new THREE.PerspectiveCamera(50, width / height, 0.1, 1000);
+    this.camera = new THREE.PerspectiveCamera(50, width / height, 0.1, 5000);
     this.camera.position.set(0, 160, 300);
 
     // Renderer
@@ -352,6 +283,8 @@ export class ConstructorSceneService {
     this.controls.mouseButtons.MIDDLE = null as unknown as MOUSE; // middle button used for camera cruise
     this.controls.mouseButtons.RIGHT = MOUSE.ROTATE;
     this.controls.zoomSpeed = this.zoomSpeed;
+    this.controls.minDistance = 10;
+    this.controls.maxDistance = 2000;
     // Disable arrow key camera movement — arrows are used to move objects
     this.controls.enableKeys = false;
 
@@ -362,15 +295,17 @@ export class ConstructorSceneService {
     this.modificationGizmo.setContainerHeight(height);
 
     // Mirror gizmo
-    this.mirrorGizmo = new MirrorGizmo(this.scene);
-    this.mirrorGizmo.setCamera(this.camera);
-    this.mirrorGizmo.setContainerHeight(height);
+    this.mirrorMode.init(this.scene, this.camera, height);
 
     // Model root
     this.modelRootGroup = new THREE.Group();
     this.scene.add(this.modelRootGroup);
     this.modificationGizmo.addToScene();
-    this.mirrorGizmo.addToScene();
+
+    // Cruise mode needs scene + model root
+    this.cruiseModeCtrl.init(this.scene, this.modelRootGroup);
+    this.alignmentMode.init(this.scene, this.modelRootGroup!, this.camera);
+    this.alignmentMode.setContainerHeight(height);
 
     // View cube navigator
     this.viewCube = new ViewCubeNavigator();
@@ -387,9 +322,7 @@ export class ConstructorSceneService {
     this.dragTarget = null;
     this.isPlaneDragging = false;
 
-    this.renderer.domElement.addEventListener('pointerdown', this.onPointerDown);
-    this.renderer.domElement.addEventListener('pointermove', this.onPointerMove);
-    this.renderer.domElement.addEventListener('pointerup', this.onPointerUp);
+    this.pointerController.attach(this.renderer.domElement);
 
     this.resizeHandler = () => {
       if (!this.containerEl || !this.camera || !this.renderer) return;
@@ -399,7 +332,8 @@ export class ConstructorSceneService {
       this.camera.updateProjectionMatrix();
       this.renderer.setSize(w, h);
       this.modificationGizmo?.setContainerHeight(h);
-      this.mirrorGizmo?.setContainerHeight(h);
+      this.mirrorMode.setContainerHeight(h);
+      this.alignmentMode.setContainerHeight(h);
     };
     window.addEventListener('resize', this.resizeHandler);
 
@@ -410,16 +344,16 @@ export class ConstructorSceneService {
     if (!this.scene || !this.renderer) return;
 
     this.modificationGizmo?.dispose();
-    this.mirrorGizmo?.dispose();
+    this.mirrorMode.dispose();
+    this.cruiseModeCtrl.dispose();
+    this.alignmentMode.dispose();
     this.viewCube?.dispose();
 
     if (this.resizeHandler) {
       window.removeEventListener('resize', this.resizeHandler);
       this.resizeHandler = null;
     }
-    this.renderer.domElement.removeEventListener('pointerdown', this.onPointerDown);
-    this.renderer.domElement.removeEventListener('pointermove', this.onPointerMove);
-    this.renderer.domElement.removeEventListener('pointerup', this.onPointerUp);
+    this.pointerController.detach(this.renderer.domElement);
 
     if (this.animationId != null) {
       cancelAnimationFrame(this.animationId);
@@ -433,7 +367,6 @@ export class ConstructorSceneService {
     if (this.modelRootGroup) disposeObject3D(this.modelRootGroup);
 
     this.hideYZeroIndicator();
-    this.clearCruiseGuides();
     if (this.centerMarker) {
       this.centerMarker.geometry.dispose();
       (this.centerMarker.material as THREE.Material).dispose();
@@ -445,17 +378,7 @@ export class ConstructorSceneService {
       (this.yZeroIndicator.material as THREE.Material).dispose();
       this.yZeroIndicator = null;
     }
-    if (this.gridProjection) {
-      this.gridProjection.traverse((child) => {
-        if ((child as THREE.Line).geometry) (child as THREE.Line).geometry.dispose();
-        if ((child as THREE.Line).material) ((child as THREE.Line).material as THREE.Material).dispose();
-      });
-      this.scene?.remove(this.gridProjection);
-      this.gridProjection = null;
-    }
-
-    this.gridService?.dispose();
-    this.gridService = null;
+    this.gridMode.dispose();
 
     this.scene = null;
     this.camera = null;
@@ -478,20 +401,24 @@ export class ConstructorSceneService {
     this.updateGizmoTarget(prevNodes);
   }
 
+  private getSelectedObjects3D(): THREE.Object3D[] {
+    if (!this.modelRootGroup) return [];
+    const result: THREE.Object3D[] = [];
+    for (const node of this.selectedNodes) {
+      const obj = this.findObjectByNode(this.modelRootGroup, node);
+      if (obj) result.push(obj);
+    }
+    return result;
+  }
+
   // ─── Mirror mode ──────────────────────────────────────────────────────────
 
   setMirrorMode(active: boolean): void {
-    this.mirrorMode = active;
-    if (!this.mirrorGizmo) return;
-    if (active && this.selectedObject3D) {
-      this.mirrorGizmo.show(this.selectedObject3D);
-    } else {
-      this.mirrorGizmo.hide();
-    }
+    this.mirrorMode.setActive(active, this.selectedObject3D);
   }
 
   isMirrorMode(): boolean {
-    return this.mirrorMode;
+    return this.mirrorMode.isActive();
   }
 
   /** Dispose all existing scene objects and rebuild from the model tree. */
@@ -576,17 +503,18 @@ export class ConstructorSceneService {
     this.animationId = requestAnimationFrame(this.animate);
     this.controls.update();
 
-    this.gridService?.updateLabelBillboard(this.camera);
+    this.gridMode.updateLabel(this.camera);
 
     if (this.modificationGizmo?.getTarget()) {
       this.modificationGizmo.updatePositions();
     }
-    if (this.mirrorGizmo?.isVisible()) {
-      this.mirrorGizmo.updatePositions();
-    }
+    this.mirrorMode.update();
+
+    // Alignment markers for selected objects
+    this.alignmentMode.update(this.getSelectedObjects3D());
 
     // Dashed projection of active object onto the grid
-    this.updateGridProjection();
+    this.gridMode.updateProjection(this.selectedObject3D);
 
     // Debug center marker
     this.updateCenterMarker();
@@ -708,13 +636,6 @@ export class ConstructorSceneService {
     return meshes;
   }
 
-  private updateMouseFromEvent(event: PointerEvent): void {
-    if (!this.containerEl || !this.mouse) return;
-    const rect = this.containerEl.getBoundingClientRect();
-    this.mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-    this.mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-  }
-
   private static readonly NEON_EMISSIVE = new THREE.Color(0x00a5a4);
   private static readonly NEON_INTENSITY = 0.15;
 
@@ -753,15 +674,18 @@ export class ConstructorSceneService {
     if (this.selectedNodes.length === 0) {
       this.selectedObject3D = null;
       this.modificationGizmo.clearTarget();
-      this.mirrorGizmo?.hide();
+      this.mirrorMode.syncWithSelection(null);
       return;
     }
     const first = this.selectedNodes[0];
     const obj = this.findObjectByNode(this.modelRootGroup, first);
     this.selectedObject3D = obj || null;
     if (obj && this.selectedNode) {
-      this.modificationGizmo.setTarget(obj, this.selectedNode as unknown as Parameters<ModificationGizmo['setTarget']>[1]);
-      if (this.mirrorMode && this.mirrorGizmo) this.mirrorGizmo.show(obj);
+      // Don't show modification gizmo when alignment mode is active
+      if (!this.alignmentMode.isActive()) {
+        this.modificationGizmo.setTarget(obj, this.selectedNode as unknown as Parameters<ModificationGizmo['setTarget']>[1]);
+      }
+      this.mirrorMode.syncWithSelection(obj);
       // Apply glow to all selected objects
       for (const node of this.selectedNodes) {
         const selObj = this.findObjectByNode(this.modelRootGroup!, node);
@@ -769,7 +693,7 @@ export class ConstructorSceneService {
       }
     } else {
       this.modificationGizmo.clearTarget();
-      this.mirrorGizmo?.hide();
+      this.mirrorMode.syncWithSelection(null);
     }
   }
 
@@ -1075,7 +999,6 @@ export class ConstructorSceneService {
     if (!rot) return;
 
     const prim = node instanceof Primitive ? node : null;
-    const isGroup = node instanceof GroupNode;
 
     // ── Box primitive baking ──
     if (prim) {
@@ -1165,103 +1088,6 @@ export class ConstructorSceneService {
     }
 
     this.options.onNodeParamsChanged?.(node);
-  }
-
-  // ─── Public: export ───────────────────────────────────────────
-
-  exportSTL(filename = 'scene.stl', onlySelected = false): void {
-    const mesh = this.getExportMesh(onlySelected);
-    if (!mesh) return;
-    const exporter = new STLExporter();
-    const result = exporter.parse(mesh, { binary: true });
-    const blob = new Blob([result], { type: 'application/octet-stream' });
-    this.downloadBlob(blob, filename);
-  }
-
-  exportOBJ(filename = 'scene.obj', onlySelected = false): void {
-    const mesh = this.getExportMesh(onlySelected);
-    if (!mesh) return;
-    const exporter = new OBJExporter();
-    const result = exporter.parse(mesh);
-    const blob = new Blob([result], { type: 'text/plain' });
-    this.downloadBlob(blob, filename);
-  }
-
-  /**
-   * Async STL export with progress callback.
-   * Yields between CSG operations so the UI can update a progress bar.
-   */
-  async exportSTLAsync(
-    filename = 'scene.stl',
-    onlySelected = false,
-    onProgress?: (done: number, total: number) => void,
-  ): Promise<void> {
-    const mesh = await this.getExportMeshAsync(onlySelected, onProgress);
-    if (!mesh) return;
-    await new Promise((r) => setTimeout(r, 0));
-    const exporter = new STLExporter();
-    const result = exporter.parse(mesh, { binary: true });
-    const blob = new Blob([result], { type: 'application/octet-stream' });
-    this.downloadBlob(blob, filename);
-  }
-
-  /**
-   * Async OBJ export with progress callback.
-   */
-  async exportOBJAsync(
-    filename = 'scene.obj',
-    onlySelected = false,
-    onProgress?: (done: number, total: number) => void,
-  ): Promise<void> {
-    const mesh = await this.getExportMeshAsync(onlySelected, onProgress);
-    if (!mesh) return;
-    await new Promise((r) => setTimeout(r, 0));
-    const exporter = new OBJExporter();
-    const result = exporter.parse(mesh);
-    const blob = new Blob([result], { type: 'text/plain' });
-    this.downloadBlob(blob, filename);
-  }
-
-  private getExportMesh(onlySelected: boolean): THREE.Mesh | null {
-    if (onlySelected && this.selectedNode) {
-      const mesh = this.selectedNode.getMesh();
-      mesh.updateMatrixWorld(true);
-      return mesh;
-    }
-    const root = this.modelApp.getModelManager().getTree();
-    if (!root) return null;
-    const mesh = root.getMesh();
-    mesh.updateMatrixWorld(true);
-    return mesh;
-  }
-
-  private async getExportMeshAsync(
-    onlySelected: boolean,
-    onProgress?: (done: number, total: number) => void,
-  ): Promise<THREE.Mesh | null> {
-    const node = onlySelected && this.selectedNode
-      ? this.selectedNode
-      : this.modelApp.getModelManager().getTree();
-    if (!node) return null;
-
-    const totalOps = node.countCSGOperations();
-    const counter = { done: 0, total: totalOps };
-
-    if (onProgress) onProgress(0, totalOps);
-    const mesh = await node.getMeshAsync(onProgress, counter);
-    mesh.updateMatrixWorld(true);
-    return mesh;
-  }
-
-  private downloadBlob(blob: Blob, filename: string): void {
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
   }
 
   // ─── Private: camera-aware axis projection ────────────────────
@@ -1423,93 +1249,12 @@ export class ConstructorSceneService {
     }
   }
 
-  // ─── Grid projection (dashed outline + filled area on Y=0) ─────────────────
-
-  private updateGridProjection(): void {
-    if (!this.selectedObject3D || !this.scene) {
-      if (this.gridProjection) this.gridProjection.visible = false;
-      return;
-    }
-
-    const obj = this.selectedObject3D;
-    const box = new THREE.Box3().setFromObject(obj);
-    const { min, max } = box;
-
-    // Grid-plane Y coordinate (slightly above 0 to avoid z-fighting)
-    const gy = 0.02;
-
-    const sizeX = max.x - min.x;
-    const sizeZ = max.z - min.z;
-    const centerX = (min.x + max.x) / 2;
-    const centerZ = (min.z + max.z) / 2;
-
-    // Four corners of the bounding box projected onto Y=0
-    const c0 = new THREE.Vector3(min.x, gy, min.z);
-    const c1 = new THREE.Vector3(max.x, gy, min.z);
-    const c2 = new THREE.Vector3(max.x, gy, max.z);
-    const c3 = new THREE.Vector3(min.x, gy, max.z);
-
-    // Rectangle on the grid (closed loop)
-    const rectPoints = [c0, c1, c2, c3, c0];
-
-    if (!this.gridProjection) {
-      this.gridProjection = new THREE.Group();
-      this.gridProjection.renderOrder = 2;
-
-      // Filled area
-      const fillGeo = new THREE.PlaneGeometry(1, 1);
-      const fillMat = new THREE.MeshBasicMaterial({
-        color: 0x888888,
-        side: THREE.DoubleSide,
-        transparent: true,
-        opacity: 0.15,
-        depthTest: false,
-      });
-      const fillMesh = new THREE.Mesh(fillGeo, fillMat);
-      fillMesh.rotation.x = -Math.PI / 2;
-      fillMesh.name = 'projFill';
-      this.gridProjection.add(fillMesh);
-
-      // Dashed rectangle outline
-      const rectGeo = new THREE.BufferGeometry().setFromPoints(rectPoints);
-      const rectMat = new THREE.LineDashedMaterial({
-        color: 0x888888,
-        dashSize: 0.3,
-        gapSize: 0.15,
-        depthTest: false,
-        transparent: true,
-        opacity: 0.6,
-      });
-      const rectLine = new THREE.Line(rectGeo, rectMat);
-      rectLine.computeLineDistances();
-      rectLine.name = 'projRect';
-      this.gridProjection.add(rectLine);
-
-      this.scene.add(this.gridProjection);
-    } else {
-      // Update dashed outline
-      const rectLine = this.gridProjection.getObjectByName('projRect') as THREE.Line;
-      if (rectLine) {
-        rectLine.geometry.dispose();
-        rectLine.geometry = new THREE.BufferGeometry().setFromPoints(rectPoints);
-        rectLine.computeLineDistances();
-      }
-    }
-
-    // Update filled area position and scale
-    const fillMesh = this.gridProjection.getObjectByName('projFill') as THREE.Mesh;
-    if (fillMesh) {
-      fillMesh.position.set(centerX, gy + 0.001, centerZ);
-      fillMesh.scale.set(sizeX, sizeZ, 1);
-    }
-
-    this.gridProjection.visible = true;
-  }
-
   // ─── Debug: center marker ──────────────────────────────────────────────────
 
+  private static readonly CENTER_MARKER_SCREEN_PX = 6;
+
   private updateCenterMarker(): void {
-    if (!this.selectedObject3D || !this.scene) {
+    if (!this.debugPanelVisible || !this.selectedObject3D || !this.scene || !this.camera) {
       if (this.centerMarker) {
         this.centerMarker.visible = false;
       }
@@ -1520,9 +1265,6 @@ export class ConstructorSceneService {
     const box = new THREE.Box3().setFromObject(obj);
     const center = new THREE.Vector3();
     box.getCenter(center);
-    const size = new THREE.Vector3();
-    box.getSize(size);
-    const radius = Math.max(size.x, size.y, size.z) * 0.05;
 
     if (!this.centerMarker) {
       const geo = new THREE.SphereGeometry(1, 16, 16);
@@ -1537,595 +1279,41 @@ export class ConstructorSceneService {
       this.scene.add(this.centerMarker);
     }
 
+    // Dynamic screen-space constant size
+    const cam = this.camera as THREE.PerspectiveCamera;
+    const fovRad = (cam.fov * Math.PI) / 180;
+    const distance = center.distanceTo(cam.position);
+    const viewportHeightWorld = 2 * distance * Math.tan(fovRad / 2);
+    const containerH = this.renderer?.domElement.clientHeight ?? 800;
+    const worldPerPixel = viewportHeightWorld / containerH;
+    const radius = worldPerPixel * ConstructorSceneService.CENTER_MARKER_SCREEN_PX;
+
     this.centerMarker.visible = true;
     this.centerMarker.position.copy(center);
     this.centerMarker.scale.setScalar(radius);
   }
 
-  // ─── Private: cruise mode (object-to-object snapping) ──────────────────────
+  // ─── Private: cruise mode delegates (PointerEventHost contract) ────────────
 
-  /**
-   * Collects bounding-box edges of all scene objects except the dragged one.
-   * Returns arrays of X and Z edge coordinates.
-   */
   private collectNeighborEdges(exclude: THREE.Object3D): { xs: number[]; zs: number[] } {
-    const xs: number[] = [];
-    const zs: number[] = [];
-    if (!this.modelRootGroup) return { xs, zs };
-    const box = new THREE.Box3();
-    this.modelRootGroup.traverse((o) => {
-      if (!(o instanceof THREE.Mesh)) return;
-      if (o === exclude) return;
-      if (!(o.userData as { node?: unknown }).node) return;
-      box.setFromObject(o);
-      if (box.isEmpty()) return;
-      xs.push(box.min.x, (box.min.x + box.max.x) / 2, box.max.x);
-      zs.push(box.min.z, (box.min.z + box.max.z) / 2, box.max.z);
-    });
-    return { xs, zs };
+    return this.cruiseModeCtrl.collectNeighborEdges(exclude);
   }
 
-  /**
-   * Given the dragged object's candidate position, snaps X and/or Z
-   * to the nearest neighbor edge within cruiseThreshold.
-   * Returns the snapped position and the snap coordinates for guides.
-   */
   private applyCruiseSnap(
     target: THREE.Object3D,
     posX: number,
     posZ: number,
-    neighborEdges: { xs: number[]; zs: number[] }
+    neighborEdges: { xs: number[]; zs: number[] },
   ): { x: number; z: number; guideXs: number[]; guideZs: number[] } {
-    const box = new THREE.Box3().setFromObject(target);
-    const halfW = (box.max.x - box.min.x) / 2;
-    const halfD = (box.max.z - box.min.z) / 2;
-    const centerX = posX;
-    const centerZ = posZ;
-
-    // Edges of the dragged object at the candidate position
-    const myXs = [centerX - halfW, centerX, centerX + halfW];
-    const myZs = [centerZ - halfD, centerZ, centerZ + halfD];
-
-    let bestDx = Infinity;
-    let snapX = posX;
-    const guideXs: number[] = [];
-
-    for (const mx of myXs) {
-      for (const nx of neighborEdges.xs) {
-        const d = Math.abs(mx - nx);
-        if (d < this.cruiseThreshold && d < Math.abs(bestDx)) {
-          bestDx = nx - mx;
-          snapX = posX + bestDx;
-        }
-      }
-    }
-    if (Math.abs(bestDx) < this.cruiseThreshold) {
-      // Collect all neighbor X edges that align with any edge of the snapped object
-      const snappedXs = [snapX - halfW, snapX, snapX + halfW];
-      for (const sx of snappedXs) {
-        for (const nx of neighborEdges.xs) {
-          if (Math.abs(sx - nx) < 0.01) guideXs.push(sx);
-        }
-      }
-    }
-
-    let bestDz = Infinity;
-    let snapZ = posZ;
-    const guideZs: number[] = [];
-
-    for (const mz of myZs) {
-      for (const nz of neighborEdges.zs) {
-        const d = Math.abs(mz - nz);
-        if (d < this.cruiseThreshold && d < Math.abs(bestDz)) {
-          bestDz = nz - mz;
-          snapZ = posZ + bestDz;
-        }
-      }
-    }
-    if (Math.abs(bestDz) < this.cruiseThreshold) {
-      const snappedZs = [snapZ - halfD, snapZ, snapZ + halfD];
-      for (const sz of snappedZs) {
-        for (const nz of neighborEdges.zs) {
-          if (Math.abs(sz - nz) < 0.01) guideZs.push(sz);
-        }
-      }
-    }
-
-    return { x: snapX, z: snapZ, guideXs, guideZs };
+    return this.cruiseModeCtrl.applySnap(target, posX, posZ, neighborEdges);
   }
 
   private showCruiseGuides(xs: number[], zs: number[], y: number): void {
-    this.clearCruiseGuides();
-    if (!this.scene) return;
-    const guideLen = 500;
-    const mat = new THREE.LineBasicMaterial({ color: 0x00ccff, depthTest: false, linewidth: 1 });
-
-    const uniqueXs = [...new Set(xs.map(v => Math.round(v * 100) / 100))];
-    const uniqueZs = [...new Set(zs.map(v => Math.round(v * 100) / 100))];
-
-    for (const x of uniqueXs) {
-      const pts = [new THREE.Vector3(x, y, -guideLen), new THREE.Vector3(x, y, guideLen)];
-      const geo = new THREE.BufferGeometry().setFromPoints(pts);
-      const line = new THREE.Line(geo, mat);
-      line.renderOrder = 3;
-      this.scene.add(line);
-      this.cruiseGuides.push(line);
-    }
-    for (const z of uniqueZs) {
-      const pts = [new THREE.Vector3(-guideLen, y, z), new THREE.Vector3(guideLen, y, z)];
-      const geo = new THREE.BufferGeometry().setFromPoints(pts);
-      const line = new THREE.Line(geo, mat);
-      line.renderOrder = 3;
-      this.scene.add(line);
-      this.cruiseGuides.push(line);
-    }
+    this.cruiseModeCtrl.showGuides(xs, zs, y);
   }
 
   private clearCruiseGuides(): void {
-    for (const line of this.cruiseGuides) {
-      line.geometry.dispose();
-      (line.material as THREE.Material).dispose();
-      this.scene?.remove(line);
-    }
-    this.cruiseGuides = [];
+    this.cruiseModeCtrl.clearGuides();
   }
 
-  // ─── Private: pointer events ───────────────────────────────────────────────
-
-  private onPointerDown = (event: PointerEvent): void => {
-    if (!this.modelRootGroup || !this.raycaster || !this.mouse) return;
-
-    // Middle button: start camera cruise
-    if (event.button === 1) {
-      event.preventDefault();
-      this.middleDragging = true;
-      this.middleLastX = event.clientX;
-      this.middleLastY = event.clientY;
-      return;
-    }
-
-    if (event.button !== 0) return;
-    this.updateMouseFromEvent(event);
-    this.raycaster.setFromCamera(this.mouse, this.camera!);
-
-    // Mirror handle click
-    if (this.mirrorMode && this.mirrorGizmo?.isVisible() && this.selectedNode) {
-      this.mirrorGizmo.updateMatrixWorld();
-      const mirrorHits = this.raycaster.intersectObjects(this.mirrorGizmo.getHandles());
-      if (mirrorHits.length > 0) {
-        const handle = mirrorHits[0].object as MirrorHandleMesh;
-        const axis = handle.userData?.axis;
-        if (axis) {
-          this.options.onBeforeDrag?.();
-          const node = this.selectedNode;
-          node.params = node.params || {};
-          node.params.scale = node.params.scale || { x: 1, y: 1, z: 1 };
-          node.params.scale[axis] *= -1;
-          this.rebuildSceneFromTree();
-          this.options.onNodeParamsChanged?.(node);
-          this.options.onAfterDrag?.();
-        }
-        return;
-      }
-    }
-
-    if (this.modificationGizmo?.getTarget()) {
-      // Force matrix update so raycasting reflects the latest handle positions.
-      this.modificationGizmo.updateMatrixWorldForHandles();
-      const handleHits = this.raycaster.intersectObjects(this.modificationGizmo.getHandles());
-      if (handleHits.length > 0) {
-        const handle = handleHits[0].object as HandleMesh;
-        if (handle.userData?.type) {
-          this.pointerDownHandle = handle;
-          this.pointerDownClient = { x: event.clientX, y: event.clientY };
-          this.pointerDownShift = !!event.shiftKey;
-          return;
-        }
-      }
-    }
-
-    const meshes = this.getSelectableMeshes();
-    const hits = this.raycaster.intersectObjects(meshes);
-    this.pointerDownClient = { x: event.clientX, y: event.clientY };
-    this.pointerDownShift = !!event.shiftKey;
-    this.pointerDownHandle = null;
-    this.pointerDownHit = hits.length > 0
-      ? { object: hits[0].object, point: hits[0].point }
-      : null;
-  };
-
-  private onPointerMove = (event: PointerEvent): void => {
-    if (!this.modelRootGroup || !this.raycaster || !this.mouse) return;
-
-    // ── Middle-button camera cruise ────────────────────────────────────────
-    if (this.middleDragging && this.camera && this.controls) {
-      const dx = event.clientX - this.middleLastX;
-      const dy = event.clientY - this.middleLastY;
-      this.middleLastX = event.clientX;
-      this.middleLastY = event.clientY;
-
-      const dist = this.camera.position.distanceTo(this.controls.target);
-      const speed = dist * 0.002 * this.zoomSpeed;
-
-      // Horizontal mouse → strafe (camera right), vertical → pan (camera up)
-      const forward = new THREE.Vector3();
-      this.camera.getWorldDirection(forward);
-      const right = new THREE.Vector3().crossVectors(forward, this.camera.up).normalize();
-      const up = new THREE.Vector3().crossVectors(right, forward).normalize();
-
-      const offset = new THREE.Vector3();
-      offset.addScaledVector(right, -dx * speed);
-      offset.addScaledVector(up, dy * speed);
-
-      this.camera.position.add(offset);
-      this.controls.target.add(offset);
-      this.controls.update();
-      return;
-    }
-
-    this.updateMouseFromEvent(event);
-    this.raycaster.setFromCamera(this.mouse, this.camera!);
-
-    // ── Handle drag ────────────────────────────────────────────────────────
-    if (this.isHandleDragging && this.handleDragState) {
-      const isRotation = this.handleDragState.handleType.startsWith('rotate');
-
-      if (isRotation) {
-        const sc = this.handleDragState.screenCenter;
-        const startSA = this.handleDragState.startScreenAngle;
-        if (sc && startSA !== undefined && this.handleDragState.startPlaneAngle !== undefined) {
-          // Screen-space angle for uniform stiffness across all axes
-          const curScreenAngle = Math.atan2(
-            -(event.clientY - sc.y), event.clientX - sc.x
-          );
-          let delta = curScreenAngle - startSA;
-          if (delta > Math.PI) delta -= 2 * Math.PI;
-          if (delta < -Math.PI) delta += 2 * Math.PI;
-
-          // Check rotation direction: if camera looks at the back of the plane,
-          // invert the rotation so it matches visual cursor direction
-          const rc = this.handleDragState.rotationCenter;
-          const normal = this.handleDragState.rotationWorldAxis;
-          if (rc && normal && this.camera) {
-            const camDir = this.camera.position.clone().sub(rc);
-            if (camDir.dot(normal) < 0) delta = -delta;
-          }
-
-          // Triple-ring snap: use 3D raycast distance for snap zone detection
-          let snapDeg = 5; // default
-          const rp = this.handleDragState.rotationPlane;
-          if (rp && rc) {
-            const hitPoint = new THREE.Vector3();
-            const didHit = this.raycaster.ray.intersectPlane(rp, hitPoint);
-            if (didHit) {
-              const ringRadius = this.handleDragState.ringRadius ?? 1;
-              const distFromCenter = hitPoint.distanceTo(rc);
-              const normalizedDist = distFromCenter / ringRadius;
-              snapDeg = normalizedDist < 0.64 ? 22.5 : normalizedDist < 0.82 ? 5 : 1;
-            }
-          }
-          const snapStep = (snapDeg * Math.PI) / 180;
-
-          const startRot = this.handleDragState.startRotation ?? 0;
-          const rawTarget = startRot + delta;
-          const snappedTarget = snapStep > 0
-            ? Math.round(rawTarget / snapStep) * snapStep
-            : rawTarget;
-
-          // Pass absolute angle
-          this.applyHandleDragDelta(this.handleDragState.node, this.handleDragState.handleType, snappedTarget, 0);
-
-          // Update sector visualization
-          if (this.modificationGizmo) {
-            this.modificationGizmo.updateRotationSector(
-              this.handleDragState.handleType as import('./ModificationGizmo').HandleType,
-              startRot,
-              snappedTarget
-            );
-          }
-        }
-        return;
-      }
-
-      // Raycast cursor onto the constraint plane to get world-space position
-      const worldPoint = new THREE.Vector3();
-      const hit = this.raycaster.ray.intersectPlane(this.handleDragState.plane, worldPoint);
-      if (!hit) return;
-
-      // Project world delta onto the handle's axis
-      const rawDelta = worldPoint.clone().sub(this.handleDragState.startWorldPoint);
-
-      if (this.handleDragState.isVertical) {
-        // Y-axis handles: use vertical component
-        this.handleDragState.totalDeltaY = rawDelta.y;
-      } else if (this.handleDragState.isCorner) {
-        // Corner handles: проекция на локальные оси объекта (dx=localX, dy=localZ)
-        const lx = this.handleDragState.localAxisX;
-        const lz = this.handleDragState.localAxisZ;
-        if (lx && lz) {
-          this.handleDragState.totalDeltaX = rawDelta.dot(lx);
-          this.handleDragState.totalDeltaY = rawDelta.dot(lz);
-        } else {
-          this.handleDragState.totalDeltaX = rawDelta.x;
-          this.handleDragState.totalDeltaY = rawDelta.z;
-        }
-      } else {
-        // Edge handles: project onto the single world axis
-        const axisDot = rawDelta.dot(this.handleDragState.worldAxis);
-        this.handleDragState.totalDeltaX = axisDot;
-      }
-
-      const snappedX = this.snapStep > 0
-        ? Math.round(this.handleDragState.totalDeltaX / this.snapStep) * this.snapStep
-        : this.handleDragState.totalDeltaX;
-      const snappedY = this.snapStep > 0
-        ? Math.round(this.handleDragState.totalDeltaY / this.snapStep) * this.snapStep
-        : this.handleDragState.totalDeltaY;
-
-      const deltaXToApply = snappedX - this.handleDragState.appliedDeltaX;
-      const deltaYToApply = snappedY - this.handleDragState.appliedDeltaY;
-
-      if (deltaXToApply !== 0 || deltaYToApply !== 0) {
-        this.applyHandleDragDelta(
-          this.handleDragState.node,
-          this.handleDragState.handleType,
-          deltaXToApply,
-          deltaYToApply
-        );
-        this.handleDragState.appliedDeltaX = snappedX;
-        this.handleDragState.appliedDeltaY = snappedY;
-      }
-
-      return;
-    }
-
-    // ── Plane drag ────────────────────────────────────────────────────────
-    if (this.isPlaneDragging && this.dragTarget && this.dragPlane) {
-      const ray = this.raycaster.ray;
-      const targetPoint = new THREE.Vector3();
-      if (ray.intersectPlane(this.dragPlane, targetPoint)) {
-        // Subtract click offset so the object follows the cursor from where it was clicked
-        targetPoint.x -= this.dragOffset.x;
-        targetPoint.z -= this.dragOffset.y;
-        if (this.snapStep > 0) {
-          targetPoint.x = Math.round(targetPoint.x / this.snapStep) * this.snapStep;
-          targetPoint.z = Math.round(targetPoint.z / this.snapStep) * this.snapStep;
-        }
-
-        // Cruise mode: snap to neighbor edges
-        if (this.cruiseMode) {
-          const edges = this.collectNeighborEdges(this.dragTarget);
-          // Temporarily move object to candidate position for bbox computation
-          if (this.dragTarget.parent) this.dragTarget.parent.worldToLocal(targetPoint);
-          this.dragTarget.position.x = targetPoint.x;
-          this.dragTarget.position.z = targetPoint.z;
-
-          const worldPos = new THREE.Vector3();
-          this.dragTarget.getWorldPosition(worldPos);
-          const snap = this.applyCruiseSnap(this.dragTarget, worldPos.x, worldPos.z, edges);
-
-          // Convert snapped world position back to local
-          const snappedWorld = new THREE.Vector3(snap.x, worldPos.y, snap.z);
-          if (this.dragTarget.parent) this.dragTarget.parent.worldToLocal(snappedWorld);
-          this.dragTarget.position.x = snappedWorld.x;
-          this.dragTarget.position.z = snappedWorld.z;
-
-          if (snap.guideXs.length || snap.guideZs.length) {
-            this.showCruiseGuides(snap.guideXs, snap.guideZs, worldPos.y);
-          } else {
-            this.clearCruiseGuides();
-          }
-        } else {
-          if (this.dragTarget.parent) this.dragTarget.parent.worldToLocal(targetPoint);
-          this.dragTarget.position.x = targetPoint.x;
-          this.dragTarget.position.z = targetPoint.z;
-        }
-
-        // Update node params
-        const node = (this.dragTarget.userData as { node?: ModelNode }).node;
-        if (node?.params) {
-          node.params.position = node.params.position || { x: 0, y: 0, z: 0 };
-          node.params.position.x = this.dragTarget.position.x;
-          node.params.position.z = this.dragTarget.position.z;
-          this.options.onNodeParamsChanged?.(node);
-        }
-      }
-      return;
-    }
-
-    // ── Begin handle drag ─────────────────────────────────────────────────
-    if (this.pointerDownHandle && (event.buttons & 1) === 1 && !this.isHandleDragging) {
-      const dx = event.clientX - this.pointerDownClient.x;
-      const dy = event.clientY - this.pointerDownClient.y;
-      if (Math.sqrt(dx * dx + dy * dy) >= DRAG_THRESHOLD) {
-        this.isHandleDragging = true;
-        if (this.controls) this.controls.enabled = false;
-        this.options.onBeforeDrag?.();
-        const node = this.modificationGizmo?.getNode() as ModelNode | null;
-        const handleType = (this.pointerDownHandle.userData as { type: string }).type;
-
-        // Compute the constraint plane and world axis for this handle
-        const { plane, worldAxis, isVertical, isCorner, localAxisX, localAxisZ } = this.computeHandleConstraintPlane(handleType);
-
-        // Raycast to get the starting world-space intersection point
-        const startWorldPoint = new THREE.Vector3();
-        this.raycaster.ray.intersectPlane(plane, startWorldPoint);
-
-        this.handleDragState = {
-          handleType,
-          node,
-          plane,
-          startWorldPoint,
-          worldAxis,
-          isVertical,
-          isCorner,
-          totalDeltaX: 0,
-          totalDeltaY: 0,
-          appliedDeltaX: 0,
-          appliedDeltaY: 0,
-          startClientX: event.clientX,
-          startClientY: event.clientY,
-          localAxisX,
-          localAxisZ,
-        };
-
-        // For rotation handles: set up rotation plane and initial angle
-        if (handleType.startsWith('rotate') && this.selectedObject3D && this.camera) {
-          const obj = this.selectedObject3D;
-          obj.updateMatrixWorld(true);
-          const box = new THREE.Box3().setFromObject(obj);
-          const center = new THREE.Vector3();
-          box.getCenter(center);
-
-          // Build rotation plane from current Euler, accounting for prior axes
-          const curRot = this.handleDragState.node?.params?.rotation ?? { x: 0, y: 0, z: 0 };
-          const { normal, tangentU, tangentV } = rotationPlaneAxes(handleType, curRot);
-          const rotPlane = new THREE.Plane().setFromNormalAndCoplanarPoint(normal, center);
-
-          // Raycast cursor onto the rotation plane to get starting angle
-          const hitStart = new THREE.Vector3();
-          const didHit = this.raycaster.ray.intersectPlane(rotPlane, hitStart);
-
-          if (didHit) {
-            const startAngle = planeAngle(hitStart, center, tangentU, tangentV);
-            const axisKey = handleType === 'rotateX' ? 'x' : handleType === 'rotateY' ? 'y' : 'z';
-            this.handleDragState.rotationPlane = rotPlane;
-            this.handleDragState.rotationCenter = center;
-            this.handleDragState.rotationTangentU = tangentU;
-            this.handleDragState.rotationTangentV = tangentV;
-            this.handleDragState.startPlaneAngle = startAngle;
-            this.handleDragState.startRotation = this.handleDragState.node?.params?.rotation?.[axisKey] ?? 0;
-            // Сохраняем начальный кватернион и мировую ось для корректного вращения
-            this.handleDragState.startQuaternion = obj.quaternion.clone();
-            this.handleDragState.rotationWorldAxis = normal.clone();
-
-            // Screen-space center and start angle for uniform stiffness
-            const screenCenter = center.clone().project(this.camera!);
-            const rect = this.containerEl?.getBoundingClientRect();
-            if (rect) {
-              const sx = (screenCenter.x * 0.5 + 0.5) * rect.width + rect.left;
-              const sy = (-screenCenter.y * 0.5 + 0.5) * rect.height + rect.top;
-              this.handleDragState.screenCenter = new THREE.Vector2(sx, sy);
-              this.handleDragState.startScreenAngle = Math.atan2(
-                -(event.clientY - sy), event.clientX - sx
-              );
-            }
-          }
-
-          // Вычисляем радиус кольца для определения snap-зоны
-          const boxSize = new THREE.Vector3();
-          box.getSize(boxSize);
-          this.handleDragState.ringRadius = boxSize.length() * 1.0;
-
-          // Cache the bbox center as fixed pivot for position correction
-          const pivot = center.clone();
-          this.handleDragState.groupPivotWorld = pivot;
-          this.handleDragState.groupPivotLocal = obj.worldToLocal(pivot.clone());
-        }
-      }
-    }
-
-    // ── Begin plane drag ──────────────────────────────────────────────────
-    if (this.pointerDownHit && !this.isPlaneDragging && !this.isHandleDragging && (event.buttons & 1) === 1) {
-      const dx = event.clientX - this.pointerDownClient.x;
-      const dy = event.clientY - this.pointerDownClient.y;
-      if (Math.sqrt(dx * dx + dy * dy) >= DRAG_THRESHOLD) {
-        this.isPlaneDragging = true;
-        if (this.controls) this.controls.enabled = false;
-        this.options.onBeforeDrag?.();
-        this.dragTarget = this.pointerDownHit.object;
-        const worldPos = new THREE.Vector3();
-        this.dragTarget.getWorldPosition(worldPos);
-        // Store offset between click point and object center so the object
-        // doesn't jump to center under the cursor at drag start.
-        this.dragOffset.set(
-          this.pointerDownHit.point.x - worldPos.x,
-          this.pointerDownHit.point.z - worldPos.z
-        );
-        this.dragPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
-        this.dragPlane.setFromNormalAndCoplanarPoint(new THREE.Vector3(0, 1, 0), worldPos);
-      }
-    }
-
-    // ── Handle hover highlight ────────────────────────────────────────────
-    if (!this.isHandleDragging && !this.isPlaneDragging && this.modificationGizmo?.getTarget()) {
-      this.modificationGizmo.updateMatrixWorldForHandles();
-      const handleHits = this.raycaster.intersectObjects(this.modificationGizmo.getHandles());
-      const hovered = handleHits.length > 0 ? (handleHits[0].object as HandleMesh) : null;
-      this.modificationGizmo.setHovered(hovered);
-    }
-
-    // ── Mirror handle hover highlight ─────────────────────────────────────
-    if (!this.isHandleDragging && !this.isPlaneDragging && this.mirrorMode && this.mirrorGizmo?.isVisible()) {
-      this.mirrorGizmo.updateMatrixWorld();
-      const mirrorHits = this.raycaster.intersectObjects(this.mirrorGizmo.getHandles());
-      const hovered = mirrorHits.length > 0 ? (mirrorHits[0].object as MirrorHandleMesh) : null;
-      this.mirrorGizmo.setHovered(hovered);
-    }
-  };
-
-  private onPointerUp = (event: PointerEvent): void => {
-    if (!this.renderer) return;
-
-    // Middle button release: stop camera cruise
-    if (event.button === 1) {
-      this.middleDragging = false;
-      return;
-    }
-
-    if (event.button !== 0) return;
-
-    if (this.isHandleDragging) {
-      const wasRotation = this.handleDragState?.handleType?.startsWith('rotate');
-      const rotNode = this.handleDragState?.node ?? null;
-      // Hide rotation sector
-      if (wasRotation && this.modificationGizmo && this.handleDragState?.handleType) {
-        this.modificationGizmo.hideRotationSector(
-          this.handleDragState.handleType as import('./ModificationGizmo').HandleType
-        );
-      }
-      this.isHandleDragging = false;
-      this.handleDragState = null;
-      this.pointerDownHandle = null;
-      if (this.controls) this.controls.enabled = true;
-      if (wasRotation && rotNode) {
-        this.bakeRotationIntoDimensions(rotNode);
-      }
-      this.options.onAfterDrag?.();
-      return;
-    }
-
-    if (this.isPlaneDragging) {
-      this.isPlaneDragging = false;
-      if (this.controls) this.controls.enabled = true;
-      this.dragTarget = null;
-      this.pointerDownHit = null;
-      this.clearCruiseGuides();
-      this.updateGizmoTarget();
-      this.options.onAfterDrag?.();
-      return;
-    }
-
-    const isCanvasRelease = this.renderer.domElement && event.target === this.renderer.domElement;
-    if (isCanvasRelease) {
-      const dx = event.clientX - this.pointerDownClient.x;
-      const dy = event.clientY - this.pointerDownClient.y;
-      const isClick = Math.sqrt(dx * dx + dy * dy) < DRAG_THRESHOLD;
-
-      if (this.pointerDownHandle) {
-        this.pointerDownHandle = null;
-      } else if (this.pointerDownHit && isClick) {
-        const node = (this.pointerDownHit.object.userData as { node?: ModelNode }).node;
-        if (node && this.options.onSelectNodeFromScene) {
-          this.options.onSelectNodeFromScene(node, { shift: this.pointerDownShift });
-        }
-      } else if (!this.pointerDownHit && isClick) {
-        // Clicked on empty space (grid) — deselect all
-        this.options.onDeselectAll?.();
-      }
-      event.stopPropagation();
-    }
-    this.pointerDownHit = null;
-    this.pointerDownHandle = null;
-  };
 }

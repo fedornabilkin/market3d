@@ -119,6 +119,10 @@
   .constructor-canvas-wrap
     div(ref="containerRef" class="canvas-container")
     .action-toolbar
+      span.selection-counter(v-if="selectedNodes.length" :title="`Выделено объектов: ${selectedNodes.length}`")
+        i.fas.fa-mouse-pointer
+        |  {{ selectedNodes.length }}
+      .toolbar-separator(v-if="selectedNodes.length")
       button.btn-icon(@click="mergeSelected" :disabled="!canMerge" title="Группа (Ctrl+G)")
         i.fas.fa-object-group
       button.btn-icon(@click="ungroupSelected" :disabled="!canUngroup" title="Разгруппировать (Ctrl+Shift+G)")
@@ -144,31 +148,15 @@
         title="Прилипание к объектам"
       )
         i.fas.fa-magnet
+      button.btn-icon(
+        :class="{ 'is-active-tool': alignmentModeActive }"
+        @click="toggleAlignmentMode"
+        title="Метки выравнивания"
+      )
+        i.fas.fa-ruler-combined
       .toolbar-separator
       button.btn-icon.btn-delete(@click="deleteSelected" :disabled="!canDeleteSelected" title="Удалить (Del)")
         i.fas.fa-trash
-      template(v-if="canAlign")
-        .toolbar-separator
-        span.align-label Выровнять:
-        button.btn-icon(@click="alignNodes('minX')" title="По левому краю")
-          i.fas.fa-align-left
-        button.btn-icon(@click="alignNodes('centerX')" title="По центру X")
-          i.fas.fa-align-center
-        button.btn-icon(@click="alignNodes('maxX')" title="По правому краю")
-          i.fas.fa-align-right
-        button.btn-icon(@click="alignNodes('minZ')" title="По заднему краю")
-          i.fas.fa-arrow-up
-        button.btn-icon(@click="alignNodes('centerZ')" title="По центру Z")
-          i.fas.fa-arrows-alt-v
-        button.btn-icon(@click="alignNodes('maxZ')" title="По переднему краю")
-          i.fas.fa-arrow-down
-        .toolbar-separator
-        button.btn-icon(@click="alignNodes('minY')" title="По нижнему краю")
-          i.fas.fa-level-down-alt
-        button.btn-icon(@click="alignNodes('centerY')" title="По центру Y")
-          i.fas.fa-minus
-        button.btn-icon(@click="alignNodes('maxY')" title="По верхнему краю")
-          i.fas.fa-level-up-alt
     .scene-toolbar
       button.btn-icon(@click="showSceneSettings = true" title="Параметры сцены")
         i.fas.fa-cog
@@ -176,7 +164,7 @@
         i.fas.fa-download
       button.btn-icon(@click="triggerImportSTL" title="Импорт STL")
         i.fas.fa-upload
-      button.btn-icon(@click="showDebugPanel = !showDebugPanel" :class="{ 'is-active-tool': showDebugPanel }" title="Debug")
+      button.btn-icon(@click="toggleDebugPanel" :class="{ 'is-active-tool': showDebugPanel }" title="Debug")
         i.fas.fa-bug
       input(
         ref="stlFileInput"
@@ -249,7 +237,7 @@
   .debug-panel(v-if="showDebugPanel")
     .debug-header
       span Debug
-      button.debug-close(@click="showDebugPanel = false") &times;
+      button.debug-close(@click="toggleDebugPanel") &times;
     .debug-body
       .debug-section
         .debug-title FPS
@@ -354,7 +342,6 @@ const canDeleteSelected = computed(() => {
   return !!node && !!r && node !== r;
 });
 const canMerge = computed(() => selectedNodes.value.length >= 2);
-const canAlign = computed(() => selectedNodes.value.length >= 2);
 const canUngroup = computed(() => {
   const node = selectedNode.value;
   return !!node && isGroupNode(node) && node !== rootNode.value;
@@ -374,6 +361,7 @@ const shapeButtons = [
 const addCooldown = ref(false);
 const mirrorModeActive = ref(false);
 const cruiseModeActive = ref(false);
+const alignmentModeActive = ref(false);
 const selectedGroupOperation = ref('union');
 const selectedPosition = ref({ x: 0, y: 0, z: 0 });
 const selectedScale = ref({ x: 1, y: 1, z: 1 });
@@ -461,6 +449,8 @@ const GEOMETRY_FIELDS = {
     { key: 'width', label: 'Ширина' },
     { key: 'height', label: 'Высота' },
     { key: 'depth', label: 'Глубина' },
+    { key: 'bevelRadius', label: 'Скругление' },
+    { key: 'bevelSegments', label: 'Сегм. скругл.' },
   ],
   sphere: [
     { key: 'radius', label: 'Радиус' },
@@ -472,6 +462,8 @@ const GEOMETRY_FIELDS = {
     { key: 'radiusBottom', label: 'Радиус основания' },
     { key: 'height', label: 'Высота' },
     { key: 'segments', label: 'Сегменты' },
+    { key: 'bevelRadius', label: 'Скругление' },
+    { key: 'bevelSegments', label: 'Сегм. скругл.' },
   ],
   cone: [
     { key: 'radius', label: 'Радиус основания' },
@@ -781,6 +773,17 @@ function toggleCruiseMode() {
   sceneService.setCruiseMode(cruiseModeActive.value);
 }
 
+function toggleDebugPanel() {
+  showDebugPanel.value = !showDebugPanel.value;
+  if (sceneService) sceneService.setDebugPanelVisible(showDebugPanel.value);
+}
+
+function toggleAlignmentMode() {
+  if (!sceneService) return;
+  alignmentModeActive.value = !alignmentModeActive.value;
+  sceneService.setAlignmentMode(alignmentModeActive.value);
+}
+
 type AlignMode = 'minX' | 'centerX' | 'maxX' | 'minY' | 'centerY' | 'maxY' | 'minZ' | 'centerZ' | 'maxZ';
 
 function alignNodes(mode: AlignMode) {
@@ -1081,6 +1084,27 @@ function handleKeydown(event: KeyboardEvent) {
     return;
   }
 
+  if (event.code === 'KeyM' && !hasCtrl) {
+    event.preventDefault();
+    toggleMirrorMode();
+    return;
+  }
+  if (event.code === 'KeyC' && !hasCtrl) {
+    event.preventDefault();
+    if (sceneService) {
+      snapStep.value = snapStep.value > 0 ? 0 : 1;
+      sceneService.setSnapStep(snapStep.value);
+    }
+    return;
+  }
+  if (event.code === 'KeyL' && !hasCtrl) {
+    if (selectedNodes.value.length >= 2) {
+      event.preventDefault();
+      toggleAlignmentMode();
+    }
+    return;
+  }
+
   if (!hasCtrl) return;
   if (event.code === 'KeyZ') {
     event.preventDefault();
@@ -1141,10 +1165,11 @@ async function doExport() {
     // Allow UI to render the progress bar before blocking
     await new Promise((r) => setTimeout(r, 50));
 
+    const exporter = sceneService.getExporter();
     if (ext === 'stl') {
-      await sceneService.exportSTLAsync(filename, onlySelected, onProgress);
+      await exporter.exportSTLAsync(filename, onlySelected, onProgress);
     } else {
-      await sceneService.exportOBJAsync(filename, onlySelected, onProgress);
+      await exporter.exportOBJAsync(filename, onlySelected, onProgress);
     }
 
     exportPercent.value = 100;
@@ -1296,6 +1321,9 @@ onMounted(() => {
       } finally {
         beforeDragJSON = null;
       }
+    },
+    onAlignMarkerClick(mode: string) {
+      alignNodes(mode as AlignMode);
     },
   });
 
@@ -1612,6 +1640,19 @@ onBeforeUnmount(() => {
   font-size: 0.75rem;
   color: #888;
   margin: 0 0.15rem;
+}
+.action-toolbar .selection-counter {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #00a5a4;
+  padding: 0 0.4rem;
+  min-width: 1.4rem;
+  height: 1.6rem;
+  border-radius: 0.3rem;
+  background: rgba(0, 165, 164, 0.1);
 }
 .toolbar-separator {
   width: 1px;
