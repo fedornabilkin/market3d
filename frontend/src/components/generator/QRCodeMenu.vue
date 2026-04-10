@@ -27,7 +27,7 @@
 .gen-error(v-if="generateError") {{generateError}}
 
 .gen-generate-section
-  button.gen-generate-btn(:class="{'is-loading': isGenerating}" @click="prepareData")
+  button.gen-generate-btn(:class="{'is-loading': isGenerating, 'need-generate': needGenerating}" @click="prepareData")
     span.icon
       i.fa.fa-cube
     span {{$t('g.generateButton')}}
@@ -171,7 +171,7 @@ export default {
     }
     this.prepareData()
 
-    let elements = document.querySelectorAll('.form-options input')
+    let elements = document.querySelectorAll('.gen-settings-body input, .gen-settings-body textarea, .gen-settings-body select')
     const genFlag = () => this.needGenerating = true
 
     for (let elem of elements) {
@@ -516,6 +516,22 @@ export default {
 .gen-generate-btn.is-loading {
   pointer-events: none;
   opacity: 0.85;
+}
+
+.gen-generate-btn.need-generate {
+  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+  box-shadow: 0 2px 12px rgba(245, 158, 11, 0.4);
+  animation: pulse-generate 1.5s ease-in-out infinite;
+}
+
+.gen-generate-btn.need-generate:hover {
+  background: linear-gradient(135deg, #d97706 0%, #b45309 100%);
+  box-shadow: 0 4px 20px rgba(245, 158, 11, 0.5);
+}
+
+@keyframes pulse-generate {
+  0%, 100% { box-shadow: 0 2px 12px rgba(245, 158, 11, 0.4); }
+  50% { box-shadow: 0 4px 24px rgba(245, 158, 11, 0.7); }
 }
 
 /* === Progress Bar === */
