@@ -190,11 +190,36 @@ export class Magnet extends Entity {
   shape =  'round'
   size =  10
   depth =  1
+  count = 1
+  gap = 1
   hidden =  false
 
   constructor(config = {}) {
     super(config)
     Object.assign(this, config)
     this.offsetZ = 0.6
+  }
+
+  /**
+   * Вычисляет раскладку отверстий на базе заданного размера.
+   * Отверстия распределяются по сетке до 3 рядов вдоль короткой стороны.
+   * Параметр gap задаёт минимальное расстояние между краями соседних отверстий.
+   * @param {number} baseWidth
+   * @param {number} baseHeight
+   * @param {number} holeSize
+   * @param {number} [gap=0]
+   * @returns {{maxCols: number, maxRows: number, maxTotal: number}}
+   */
+  static computeLayout(baseWidth, baseHeight, holeSize, gap = 0) {
+    if (!holeSize || holeSize <= 0) return {maxCols: 0, maxRows: 0, maxTotal: 0}
+    const g = Math.max(0, gap || 0)
+    const longSide = Math.max(baseWidth, baseHeight)
+    const shortSide = Math.min(baseWidth, baseHeight)
+    // Равномерная раскладка сегментами: distance(centers) = side/N ≥ size + gap → N ≤ side/(size+gap).
+    // Для единственного отверстия gap не применяется — достаточно, чтобы сторона ≥ size.
+    const maxCols = longSide >= holeSize ? Math.max(1, Math.floor(longSide / (holeSize + g))) : 0
+    const maxRowsRaw = shortSide >= holeSize ? Math.max(1, Math.floor(shortSide / (holeSize + g))) : 0
+    const maxRows = Math.min(3, maxRowsRaw)
+    return {maxCols, maxRows, maxTotal: maxCols * maxRows}
   }
 }

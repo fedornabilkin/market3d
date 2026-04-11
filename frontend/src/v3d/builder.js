@@ -138,6 +138,8 @@ export class MagnetBuilder extends MainBuilder {
     this.entity.shape = data.shape
     this.entity.size = data.size
     this.entity.depth = data.depth
+    this.entity.count = data.count
+    this.entity.gap = data.gap
     this.entity.hidden = data.hidden
     if (data.color !== undefined) this.entity.color = data.color
   }

@@ -198,6 +198,10 @@ export default {
       shape: 'Shape',
       square: 'square',
       round: 'round',
+      count: 'Count',
+      maxHint: 'Max',
+      noFit: 'Recess does not fit on the base',
+      gap: 'Min distance',
     },
   },
 

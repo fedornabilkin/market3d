@@ -8,6 +8,7 @@ import fontInterExtraBoldItalic from '@/assets/fonts/Inter_ExtraBold_Italic.json
 import BaseGenerator from '@/v3d/generator/base';
 import {RectangleRoundedCornerShape, RectangleRoundedShape} from "@/v3d/primitives/shape";
 import {SVGLoader} from "three/examples/jsm/loaders/SVGLoader";
+import {Magnet} from "@/v3d/entity";
 
 const lineSpacing = 2
 
@@ -101,31 +102,75 @@ export default class ModelGenerator extends BaseGenerator {
     baseMesh.updateMatrix()
 
     if (this.options.magnet.active) {
-      const width = this.options.magnet.size
-      const height = this.options.magnet.size
+      const size = this.options.magnet.size
       const depth = this.options.magnet.depth
       const material = this.createMaterial('0x000000')
 
-      let holeMesh;
-      if (this.options.magnet.shape === 'round') {
-        const geometryMagnet = new THREE.CylinderGeometry(width / 2, height / 2, depth, 32)
-        holeMesh = new THREE.Mesh(geometryMagnet, material)
-        holeMesh.rotation.x = -Math.PI / 2
-      } else {
-        // shape = square
-        const geometryMagnet = new THREE.BoxGeometry(width, height, depth)
-        holeMesh = new THREE.Mesh(geometryMagnet, material)
-      }
-      holeMesh.position.z = depth / 2
-      if (this.options.magnet.hidden) {
-        holeMesh.position.z += this.options.magnet.offsetZ
-      }
+      // Определяем максимальную раскладку (до 3 рядов) и клампим запрошенное количество.
+      const gap = Math.max(0, this.options.magnet.gap || 0)
+      const {maxCols, maxRows, maxTotal} = Magnet.computeLayout(
+        this.options.base.width,
+        this.options.base.height,
+        size,
+        gap,
+      )
 
-      holeMesh.position.x = baseMesh.position.x
-      holeMesh.updateMatrix()
+      const requested = Math.max(1, Math.floor(this.options.magnet.count || 1))
+      const total = Math.min(requested, maxTotal)
 
-      baseMesh = this.subtractMesh(baseMesh, holeMesh)
-      baseMesh.updateMatrix()
+      if (total > 0) {
+        const horizontal = this.options.base.width >= this.options.base.height
+        const longSide = horizontal ? this.options.base.width : this.options.base.height
+        const shortSide = horizontal ? this.options.base.height : this.options.base.width
+
+        // Минимальное количество рядов, чтобы вместить total, ограничено maxRows.
+        const rows = Math.min(maxRows, Math.max(1, Math.ceil(total / maxCols)))
+        // Кол-во колонок "в сетке" — последний ряд может быть неполным и центрируется.
+        const cols = Math.ceil(total / rows)
+
+        let placed = 0
+        for (let r = 0; r < rows && placed < total; r++) {
+          const rowCount = Math.min(cols, total - placed)
+          // Центрируем короткий последний ряд в пределах колонок полного ряда.
+          const colStart = (cols - rowCount) / 2
+          // Центр ряда по короткой оси: при rows === 1 — центр базы.
+          const rowOffset = rows === 1 ? 0 : (-shortSide / 2 + shortSide / rows * (r + 0.5))
+
+          for (let c = 0; c < rowCount; c++) {
+            const slot = colStart + c
+            const colOffset = -longSide / 2 + longSide / cols * (slot + 0.5)
+
+            let holeMesh
+            if (this.options.magnet.shape === 'round') {
+              const geometryMagnet = new THREE.CylinderGeometry(size / 2, size / 2, depth, 32)
+              holeMesh = new THREE.Mesh(geometryMagnet, material)
+              holeMesh.rotation.x = -Math.PI / 2
+            } else {
+              // shape = square
+              const geometryMagnet = new THREE.BoxGeometry(size, size, depth)
+              holeMesh = new THREE.Mesh(geometryMagnet, material)
+            }
+            holeMesh.position.z = depth / 2
+            if (this.options.magnet.hidden) {
+              holeMesh.position.z += this.options.magnet.offsetZ
+            }
+
+            if (horizontal) {
+              holeMesh.position.x = baseMesh.position.x + colOffset
+              holeMesh.position.y = baseMesh.position.y + rowOffset
+            } else {
+              holeMesh.position.x = baseMesh.position.x + rowOffset
+              holeMesh.position.y = baseMesh.position.y + colOffset
+            }
+            holeMesh.updateMatrix()
+
+            baseMesh = this.subtractMesh(baseMesh, holeMesh)
+            baseMesh.updateMatrix()
+
+            placed++
+          }
+        }
+      }
     }
 
     return baseMesh
