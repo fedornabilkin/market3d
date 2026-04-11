@@ -18,13 +18,10 @@ div(:class="{'modal': true, 'is-active': isActive}")
   div.modal-background
   div.modal-card
     header.modal-card-head
-      p.modal-card-title {{ $t('e.generateHistory') }}
+      p.modal-card-title {{ props.title }}
       button.delete(aria-label="close" @click="close")
     section.modal-card-body
-      .message.is-info
-        .message-body
-          p {{ $t('e.helpHistory', [props.store.getLimit()]) }}
-      ExportList(:store="props.store" :title="$t('g.historyButton')" @recovery="recovery")
+      ExportList(:store="props.store" :title="props.title" @recovery="recovery")
 
     footer.modal-card-foot
       button.button.mr-1(@click="close") {{ $t('g.close') }}

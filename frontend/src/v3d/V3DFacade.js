@@ -142,33 +142,15 @@ export class V3DFacade {
       text: this.currentGenerator.getTextMesh(),
     };
     
-    // Генерируем QR код если нужно
+    // Генерируем QR код если нужно (меш строится синхронно — один Mesh с merged BufferGeometry)
     if (hasQRCode) {
       this.currentGenerator.getQRCodeMesh();
-      
-      // Ждем завершения генерации QR кода
-      await new Promise((resolve) => {
-        const checkComplete = () => {
-          if (this.currentGenerator.finalBlock || generationComplete) {
-            // Добавляем QR меш если он есть
-            if (this.currentGenerator.finalBlock) {
-              meshes.qr = this.currentGenerator.finalBlock;
-            }
-            if (progressCallback && !generationComplete) {
-              progressCallback(100);
-            }
-            resolve();
-          } else {
-            setTimeout(checkComplete, 50);
-          }
-        };
-        // Начинаем проверку через небольшую задержку
-        setTimeout(checkComplete, 100);
-      });
-    } else {
-      if (progressCallback) {
-        progressCallback(100);
+      if (this.currentGenerator.finalBlock) {
+        meshes.qr = this.currentGenerator.finalBlock;
       }
+    }
+    if (progressCallback) {
+      progressCallback(100);
     }
     
     // Добавляем меши на сцену

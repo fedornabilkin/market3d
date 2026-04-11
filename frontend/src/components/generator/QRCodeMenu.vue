@@ -12,10 +12,27 @@
 
 .gen-settings-panel
   .gen-settings-header
-    span.icon
-      i.fa.fa-sliders-h
-    span {{$t('form.optionsTitle')}}
-  .gen-settings-body(:class="{'need-generate-color': needGenerating}")
+    .gen-settings-header-title
+      span.icon
+        i.fa.fa-sliders-h
+      span {{$t('form.optionsTitle')}}
+    .gen-settings-header-actions
+      button.gen-io-btn(
+        type="button"
+        @click="exportSettingsAsJson"
+        :title="$t('form.exportSettings')"
+        :aria-label="$t('form.exportSettings')"
+      )
+        i.fa.fa-download
+      button.gen-io-btn(
+        type="button"
+        @click="$refs.importFileInput?.click()"
+        :title="$t('form.importSettings')"
+        :aria-label="$t('form.importSettings')"
+      )
+        i.fa.fa-upload
+      input(ref="importFileInput" type="file" accept=".json" style="display: none" @change="importSettingsFromFile")
+  .gen-settings-body
     Base(:options='options' :unit='unit')
     Qr(:options='options' :unit='unit')
     Text(:options='options' :unit='unit')
@@ -26,26 +43,11 @@
 
 .gen-error(v-if="generateError") {{generateError}}
 
-.gen-generate-section
-  button.gen-generate-btn(:class="{'is-loading': isGenerating, 'need-generate': needGenerating}" @click="prepareData")
-    span.icon
-      i.fa.fa-cube
-    span {{$t('g.generateButton')}}
-  .gen-progress-wrapper(v-if="isGenerating")
+Teleport(to="#gen-progress-target" v-if="teleportReady")
+  .gen-progress-wrapper
     .gen-progress-bar
-      .gen-progress-fill(:style="{width: progressGenerating + '%'}")
-    .gen-progress-text {{ progressGenerating }}%
-
-.gen-io-actions
-  button.button.is-small.gen-io-btn(@click="exportSettingsAsJson")
-    span.icon
-      i.fa.fa-download
-    span {{ $t('form.exportSettings') }}
-  button.button.is-small.gen-io-btn(@click="$refs.importFileInput?.click()")
-    span.icon
-      i.fa.fa-upload
-    span {{ $t('form.importSettings') }}
-  input(ref="importFileInput" type="file" accept=".json" style="display: none" @change="importSettingsFromFile")
+      .gen-progress-fill(:class="{ 'is-active': isGenerating }" :style="{width: progressGenerating + '%'}")
+      .gen-progress-text {{ generationSeconds.toFixed(3) }} {{ $t('g.seconds') }}
 
 ScannerModal(v-if="scannerModalVisible" :isActive="scannerModalVisible" @decode="onDecode" @close="scannerModalVisible=false")
 ReaderModal(v-if="readModalVisible" :isActive="readModalVisible" @decode="onDecode" @close="readModalVisible=false")
@@ -57,8 +59,6 @@ import vcardjs from 'vcards-js';
 import { diff } from 'deep-object-diff';
 import merge from 'deepmerge';
 import ScannerModal from './ScannerModal.vue';
-import {useShareHash} from "@/service/shareHash";
-import {Share} from "@/entity/share";
 import Base from "@/components/forms/Base.vue";
 import Qr from "@/components/forms/Qr.vue";
 import Text from "@/components/forms/Text.vue";
@@ -75,11 +75,9 @@ import {
   Icon as IconEntity,
   Magnet as MagnetEntity,
 } from "@/v3d/entity";
-import {useGenerateList} from "@/store/generateList";
 import {Director} from "@/v3d/director";
 import ReaderModal from "@/components/generator/ReaderModal.vue";
 
-const shareHash = useShareHash()
 const director = new Director()
 
 const base = new BaseEntity({active: true})
@@ -157,33 +155,103 @@ export default {
     qrCodeBitMask: null,
     unit: 'mm',
     isGenerating: false,
-    needGenerating: false,
     progressGenerating: 0,
+    generationSeconds: 0,
     generateError: undefined,
     scannerModalVisible: false,
     readModalVisible: false,
+    teleportReady: false,
   }),
+  created() {
+    // Не-реактивные флаги для управления авто-генерацией.
+    // Держим их вне data(), чтобы Vue не делал их прокси и не триггерил watch.
+    this._autoGenTimer = null
+    this._suppressAutoGen = false
+    this._pendingAutoGen = false
+    // Таймер измерения длительности генерации
+    this._genStart = 0
+    this._rafHandle = null
+  },
   mounted() {
     if (this.initData) {
       director.buildGroupBuilder(this.initData)
       this.options = Object.assign(this.options, director.getEntities())
       // this.options = merge(this.options, this.initData)
     }
+    // Цель Teleport находится в шаблоне родителя (GeneratorQR), который заканчивает
+    // монтирование после детей — ждём nextTick, чтобы DOM-узел уже существовал.
+    this.$nextTick(() => {
+      this.teleportReady = true
+    })
     this.prepareData()
-
-    let elements = document.querySelectorAll('.gen-settings-body input, .gen-settings-body textarea, .gen-settings-body select')
-    const genFlag = () => this.needGenerating = true
-
-    for (let elem of elements) {
-      elem.addEventListener('change', genFlag)
+  },
+  beforeUnmount() {
+    if (this._autoGenTimer) {
+      clearTimeout(this._autoGenTimer)
+      this._autoGenTimer = null
     }
+    if (this._rafHandle) {
+      cancelAnimationFrame(this._rafHandle)
+      this._rafHandle = null
+    }
+  },
+  watch: {
+    options: {
+      handler() {
+        // Мутации, выполненные самим prepareData (preview.src, errorCorrectionLevel и т.д.),
+        // не должны вызывать повторную генерацию — отсекаем их через флаг.
+        if (this._suppressAutoGen) return
+        this.scheduleAutoGenerate()
+      },
+      deep: true,
+    },
   },
 
   methods: {
+    startGenTimer() {
+      // Сбрасываем длительность и запускаем тик по rAF —
+      // плавно обновляем показания секунд во время генерации.
+      this._genStart = performance.now()
+      this.generationSeconds = 0
+      if (this._rafHandle) cancelAnimationFrame(this._rafHandle)
+      const tick = () => {
+        if (!this.isGenerating) {
+          this._rafHandle = null
+          return
+        }
+        this.generationSeconds = (performance.now() - this._genStart) / 1000
+        this._rafHandle = requestAnimationFrame(tick)
+      }
+      this._rafHandle = requestAnimationFrame(tick)
+    },
+    stopGenTimer() {
+      if (this._rafHandle) {
+        cancelAnimationFrame(this._rafHandle)
+        this._rafHandle = null
+      }
+      // Фиксируем итоговую длительность последней генерации.
+      if (this._genStart) {
+        this.generationSeconds = (performance.now() - this._genStart) / 1000
+      }
+    },
+    scheduleAutoGenerate() {
+      // Дебаунсим частые изменения (слайдеры, ввод текста) в один запуск генерации.
+      if (this._autoGenTimer) clearTimeout(this._autoGenTimer)
+      this._autoGenTimer = setTimeout(() => {
+        this._autoGenTimer = null
+        // Если прямо сейчас идёт генерация — помечаем, что нужен повторный запуск.
+        if (this.isGenerating) {
+          this._pendingAutoGen = true
+          return
+        }
+        this.prepareData()
+      }, 150)
+    },
     async render3d() {
       if (!this.v3dFacade) {
         this.generateError = 'V3D Facade not initialized'
         this.isGenerating = false
+        this.stopGenTimer()
         return
       }
 
@@ -199,28 +267,42 @@ export default {
         })
 
         this.$emit('exportReady', this.options)
-        setTimeout(() => {
-          this.addLastGenerate()
-        }, 500)
       } catch (error) {
         this.generateError = `Error during generation: ${error.message}`
         console.error(error)
       } finally {
-        this.needGenerating = false
         this.isGenerating = false
+        this.stopGenTimer()
         if (!this.generateError) {
-          this.progressGenerating = 0
+          // Оставляем прогресс-бар заполненным как индикатор «готово».
+          this.progressGenerating = 100
+        }
+        // Если за время генерации пользователь менял настройки — пере-генерируем.
+        if (this._pendingAutoGen) {
+          this._pendingAutoGen = false
+          this.scheduleAutoGenerate()
         }
       }
     },
     prepareData() {
       this.generateError = ''
       this.isGenerating = true
+      this.progressGenerating = 0
+      this.startGenTimer()
       this.$emit('generating')
+
+      // Флаг глушит watch на всё время, пока prepareData вносит свои мутации
+      // в options (preview.src, errorCorrectionLevel, wifi.security).
+      // Снимаем его в nextTick — после flush-а вочера для этих мутаций.
+      this._suppressAutoGen = true
+      this.$nextTick(() => {
+        this._suppressAutoGen = false
+      })
 
       const txt = this.getQRText()
       if (this.options.code.active && txt === '') {
         this.isGenerating = false
+        this.stopGenTimer()
         this.generateError = 'You have not entered any text.'
         return
       }
@@ -243,20 +325,12 @@ export default {
         } catch (e) {
           this.generateError = `Error during generation: ${e.message}`
           this.isGenerating = false
+          this.stopGenTimer()
           return
         }
       }
 
       this.render3d()
-    },
-    addLastGenerate() {
-      const generateList = useGenerateList()
-      const imageUrl = this.v3dFacade ? this.v3dFacade.getImageDataUrl() : ''
-      generateList.add(this.createShare(shareHash.create(this.options), imageUrl))
-    },
-    createShare(hash, src) {
-      const opt = JSON.stringify(this.options)
-      return new Share({hash: hash, img: {src: src}, options: opt, date: new Date().getTime()})
     },
     onDecode(rawValue) {
       this.options.content = rawValue
@@ -389,7 +463,6 @@ export default {
           if (parsed.contact !== undefined) this.options.contact = { ...this.options.contact, ...parsed.contact }
           if (parsed.sms !== undefined) this.options.sms = { ...this.options.sms, ...parsed.sms }
           if (parsed.activeTabIndex !== undefined) this.options.activeTabIndex = parsed.activeTabIndex
-          this.needGenerating = true
           this.prepareData()
         } catch (e) {
           this.generateError = `Import failed: ${e.message}`
@@ -442,13 +515,28 @@ export default {
 .gen-settings-header {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 0.5rem;
-  padding: 0.7rem 1rem;
+  padding: 0.5rem 0.75rem 0.5rem 1rem;
   font-weight: 600;
   font-size: 0.95rem;
   background: #f5f7fa;
   border-bottom: 1px solid rgba(0, 0, 0, 0.06);
   color: #363636;
+}
+
+.gen-settings-header-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.gen-settings-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-shrink: 0;
 }
 
 .gen-settings-body {
@@ -457,15 +545,6 @@ export default {
   border: 2px solid transparent;
   border-top: 0;
   border-radius: 0 0 10px 10px;
-}
-
-.need-generate-color {
-  border-color: rgb(255 183 15 / 70%);
-  animation: linearGradientMove 1.5s infinite alternate;
-}
-
-@keyframes linearGradientMove {
-  100% { border-color: rgb(255 183 15 / 10%); }
 }
 
 /* === Error === */
@@ -479,99 +558,89 @@ export default {
   font-size: 0.875rem;
 }
 
-/* === Generate Button === */
-.gen-generate-section {
-  margin-top: 0.75rem;
-}
-
-.gen-generate-btn {
-  width: 100%;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.4rem;
-  padding: 0.85rem 1.5rem;
-  border: none;
-  border-radius: 10px;
-  font-size: 1.05rem;
-  font-weight: 700;
-  color: #fff;
-  background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
-  cursor: pointer;
-  transition: all 0.2s ease;
-  box-shadow: 0 2px 8px rgba(34, 197, 94, 0.3);
-}
-
-.gen-generate-btn:hover {
-  background: linear-gradient(135deg, #16a34a 0%, #15803d 100%);
-  box-shadow: 0 4px 16px rgba(34, 197, 94, 0.4);
-  transform: translateY(-1px);
-}
-
-.gen-generate-btn:active {
-  transform: translateY(0);
-  box-shadow: 0 2px 8px rgba(34, 197, 94, 0.3);
-}
-
-.gen-generate-btn.is-loading {
-  pointer-events: none;
-  opacity: 0.85;
-}
-
-.gen-generate-btn.need-generate {
-  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
-  box-shadow: 0 2px 12px rgba(245, 158, 11, 0.4);
-  animation: pulse-generate 1.5s ease-in-out infinite;
-}
-
-.gen-generate-btn.need-generate:hover {
-  background: linear-gradient(135deg, #d97706 0%, #b45309 100%);
-  box-shadow: 0 4px 20px rgba(245, 158, 11, 0.5);
-}
-
-@keyframes pulse-generate {
-  0%, 100% { box-shadow: 0 2px 12px rgba(245, 158, 11, 0.4); }
-  50% { box-shadow: 0 4px 24px rgba(245, 158, 11, 0.7); }
-}
-
 /* === Progress Bar === */
 .gen-progress-wrapper {
-  margin-top: 0.6rem;
+  width: 100%;
 }
 
 .gen-progress-bar {
-  height: 6px;
-  border-radius: 3px;
-  background: #e5e7eb;
+  position: relative;
+  height: 22px;
+  border-radius: 11px;
+  background: rgba(229, 231, 235, 0.9);
   overflow: hidden;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+  backdrop-filter: blur(4px);
 }
 
 .gen-progress-fill {
-  height: 100%;
-  background: linear-gradient(90deg, #22c55e 0%, #16a34a 100%);
-  border-radius: 3px;
-  transition: width 0.3s ease;
+  position: absolute;
+  inset: 0 auto 0 0;
+  background-color: #16a34a;
+  background-image: linear-gradient(
+    45deg,
+    rgba(255, 255, 255, 0.22) 25%,
+    transparent 25%,
+    transparent 50%,
+    rgba(255, 255, 255, 0.22) 50%,
+    rgba(255, 255, 255, 0.22) 75%,
+    transparent 75%,
+    transparent
+  );
+  background-size: 22px 22px;
+  border-radius: 11px;
+  transition: width 0.15s ease;
+}
+
+.gen-progress-fill.is-active {
+  animation: gen-progress-stripes 0.8s linear infinite;
+}
+
+@keyframes gen-progress-stripes {
+  0%   { background-position: 0 0; }
+  100% { background-position: 22px 0; }
 }
 
 .gen-progress-text {
-  text-align: right;
-  font-size: 0.75rem;
-  margin-top: 0.2rem;
-  color: #6b7280;
-  font-weight: 500;
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #0f172a;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  pointer-events: none;
+  text-shadow: 0 1px 2px rgba(255, 255, 255, 0.6);
 }
 
 /* === Import/Export === */
-.gen-io-actions {
-  display: flex;
-  gap: 0.4rem;
-  margin-top: 0.6rem;
+.gen-io-btn {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-radius: 6px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  background: #fff;
+  color: #475569;
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
 }
 
-.gen-io-btn {
-  flex: 1;
-  border-radius: 8px !important;
-  font-weight: 500;
-  justify-content: center;
+.gen-io-btn:hover {
+  background: #3273dc;
+  border-color: #3273dc;
+  color: #fff;
+}
+
+.gen-io-btn:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(50, 115, 220, 0.25);
 }
 </style>

@@ -13,6 +13,11 @@ nav.navbar(role='navigation' aria-label='main navigation')
   .navbar-menu
     .navbar-end
       .navbar-item
+        a.button.is-small.gen-discuss-btn(href="https://t.me/+dSgck2GM29syZTQ6" target="_blank")
+          span.icon
+            i.fa.fa-comments
+          span.is-hidden-mobile {{$t('t.discussionButton')}}
+      .navbar-item
         a.button.is-small.gen-tg-header-btn(href="https://t.me/+W4Rsqz4svmBkZmMy" target="_blank")
           span.icon
             i.fab.fa-telegram
@@ -69,5 +74,18 @@ nav.navbar(role='navigation' aria-label='main navigation')
   background: #006daa;
   border-color: #006daa;
   color: #fff;
+}
+.gen-discuss-btn {
+  border-radius: 8px !important;
+  font-weight: 500 !important;
+  background: transparent !important;
+  border: 1px solid #0088cc !important;
+  color: #0088cc !important;
+  transition: all 0.15s ease;
+}
+.gen-discuss-btn:hover {
+  background: #e6f4fb !important;
+  border-color: #006daa !important;
+  color: #006daa !important;
 }
 </style>

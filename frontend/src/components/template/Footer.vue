@@ -19,10 +19,6 @@ footer.footer
         LanguageSelector
 
     .footer-bottom
-      .footer-left
-        a.button.is-light(href="https://t.me/+dSgck2GM29syZTQ6" target="_blank")
-          i.fab.fa-telegram
-          | &nbsp;{{ $t('t.discussionButton') }}
       .footer-right
         a(href="/") vsqr.ru
         | &nbsp;&copy; {{ (new Date()).getFullYear() }}
@@ -35,7 +31,7 @@ footer.footer {
 .footer-bottom {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   flex-wrap: wrap;
   gap: 0.5rem;
   margin-top: 0.75rem;

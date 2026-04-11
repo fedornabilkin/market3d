@@ -20,7 +20,7 @@ export default {
     autoRotation: 'Auto-rotate',
     generateButton: 'Create 3D model',
     goToGenerator: 'Go to generator',
-    historyButton: 'History',
+    seconds: 's',
     scanModalTitle: 'The code must be in front of the camera',
     readModalTitle: 'Load QR code from file',
     scanData: 'QR code data',
@@ -219,9 +219,6 @@ export default {
     loadItem: 'Load',
     typeLabel: 'Type',
     multipleLabel: 'Multi',
-
-    generateHistory: 'History of generated models',
-    helpHistory: 'The history of generated models is available within one tab, no more than {0} pcs.',
 
     modalTitle: 'Export STL',
     downloadStart: 'Download will start in {0} sec.',

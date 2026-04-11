@@ -20,7 +20,7 @@ export default {
     autoRotation: 'Автоповорот',
     generateButton: 'Создать 3D модель',
     goToGenerator: 'Перейти к генератору',
-    historyButton: 'История',
+    seconds: 'с',
     scanModalTitle: 'Код должен быть перед камерой',
     readModalTitle: 'Загрузите файл с QR-кодом',
     scanData: 'Данные QR-кода',
@@ -219,9 +219,6 @@ export default {
     loadItem: 'Загрузить',
     typeLabel: 'Тип файла',
     multipleLabel: 'По частям',
-
-    generateHistory: 'История сгенерированных моделей',
-    helpHistory: 'История сгенерированных моделей доступна в пределах одной вкладки не более {0} шт.',
 
     modalTitle: 'Экспорт STL',
     downloadStart: 'Загрузка начнется через {0} сек.',

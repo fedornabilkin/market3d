@@ -5,11 +5,6 @@
       .container-settings(v-if="qrMenuVisible()")
         QRCodeMenu(:v3dFacade="v3dFacade" :initData="shareData" @generating="generating" @exportReady="exportReady")
 
-        button.button.gen-history-btn(v-if="hasGenerateList" @click="historyModalVisible=true")
-          span.icon
-            i.fa.fa-calendar-day(aria-hidden="true")
-          span {{$t('g.historyButton')}} ({{ storeGenerate.getCollection().length }})
-
     .generator-main
       .gen-donate-card
         .gen-donate-inner
@@ -19,6 +14,8 @@
             PaymentMethodsButton
           .gen-donate-sponsors.is-hidden-mobile
             SponsorList
+
+      #gen-progress-target.gen-progress-target
 
       .container-3d
         .gen-viewport(id="container3d" :class="{ 'is-loading': isGenerating }")
@@ -70,15 +67,6 @@
 ExportModal(v-if="exportModalVisible" :isActive="exportModalVisible" @close="exportModalVisible=false")
 
 HistoryModal(
-  v-if="historyModalVisible"
-  :isActive="historyModalVisible"
-  :store="storeGenerate"
-  :title="$t('g.historyButton')"
-  @recovery="recoveryModel"
-  @close="historyModalVisible=false"
-)
-
-HistoryModal(
   v-if="historyDownloadModalVisible"
   :isActive="historyDownloadModalVisible"
   :store="storeExport"
@@ -95,7 +83,6 @@ import {V3DFacade} from "@/v3d/V3DFacade";
 import {useShareHash} from "@/service/shareHash";
 import {useUrlCreator} from "@/service/urlCreator.js";
 import {useExportList} from "@/store/exportList";
-import {useGenerateList} from "@/store/generateList";
 import QRCodeMenu from '@/components/generator/QRCodeMenu.vue';
 import ExportList from "@/components/generator/ExportList.vue";
 import ExportModal from '@/components/generator/ExportModal.vue';
@@ -111,7 +98,6 @@ import SponsorList from "@/components/monetisation/SponsorList.vue";
 
 const shareHash = useShareHash()
 const exportList = useExportList()
-const generateList = useGenerateList()
 
 export default {
   name: 'GeneratorQR',
@@ -136,15 +122,12 @@ export default {
       options: {},
       v3dFacade: null,
       autoRotation: false,
-      historyModalVisible: false,
       historyDownloadModalVisible: false,
       exportModalVisible: false,
       randomTooltip: {},
       shareModalVisible: false,
       shareData: null,
       storeExport: null,
-      storeGenerate: null,
-      hasGenerateList: false,
       isGenerating: false,
       exportTimer: 5000,
       camera: null,
@@ -156,11 +139,9 @@ export default {
   },
   created() {
     this.fillExportList()
-    this.fillGenerateList()
     // Используем markRaw для предотвращения реактивности Vue 3
     this.v3dFacade = markRaw(new V3DFacade({ debug: false }))
     this.storeExport = exportList
-    this.storeGenerate = generateList
   },
   mounted() {
     this.initScene()
@@ -335,17 +316,6 @@ export default {
       }
       exportList.setDownloadAll(downloadAll)
     },
-    fillGenerateList() {
-      const list = JSON.parse(window.sessionStorage.getItem(generateList.keyStore)) || []
-      const collection = list.map((item) => {
-        return new Share(item)
-      })
-      this.hasGenerateList = collection.length > 0
-      generateList.fillCollection(collection)
-      generateList.setCallback((collection) => {
-        window.sessionStorage.setItem(generateList.keyStore, JSON.stringify(collection))
-      })
-    },
     recoveryModel(item) {
       this.isRecovery = true
       this.shareData = JSON.parse(item.options)
@@ -353,7 +323,6 @@ export default {
     },
     exportReady(options) {
       this.expSettings.active = true
-      this.hasGenerateList = true
       try {
         this.options = options
       } catch (error) {
@@ -418,7 +387,19 @@ export default {
 
 /* === 3D Viewport === */
 .container-3d {
+  position: relative;
   z-index: 100;
+}
+
+.gen-progress-target {
+  position: sticky;
+  top: 0.5rem;
+  z-index: 200;
+  margin-bottom: 0.6rem;
+}
+
+.gen-progress-target:empty {
+  display: none;
 }
 
 #container3d {
@@ -531,14 +512,6 @@ export default {
 .gen-donate-text {
   font-size: 0.9rem;
   line-height: 1.6;
-}
-
-/* === History Button === */
-.gen-history-btn {
-  width: 100%;
-  margin-top: 0.5rem;
-  border-radius: 8px !important;
-  justify-content: center;
 }
 
 /* === Responsive === */

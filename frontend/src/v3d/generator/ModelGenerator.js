@@ -31,7 +31,6 @@ function parseHexColor(hexStr, defaultNum) {
 export default class ModelGenerator extends BaseGenerator {
   collectMesh = {}
   finalBlock = null
-  blockGeometry = null
   process = (percent) => {return percent}
 
   constructor(options, qrCodeBitMask = null) {
@@ -455,7 +454,12 @@ export default class ModelGenerator extends BaseGenerator {
   }
 
   /**
-   * @return {THREE.Mesh|undefined} the mesh of the actual QR-Code segment
+   * Синхронно строит QR-меш как один THREE.Mesh с объединённой BufferGeometry.
+   * Используем одну шаблонную геометрию, с которой в главный цикл пишем вершины/нормали/индексы
+   * в предварительно выделенные типизированные массивы. За счёт единственного draw-call
+   * и отсутствия создания тысяч Mesh/Geometry генерация становится реалтайм-пригодной.
+   * Результат — обычный THREE.Mesh, совместимый со STL/OBJ-экспортерами.
+   * @return {THREE.Mesh|undefined}
    */
   getQRCodeMesh() {
     if (!this.hasQRCode || !this.options.code.active) {
@@ -468,11 +472,10 @@ export default class ModelGenerator extends BaseGenerator {
     this.blockWidth = (this.availableWidth / this.maskWidth) * (this.options.code.block.ratio / 100)
 
     const codeColor = parseHexColor(this.options.code?.color, 0x000000)
-    this._codeBlockMaterial = new THREE.MeshPhongMaterial({ color: codeColor })
+    const material = new THREE.MeshPhongMaterial({ color: codeColor })
+    this._codeBlockMaterial = material
 
-    const qrSystem = new THREE.Object3D()
-
-    // if icon
+    // Зона, которую нужно оставить пустой под иконку в центре.
     this.safetyMargin = Math.min(this.blockWidth * 1.5, 4)
     this.iconSize = {x: 20, y: 20}
     if (this.options.icon.active && this.iconMesh) {
@@ -481,83 +484,131 @@ export default class ModelGenerator extends BaseGenerator {
 
     const rotationBlock = this.options.code.block.shape === 'rotation'
     const roundBlock = this.options.code.block.shape === 'round'
-    let etoQr = this
-    let x = 0
+    const cityMode = this.options.code.block.cityMode === true
+    const baseBlockDepth = this.options.code.depth
+    const cityMinDepth = Math.min(baseBlockDepth, this.options.code.block.depth)
+    const cityDepthRange = Math.abs(this.options.code.block.depth - baseBlockDepth)
 
-    function iterateBitMask() {
-      do {
-        for (let y = 0; y < etoQr.maskWidth; y++) {
-
-          const isBlack = !!etoQr.bitMask[y * etoQr.maskWidth + x]
-          if (isBlack) {
-            // if pixel is black create a block
-            let blockDepth = etoQr.options.code.depth;
-            if (etoQr.options.code.block.cityMode) {
-              blockDepth = Math.min(etoQr.options.code.depth, etoQr.options.code.block.depth) + Math.random() * Math.abs(etoQr.options.code.block.depth - etoQr.options.code.depth)
-            }
-
-            const meshBlock = etoQr.createMeshBlock(etoQr.blockWidth, etoQr.blockWidth, blockDepth, roundBlock)
-
-            const posX = etoQr.correctPositionX(etoQr.availableWidth, etoQr.xCountPosition, etoQr.blockWidth, x)
-            let posY = etoQr.correctPositionY(etoQr.availableWidth, etoQr.yCountPosition, etoQr.blockWidth, y)
-            const posZ = etoQr.correctPositionZ(etoQr.options.base.depth, blockDepth)
-
-            if (etoQr.options.code.emptyCenter === true && etoQr.iconMesh) {
-              if ((posX > -etoQr.iconSize.x / 2 - etoQr.safetyMargin
-                  && posX < etoQr.iconSize.x / 2 + etoQr.safetyMargin)
-                && (posY > -etoQr.iconSize.y / 2 - etoQr.safetyMargin
-                  && posY < +etoQr.iconSize.y / 2 + etoQr.safetyMargin)
-              ) {
-                continue
-              }
-            }
-
-            // add qr code blocks to qrcode and combined model
-            meshBlock.position.set(posX, posY, posZ)
-            if(rotationBlock) {
-              meshBlock.rotation.z = Math.PI / 4
-            }else if(roundBlock) {
-              meshBlock.rotation.x = Math.PI / 2
-            }
-            if (etoQr.options.base.width < etoQr.options.base.height) {
-              meshBlock.position.y += (etoQr.options.base.height - etoQr.options.base.width) / 2
-            }
-            meshBlock.updateMatrix()
-            qrSystem.add(meshBlock)
-
-          } // if block
-        } // for two
-
-        x++
-        etoQr.process(x * 100 / (etoQr.maskWidth))
-      } while (x % 2 !== 0 && x < etoQr.maskWidth) // for one
-
-      if (x < etoQr.maskWidth) {
-        setTimeout(iterateBitMask)
+    // Шаблонная геометрия блока: высота нормирована к 1, низ — в z=0.
+    // Преобразования rotation/round запекаются в шаблон — они одинаковы для всех блоков.
+    // Далее per-block нам достаточно сдвига по XY и умножения Z на blockDepth.
+    let template
+    if (roundBlock) {
+      template = new THREE.CylinderGeometry(this.blockWidth / 2, this.blockWidth / 2, 1, 32)
+      template.rotateX(Math.PI / 2)
+    } else {
+      template = new THREE.BoxGeometry(this.blockWidth, this.blockWidth, 1)
+      if (rotationBlock) {
+        template.rotateZ(Math.PI / 4)
       }
-
-    } // func
-
-    iterateBitMask()
-
-    this.finalBlock = qrSystem
-
-    // return finalBlockMesh
-  }
-
-  /**
-   * @param w
-   * @param h
-   * @param d
-   * @param isRound bool
-   * @returns {THREE.Mesh}
-   */
-  createMeshBlock(w, h, d, isRound = false) {
-    if (!this.blockGeometry) {
-      this.blockGeometry = !isRound ? new THREE.BoxGeometry(w, h, d) : new THREE.CylinderGeometry(w/2, h/2, d, 64)
     }
-    const material = this._codeBlockMaterial || this.materialDetail
-    return new THREE.Mesh(this.blockGeometry, material)
+    template.translate(0, 0, 0.5)
+
+    // Верхняя граница количества блоков — число чёрных модулей.
+    let maxBlocks = 0
+    for (let i = 0; i < this.bitMask.length; i++) {
+      if (this.bitMask[i]) maxBlocks++
+    }
+    if (maxBlocks === 0) {
+      template.dispose()
+      this.finalBlock = new THREE.Object3D()
+      this.process(100)
+      return this.finalBlock
+    }
+
+    const tplPos = template.attributes.position.array
+    const tplNorm = template.attributes.normal.array
+    const tplIndex = template.index ? template.index.array : null
+    const vertCount = template.attributes.position.count
+    const idxCount = tplIndex ? tplIndex.length : 0
+
+    // Пред-аллокация. Используем Uint32 для индексов, т.к. общее число вершин
+    // может легко превышать 65535 (например, 800 цилиндров × 68 вершин ≈ 54k — ещё ок,
+    // но с запасом безопаснее сразу брать Uint32).
+    const totalVerts = maxBlocks * vertCount
+    const totalIdx = maxBlocks * idxCount
+    const positions = new Float32Array(totalVerts * 3)
+    const normals = new Float32Array(totalVerts * 3)
+    const indices = tplIndex ? new Uint32Array(totalIdx) : null
+
+    const portraitOffsetY = this.options.base.width < this.options.base.height
+      ? (this.options.base.height - this.options.base.width) / 2
+      : 0
+
+    const checkEmptyCenter = this.options.code.emptyCenter === true && !!this.iconMesh
+    const iconHalfX = this.iconSize.x / 2 + this.safetyMargin
+    const iconHalfY = this.iconSize.y / 2 + this.safetyMargin
+    const baseZ = this.options.base.depth
+
+    let blockIdx = 0
+    for (let x = 0; x < this.maskWidth; x++) {
+      for (let y = 0; y < this.maskWidth; y++) {
+        if (!this.bitMask[y * this.maskWidth + x]) continue
+
+        const posX = this.correctPositionX(this.availableWidth, this.xCountPosition, this.blockWidth, x)
+        let posY = this.correctPositionY(this.availableWidth, this.yCountPosition, this.blockWidth, y)
+
+        if (checkEmptyCenter
+          && posX > -iconHalfX && posX < iconHalfX
+          && posY > -iconHalfY && posY < iconHalfY) {
+          continue
+        }
+
+        posY += portraitOffsetY
+
+        const blockDepth = cityMode
+          ? cityMinDepth + Math.random() * cityDepthRange
+          : baseBlockDepth
+
+        // Копируем вершины шаблона со сдвигом и Z-масштабом.
+        // Нормали при translation+Z-scale остаются корректными (XY-компоненты не меняются,
+        // Z-компоненты либо 0, либо ±1 — последние сохраняются после норм. ремасштаба).
+        const baseV = blockIdx * vertCount
+        const posOffset = baseV * 3
+        for (let v = 0; v < vertCount; v++) {
+          const src = v * 3
+          const dst = posOffset + src
+          positions[dst]     = tplPos[src]     + posX
+          positions[dst + 1] = tplPos[src + 1] + posY
+          positions[dst + 2] = tplPos[src + 2] * blockDepth + baseZ
+          normals[dst]     = tplNorm[src]
+          normals[dst + 1] = tplNorm[src + 1]
+          normals[dst + 2] = tplNorm[src + 2]
+        }
+
+        if (indices) {
+          const idxOffset = blockIdx * idxCount
+          for (let k = 0; k < idxCount; k++) {
+            indices[idxOffset + k] = tplIndex[k] + baseV
+          }
+        }
+
+        blockIdx++
+      }
+    }
+
+    template.dispose()
+
+    // Если часть блоков была отброшена (emptyCenter), обрезаем типизированные массивы.
+    const usedVerts = blockIdx * vertCount
+    const usedIdx = blockIdx * idxCount
+    const finalPositions = usedVerts === totalVerts ? positions : positions.subarray(0, usedVerts * 3)
+    const finalNormals = usedVerts === totalVerts ? normals : normals.subarray(0, usedVerts * 3)
+    const finalIndices = indices && (usedIdx === totalIdx ? indices : indices.subarray(0, usedIdx))
+
+    const mergedGeometry = new THREE.BufferGeometry()
+    mergedGeometry.setAttribute('position', new THREE.BufferAttribute(finalPositions, 3))
+    mergedGeometry.setAttribute('normal', new THREE.BufferAttribute(finalNormals, 3))
+    if (finalIndices) {
+      mergedGeometry.setIndex(new THREE.BufferAttribute(finalIndices, 1))
+    }
+    mergedGeometry.computeBoundingBox()
+    mergedGeometry.computeBoundingSphere()
+
+    const mesh = new THREE.Mesh(mergedGeometry, material)
+    this.finalBlock = mesh
+    this.process(100)
+    return mesh
   }
 
   /**
