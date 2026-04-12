@@ -17,7 +17,12 @@
       "Bash(npm view:*)",
       "Bash(npm list:*)",
       "Bash(echo \"EXIT:$?\")",
-      "Bash(awk '{print $9, \"\\(\" $5 \"\\)\"}')"
+      "Bash(awk '{print $9, \"\\(\" $5 \"\\)\"}')",
+      "Bash(curl -s http://localhost:5173/generator/license-plate)",
+      "Bash(mv views/GeneratorLicensePlate.vue views/GeneratorGRZ.vue)",
+      "Bash(mv components/generator/LicensePlateMenu.vue components/generator/GRZMenu.vue)",
+      "Bash(mv components/forms/LicensePlate.vue components/forms/GRZ.vue)",
+      "Bash(mv v3d/generator/LicensePlateGenerator.js v3d/generator/GRZGenerator.js)"
     ]
   }
 }

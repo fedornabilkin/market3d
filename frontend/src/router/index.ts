@@ -24,6 +24,12 @@ const routes: RouteRecordRaw[] = [
       meta: { requiresAuth: false },
     },
     {
+      path: '/generator/grz',
+      name: 'GeneratorGRZ',
+      component: () => import('../views/GeneratorGRZ.vue'),
+      meta: { requiresAuth: false },
+    },
+    {
       path: '/constructor',
       name: 'Constructor',
       component: () => import('../views/Constructor.vue'),

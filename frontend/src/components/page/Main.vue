@@ -6,8 +6,12 @@
     .hero-buttons
       router-link.button.is-primary.is-large(:to="{ name: 'GeneratorQR' }")
         span.icon
-          i.fa.fa-cube
-        span {{ $t('g.goToGenerator') }}
+          i.fa.fa-qrcode
+        span {{ $t('g.goToGeneratorQR') }}
+      router-link.button.is-warning.is-large(:to="{ name: 'GeneratorGRZ' }")
+        span.icon
+          i.fa.fa-car
+        span {{ $t('g.goToGeneratorGRZ') }}
       router-link.button.is-info.is-large(:to="{ name: 'Constructor' }")
         span.icon
           i.fa.fa-cubes
