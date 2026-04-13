@@ -12,6 +12,10 @@
         span.icon
           i.fa.fa-car
         span {{ $t('g.goToGeneratorGRZ') }}
+      router-link.button.is-danger.is-large(:to="{ name: 'GeneratorBraille' }")
+        span.icon
+          i.fa.fa-braille
+        span {{ $t('g.goToGeneratorBraille') }}
       router-link.button.is-info.is-large(:to="{ name: 'Constructor' }")
         span.icon
           i.fa.fa-cubes

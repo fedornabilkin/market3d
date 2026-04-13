@@ -2,8 +2,8 @@
 .generator-page
   .generator-layout
     .generator-sidebar
-      .container-settings(v-if="qrMenuVisible()")
-        QRCodeMenu(:v3dFacade="v3dFacade" :initData="shareData" @generating="generating" @exportReady="exportReady")
+      .container-settings(v-if="menuVisible()")
+        BrailleMenu(:v3dFacade="v3dFacade" @generating="generating" @exportReady="exportReady")
 
     .generator-main
       DonateCard
@@ -12,9 +12,6 @@
 
       .container-3d
         .gen-viewport(id="container3d" :class="{ 'is-loading': isGenerating }")
-
-      .gen-tooltip(v-if="randomTooltip.content")
-        .gen-tooltip-text {{ randomTooltip.content }}
 
       ExportPanel(
         v-if="expSettings.active"
@@ -36,53 +33,39 @@
           span.is-hidden-mobile {{$t('e.downloadAll')}}
           span ({{ storeExport.getDownloadAll() }})
 
-ExportModal(v-if="exportModalVisible" :isActive="exportModalVisible" @close="exportModalVisible=false")
+  ExportModal(v-if="exportModalVisible" :isActive="exportModalVisible" @close="exportModalVisible=false")
 
-HistoryModal(
-  v-if="historyDownloadModalVisible"
-  :isActive="historyDownloadModalVisible"
-  :store="storeExport"
-  :title="$t('e.downloadHistory')"
-  @recovery="recoveryModel"
-  @close="historyDownloadModalVisible=false"
-)
+  HistoryModal(
+    v-if="historyDownloadModalVisible"
+    :isActive="historyDownloadModalVisible"
+    :store="storeExport"
+    :title="$t('e.downloadHistory')"
+    @recovery="recoveryModel"
+    @close="historyDownloadModalVisible=false"
+  )
 </template>
 
 <script>
-import * as THREE from 'three';
 import {markRaw} from 'vue';
-import {V3DFacade} from "@/v3d/V3DFacade";
-import {useShareHash} from "@/service/shareHash";
-import {useUrlCreator} from "@/service/urlCreator.js";
+import {V3DFacade} from '@/v3d/V3DFacade';
 import {useExportList} from "@/store/exportList";
-import QRCodeMenu from '@/components/generator/QRCodeMenu.vue';
-import ExportList from "@/components/generator/ExportList.vue";
+import {Share} from "@/entity/share";
+import DonateCard from "@/components/monetisation/DonateCard.vue";
+import BrailleMenu from '@/components/generator/BrailleMenu.vue';
 import ExportModal from '@/components/generator/ExportModal.vue';
 import ExportPanel from '@/components/generator/ExportPanel.vue';
 import HistoryModal from "@/components/generator/HistoryModal.vue";
-import ShareModal from "@/components/generator/ShareModal.vue";
-import DonateCard from "@/components/monetisation/DonateCard.vue";
-import SbpMoney from "@/components/monetisation/SbpMoney.vue";
-import {Share} from "@/entity/share";
-import {TooltipBuilder} from "@/entity/builder";
-import {dataURItoBlob} from '@/utils';
-import YoomoneyWidget from "@/components/monetisation/YoomoneyWidget.vue";
 
-const shareHash = useShareHash()
 const exportList = useExportList()
 
 export default {
-  name: 'GeneratorQR',
+  name: 'GeneratorBraille',
   components: {
     DonateCard,
-    YoomoneyWidget,
-    SbpMoney,
-    ShareModal,
-    HistoryModal,
-    ExportList,
-    QRCodeMenu,
+    BrailleMenu,
     ExportModal,
     ExportPanel,
+    HistoryModal,
   },
   data() {
     return {
@@ -93,124 +76,77 @@ export default {
       },
       options: {},
       v3dFacade: null,
-      autoRotation: false,
-      historyDownloadModalVisible: false,
+      sceneReady: false,
       exportModalVisible: false,
-      randomTooltip: {},
-      shareModalVisible: false,
-      shareData: null,
+      historyDownloadModalVisible: false,
       storeExport: null,
       isGenerating: false,
       exportTimer: 5000,
       camera: null,
       renderer: null,
       scene: null,
-      grid: null,
-      isRecovery: false,
-    };
+    }
   },
   created() {
     this.fillExportList()
-    // Используем markRaw для предотвращения реактивности Vue 3
-    this.v3dFacade = markRaw(new V3DFacade({ debug: false }))
+    this.v3dFacade = markRaw(new V3DFacade({debug: false}))
     this.storeExport = exportList
   },
   mounted() {
     this.initScene()
     this.startAnimation()
-    this.getTooltip()
   },
   methods: {
-    qrMenuVisible() {
-      return !this.isRecovery && this.v3dFacade.initialized
-    },
-    getTooltip() {
-      let endpointApi = `/api/tooltip`
-
-      const host = window.location.host
-      if (host.includes('localhost')) {
-        const noderedHost = import.meta.env.VITE_NODERED_HOST
-        endpointApi = `${noderedHost || 'localhost'}${endpointApi}`
-      }
-
-      fetch(endpointApi)
-        .then(res => res.json())
-        .then((res) => {
-          const tltBuilder = new TooltipBuilder()
-          tltBuilder.build(res.data)
-          this.randomTooltip = tltBuilder.getEntity()
-        })
-        .catch((err) => {console.log(err)})
-
+    menuVisible() {
+      return this.sceneReady
     },
     initScene() {
       const container = document.getElementById('container3d')
       this.v3dFacade.initialize(container)
 
-      // Используем markRaw для предотвращения реактивности Vue 3
       this.camera = markRaw(this.v3dFacade.getCamera())
       this.renderer = markRaw(this.v3dFacade.getRenderer())
       this.scene = markRaw(this.v3dFacade.getScene())
-      this.grid = markRaw(this.v3dFacade.getBox().grid)
+      this.sceneReady = true
     },
     generating() {
       this.isGenerating = true
     },
     startAnimation() {
       this.v3dFacade.startAnimation((time) => {
-        this.v3dFacade.getBox().animate(this.autoRotation, time)
+        this.v3dFacade.getBox().animate(false, time)
       })
     },
     exportOBJ() {
       this.exportModalVisible = true
-      this.autoRotation = false
-
       setTimeout(async () => {
         await this.v3dFacade.exportOBJ(`${this.fileName()}.obj`)
 
         const image = this.v3dFacade.getImageDataUrl()
-        exportList.add(this.createShare(shareHash.create(this.options), image))
+        exportList.add(this.createShare(image))
         exportList.downloadAllUpdate()
         window.localStorage.setItem(exportList.keyStoreAll, exportList.getDownloadAll())
-        this.sendImage(image)
       }, this.exportTimer)
     },
     exportSTL() {
       this.exportModalVisible = true
-      this.autoRotation = false
-
       setTimeout(async () => {
         await this.v3dFacade.exportSTL({
           binary: !this.expSettings.ascii,
           multiple: this.expSettings.multiple,
-          filename: `${this.fileName()}.stl`
+          filename: `${this.fileName()}.stl`,
         })
 
         const image = this.v3dFacade.getImageDataUrl()
-        exportList.add(this.createShare(shareHash.create(this.options), image))
+        exportList.add(this.createShare(image))
         exportList.downloadAllUpdate()
         window.localStorage.setItem(exportList.keyStoreAll, exportList.getDownloadAll())
-
-        this.sendImage(image)
       }, this.exportTimer)
     },
-    fileName(key = '') {
+    fileName() {
       const timestamp = new Date().getTime()
-      let prefix = `vsqr-3d-`
-      if (key !== '') {
-        prefix = key
-      }
-
-      let param = ''
-      if (key === '') {
-        prefix = ''
-        if (this.options.keychain.active) param += 'key_'
-        if (this.options.code.active) param += 'qr_'
-        if (this.options.base.active) param += `${this.options.base.width}x${this.options.base.height}x${this.options.base.depth}-radius${this.options.base.cornerRadius}_`
-        if (this.options.text.active) param += `text${this.options.text.size}_`
-        if (this.options.magnet.active) param += `magnet${this.options.magnet.size}x${this.options.magnet.depth}_`
-      }
-      return `${prefix}${param}${timestamp}`
+      const text = (this.options.text || 'braille').substring(0, 20).replace(/\s+/g, '_')
+      return `braille_${this.options.dotMode || 6}dot_${text}_${timestamp}`
     },
     exportPNG() {
       const renderer = this.renderer
@@ -234,65 +170,6 @@ export default {
       a.download = `${this.fileName()}.png`
       a.click()
     },
-    sendImage(image) {
-      const host = window.location.host
-      const hash = window.location.hash
-      const url = `https://vsqr.ru/${hash}`
-
-      const {endpoint: endpointApi} = useUrlCreator('/api/image', { url: url, host: host })
-
-      if (host.includes('localhost')) {
-        return
-      }
-
-      fetch(endpointApi.value, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'image/png'
-        },
-        body: dataURItoBlob(image)
-      })
-        .then(res => res.text())
-        .then(() => {})
-        .catch((err) => {console.log(err)})
-        .finally(() => {})
-    },
-    createShare(hash, src) {
-      return new Share({hash: hash, img: {src: src}, options: this.options, date: new Date().getTime()})
-    },
-    parseUrlShareHash() {
-      if (shareHash.shareIsValid(window.location.hash)) {
-        try {
-          this.shareData = shareHash.parse(window.location.hash)
-        } catch (error) {
-          this.shareData = null
-          console.error('Invalid Sharing URL')
-          window.location.hash = ''
-        }
-      }
-    },
-    fillExportList() {
-      const list = JSON.parse(window.localStorage.getItem(exportList.keyStore)) || []
-      const collection = list.map((item) => {
-        return new Share(item)
-      })
-      exportList.fillCollection(collection)
-      exportList.setCallback((collection) => {
-        window.localStorage.setItem(exportList.keyStore, JSON.stringify(collection))
-      })
-
-      let downloadAll = window.localStorage.getItem(exportList.keyStoreAll)
-      // 60 days
-      if (collection.length > 0 && collection.length > downloadAll) {
-        downloadAll = collection.length
-      }
-      exportList.setDownloadAll(downloadAll)
-    },
-    recoveryModel(item) {
-      this.isRecovery = true
-      this.shareData = JSON.parse(item.options)
-      setTimeout(() => {this.isRecovery = false}, 500)
-    },
     exportReady(options) {
       this.expSettings.active = true
       try {
@@ -303,13 +180,31 @@ export default {
         this.isGenerating = false
       }
     },
-  },
+    createShare(src) {
+      return new Share({img: {src: src}, options: this.options, date: new Date().getTime()})
+    },
+    fillExportList() {
+      const list = JSON.parse(window.localStorage.getItem(exportList.keyStore)) || []
+      const collection = list.map((item) => new Share(item))
+      exportList.fillCollection(collection)
+      exportList.setCallback((collection) => {
+        window.localStorage.setItem(exportList.keyStore, JSON.stringify(collection))
+      })
 
+      let downloadAll = window.localStorage.getItem(exportList.keyStoreAll)
+      if (collection.length > 0 && collection.length > downloadAll) {
+        downloadAll = collection.length
+      }
+      exportList.setDownloadAll(downloadAll)
+    },
+    recoveryModel(item) {
+      this.options = JSON.parse(item.options)
+    },
+  },
 }
 </script>
 
 <style>
-/* === Generator Page Layout === */
 .generator-page {
   max-width: 1400px;
   margin: 0 auto;
@@ -357,7 +252,6 @@ export default {
   background: rgba(128, 128, 128, 0.5);
 }
 
-/* === 3D Viewport === */
 .container-3d {
   position: relative;
   z-index: 100;
@@ -399,18 +293,6 @@ export default {
   100% { opacity: 0.3; }
 }
 
-/* === Tooltip === */
-.gen-tooltip {
-  margin-top: 0.75rem;
-  padding: 0.75rem 1rem;
-  border-radius: 8px;
-  background: #f0f4ff;
-  border-left: 3px solid #3273dc;
-  font-size: 0.875rem;
-  line-height: 1.5;
-}
-
-/* === Export Panel === */
 .gen-export-panel {
   margin-top: 1rem;
   padding: 1rem 1.25rem;
@@ -464,7 +346,6 @@ export default {
   border-color: #b5b5b5;
 }
 
-/* === Responsive === */
 @media screen and (max-width: 1023px) {
   .generator-layout {
     flex-direction: column;
@@ -484,45 +365,5 @@ export default {
   #container3d {
     height: 320px;
   }
-}
-
-/* === Legacy compat === */
-#mode-buttons>button {
-  margin-right: 20px;
-}
-
-.highlight {
-  position: relative;
-  display: inline-block;
-  overflow: visible;
-}
-
-.highlight>.highlight-text {
-  position: absolute;
-  top: -10px;
-  right: -10px;
-  padding: 0 5px;
-  background-color: hsl(348, 100%, 61%);
-  color: #fff;
-  font-weight: bold;
-  border-radius: 3px;
-  z-index: 30;
-}
-
-div.share-button-shake {
-  position: fixed;
-  left: 15%;
-  top: 0;
-  z-index: 100;
-}
-
-.share-button-shake .shake-vertical {
-  animation: shake-vertical 2s linear infinite;
-}
-
-@keyframes shake-vertical {
-  0%, 40% { transform: translateY(0) }
-  10% { transform: translateY(2px) }
-  30% { transform: translateY(-5px) }
 }
 </style>

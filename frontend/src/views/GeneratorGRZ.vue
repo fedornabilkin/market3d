@@ -6,54 +6,66 @@
         GRZMenu(:v3dFacade="v3dFacade" @generating="generating" @exportReady="exportReady")
 
     .generator-main
+      DonateCard
+
       #gen-progress-target.gen-progress-target
 
       .container-3d
         .gen-viewport(id="container3d" :class="{ 'is-loading': isGenerating }")
 
-      .gen-export-panel(v-if="expSettings.active")
-        .gen-export-title
+      ExportPanel(
+        v-if="expSettings.active"
+        v-model:multiple="expSettings.multiple"
+        v-model:ascii="expSettings.ascii"
+        @exportSTL="exportSTL"
+        @exportOBJ="exportOBJ"
+        @exportPNG="exportPNG"
+      )
+        button.button.is-small.gen-export-btn(@click="historyDownloadModalVisible=true")
           span.icon
-            i.fa.fa-file-export
-          span {{$t('e.title')}}
-        .gen-export-actions
-          .gen-export-group
-            button.button.is-primary.is-small.gen-export-btn(@click="exportSTL")
-              span.icon
-                i.fa.fa-cube
-              span {{$t('e.buttonStl')}}
-            label.gen-export-option
-              input.checkbox(type='checkbox' v-model='expSettings.multiple')
-              span {{ $t("e.multipleLabel") }}
-            label.gen-export-option.is-hidden-mobile
-              input.checkbox(type='checkbox' v-model='expSettings.ascii')
-              span ASCII
+            i.fa.fa-calendar-day(aria-hidden="true")
+          span.is-hidden-mobile {{$t('e.downloadHistory')}}
+          span ({{ storeExport.getCollection().length }})
 
-          .gen-export-group
-            button.button.is-info.is-small.gen-export-btn(@click="exportOBJ")
-              span.icon
-                i.fa.fa-cube
-              span {{$t('e.buttonObj')}}
-
-            button.button.is-small.gen-export-btn.is-warning(@click="exportPNG")
-              span.icon
-                i.fa.fa-image
-              span PNG
+        button.button.is-small.gen-export-btn(v-if="storeExport.getDownloadAll() > 0")
+          span.icon
+            i.fa.fa-arrow-circle-down(aria-hidden="true")
+          span.is-hidden-mobile {{$t('e.downloadAll')}}
+          span ({{ storeExport.getDownloadAll() }})
 
   ExportModal(v-if="exportModalVisible" :isActive="exportModalVisible" @close="exportModalVisible=false")
+
+  HistoryModal(
+    v-if="historyDownloadModalVisible"
+    :isActive="historyDownloadModalVisible"
+    :store="storeExport"
+    :title="$t('e.downloadHistory')"
+    @recovery="recoveryModel"
+    @close="historyDownloadModalVisible=false"
+  )
 </template>
 
 <script>
 import {markRaw} from 'vue';
 import {V3DFacade} from '@/v3d/V3DFacade';
+import {useExportList} from "@/store/exportList";
+import {Share} from "@/entity/share";
+import DonateCard from "@/components/monetisation/DonateCard.vue";
 import GRZMenu from '@/components/generator/GRZMenu.vue';
 import ExportModal from '@/components/generator/ExportModal.vue';
+import ExportPanel from '@/components/generator/ExportPanel.vue';
+import HistoryModal from "@/components/generator/HistoryModal.vue";
+
+const exportList = useExportList()
 
 export default {
   name: 'GeneratorGRZ',
   components: {
+    DonateCard,
     GRZMenu,
     ExportModal,
+    ExportPanel,
+    HistoryModal,
   },
   data() {
     return {
@@ -66,6 +78,8 @@ export default {
       v3dFacade: null,
       sceneReady: false,
       exportModalVisible: false,
+      historyDownloadModalVisible: false,
+      storeExport: null,
       isGenerating: false,
       exportTimer: 5000,
       camera: null,
@@ -74,7 +88,9 @@ export default {
     }
   },
   created() {
+    this.fillExportList()
     this.v3dFacade = markRaw(new V3DFacade({debug: false}))
+    this.storeExport = exportList
   },
   mounted() {
     this.initScene()
@@ -105,6 +121,11 @@ export default {
       this.exportModalVisible = true
       setTimeout(async () => {
         await this.v3dFacade.exportOBJ(`${this.fileName()}.obj`)
+
+        const image = this.v3dFacade.getImageDataUrl()
+        exportList.add(this.createShare(image))
+        exportList.downloadAllUpdate()
+        window.localStorage.setItem(exportList.keyStoreAll, exportList.getDownloadAll())
       }, this.exportTimer)
     },
     exportSTL() {
@@ -115,6 +136,11 @@ export default {
           multiple: this.expSettings.multiple,
           filename: `${this.fileName()}.stl`,
         })
+
+        const image = this.v3dFacade.getImageDataUrl()
+        exportList.add(this.createShare(image))
+        exportList.downloadAllUpdate()
+        window.localStorage.setItem(exportList.keyStoreAll, exportList.getDownloadAll())
       }, this.exportTimer)
     },
     fileName() {
@@ -156,6 +182,26 @@ export default {
       } finally {
         this.isGenerating = false
       }
+    },
+    createShare(src) {
+      return new Share({img: {src: src}, options: this.options, date: new Date().getTime()})
+    },
+    fillExportList() {
+      const list = JSON.parse(window.localStorage.getItem(exportList.keyStore)) || []
+      const collection = list.map((item) => new Share(item))
+      exportList.fillCollection(collection)
+      exportList.setCallback((collection) => {
+        window.localStorage.setItem(exportList.keyStore, JSON.stringify(collection))
+      })
+
+      let downloadAll = window.localStorage.getItem(exportList.keyStoreAll)
+      if (collection.length > 0 && collection.length > downloadAll) {
+        downloadAll = collection.length
+      }
+      exportList.setDownloadAll(downloadAll)
+    },
+    recoveryModel(item) {
+      this.options = JSON.parse(item.options)
     },
   },
 }

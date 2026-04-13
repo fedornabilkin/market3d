@@ -30,6 +30,12 @@ const routes: RouteRecordRaw[] = [
       meta: { requiresAuth: false },
     },
     {
+      path: '/generator/braille',
+      name: 'GeneratorBraille',
+      component: () => import('../views/GeneratorBraille.vue'),
+      meta: { requiresAuth: false },
+    },
+    {
       path: '/constructor',
       name: 'Constructor',
       component: () => import('../views/Constructor.vue'),
