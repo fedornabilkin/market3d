@@ -1,5 +1,62 @@
 <template lang="pug">
 .generator-page
+  el-tour(
+    v-model="tourStore.qrOpen"
+    v-model:current="tourCurrent"
+    @finish="onTourFinish"
+    @close="onGenTourDone"
+    @change="onTourChange"
+    :next-button-props="{ children: 'Далее' }"
+    :prev-button-props="{ children: 'Назад' }"
+  )
+    el-tour-step(
+      :target="scanTarget"
+      title="Сканирование QR камерой"
+      description="Нажмите, чтобы отсканировать QR-код с помощью камеры устройства."
+      placement="bottom"
+    )
+    el-tour-step(
+      :target="readTarget"
+      title="Распознавание из файла"
+      description="Загрузите изображение с QR-кодом — приложение распознает его автоматически."
+      placement="bottom"
+    )
+    el-tour-step(
+      :target="exportSettingsTarget"
+      title="Экспорт настроек"
+      description="Сохраните текущие параметры генератора в JSON-файл, чтобы позже восстановить их."
+      placement="left"
+    )
+    el-tour-step(
+      :target="importSettingsTarget"
+      title="Импорт настроек"
+      description="Загрузите ранее сохранённый JSON-файл с параметрами, чтобы быстро восстановить сцену."
+      placement="left"
+    )
+    el-tour-step(
+      :target="panelsTarget"
+      title="Чекбокс активации панели"
+      description="У каждой секции настроек есть чекбокс активации. Включите его, чтобы панель участвовала в генерации модели. По такому же принципу работают и остальные секции."
+      placement="right"
+    )
+    el-tour-step(
+      :target="sceneTarget"
+      title="3D-сцена"
+      description="Здесь отображается сгенерированная модель. Вращайте и масштабируйте её мышью или жестами."
+    )
+    el-tour-step(
+      :target="tooltipTarget"
+      title="Панель подсказок"
+      description="Здесь появляются советы и подсказки по работе с генератором."
+      placement="top"
+    )
+    el-tour-step(
+      :target="exportPanelTarget"
+      title="Экспорт 3D-файла"
+      description="Скачайте готовую модель в STL, OBJ или PNG. История скачиваний сохраняется в браузере."
+      placement="top"
+      :next-button-props="{ children: 'Готово' }"
+    )
   .generator-layout
     .generator-sidebar
       .container-settings(v-if="qrMenuVisible()")
@@ -67,6 +124,18 @@ import {Share} from "@/entity/share";
 import {TooltipBuilder} from "@/entity/builder";
 import {dataURItoBlob} from '@/utils';
 import YoomoneyWidget from "@/components/monetisation/YoomoneyWidget.vue";
+import { useTourStore } from "@/store/tour";
+
+const QR_STEPS = [
+  'qr.scan',
+  'qr.read',
+  'qr.exportSettings',
+  'qr.importSettings',
+  'qr.panelsCheckbox',
+  'qr.scene',
+  'qr.tooltip',
+  'qr.exportPanel',
+];
 
 const shareHash = useShareHash()
 const exportList = useExportList()
@@ -107,6 +176,8 @@ export default {
       scene: null,
       grid: null,
       isRecovery: false,
+      tourStore: null,
+      tourCurrent: 0,
     };
   },
   created() {
@@ -114,13 +185,79 @@ export default {
     // Используем markRaw для предотвращения реактивности Vue 3
     this.v3dFacade = markRaw(new V3DFacade({ debug: false }))
     this.storeExport = exportList
+    this.tourStore = useTourStore()
+  },
+  watch: {
+    'tourStore.qrOpen'(v) {
+      if (v && this.tourStore) {
+        this.tourCurrent = this.tourStore.startStepFor(QR_STEPS)
+        this.tourStore.markStepSeen(QR_STEPS[this.tourCurrent])
+      }
+    },
   },
   mounted() {
     this.initScene()
     this.startAnimation()
     this.getTooltip()
+    this.maybeStartGenTour()
+  },
+  computed: {
+    scanTarget() {
+      return () => document.querySelectorAll('.gen-toolbar-left .gen-toolbar-btn')[0]
+    },
+    readTarget() {
+      return () => document.querySelectorAll('.gen-toolbar-left .gen-toolbar-btn')[1]
+    },
+    exportSettingsTarget() {
+      return () => document.querySelectorAll('.gen-settings-header-actions .gen-io-btn')[0]
+    },
+    importSettingsTarget() {
+      return () => document.querySelectorAll('.gen-settings-header-actions .gen-io-btn')[1]
+    },
+    panelsTarget() {
+      return () => {
+        const row = document.querySelector('.gen-settings-body .form-bg--qr')
+        return row?.querySelector('label.checkbox')?.parentElement || row
+      }
+    },
+    sceneTarget() {
+      return () => document.getElementById('container3d')
+    },
+    tooltipTarget() {
+      return () => document.querySelector('.gen-tooltip')
+    },
+    exportPanelTarget() {
+      return () => document.querySelector('.gen-export-panel .gen-export-actions') || document.querySelector('.gen-export-panel')
+    },
   },
   methods: {
+    async maybeStartGenTour() {
+      const waitFor = (sel, tries = 40) => new Promise((resolve) => {
+        const tick = () => {
+          if (document.querySelector(sel) || tries-- <= 0) return resolve()
+          setTimeout(tick, 150)
+        }
+        tick()
+      })
+      if (this.tourStore?.hasUnseen(QR_STEPS)) {
+        await waitFor('.gen-settings-body')
+        await waitFor('.gen-tooltip')
+        await waitFor('.gen-export-panel')
+        this.tourStore.openFor('GeneratorQR')
+      }
+    },
+    onGenTourDone() {
+      if (this.tourStore) {
+        this.tourStore.qrOpen = false
+      }
+    },
+    onTourFinish() {
+      this.tourStore?.markAllSeen(QR_STEPS)
+      this.onGenTourDone()
+    },
+    onTourChange(idx) {
+      this.tourStore?.markStepSeen(QR_STEPS[idx])
+    },
     qrMenuVisible() {
       return !this.isRecovery && this.v3dFacade.initialized
     },

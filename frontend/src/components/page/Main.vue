@@ -1,9 +1,50 @@
 <template lang="pug">
 .container
+  el-tour(
+    v-model="tourOpen"
+    v-model:current="tourCurrent"
+    @finish="onTourFinish"
+    @close="onTourClose"
+    @change="onTourChange"
+    :next-button-props="{ children: 'Далее' }"
+    :prev-button-props="{ children: 'Назад' }"
+  )
+    el-tour-step(
+      :target="socialTarget"
+      title="Социальные сети"
+      description="Здесь вы можете перейти в наш Telegram-канал и чат обсуждений."
+    )
+    el-tour-step(
+      :target="themeTarget"
+      title="Переключатель темы"
+      description="Выберите светлую, тёмную или системную тему оформления."
+    )
+    el-tour-step(
+      :target="footerExamplesTarget"
+      title="Галерея примеров"
+      description="Откройте страницу с подборкой примеров работ."
+      placement="top"
+    )
+    el-tour-step(
+      :target="shareTarget"
+      title="Поделиться"
+      description="Расскажите друзьям о сервисе в социальных сетях."
+    )
+    el-tour-step(
+      :target="languageTarget"
+      title="Выбор языка"
+      description="Переключите язык интерфейса."
+    )
+    el-tour-step(
+      :target="generatorsTarget"
+      title="Генераторы моделей"
+      description="Выберите генератор: QR-код, ГРЗ, шрифт Брайля или 3D-конструктор. Сейчас перейдём к генератору QR для продолжения тура."
+      :next-button-props="{ children: 'Перейти к генератору QR' }"
+    )
   .hero-section
     h1.title.is-1 {{ $t('g.title') }}
     h2.subtitle.is-4 {{ $t('g.subtitle') }}
-    .hero-buttons
+    .hero-buttons(ref="heroButtonsRef")
       router-link.button.is-primary.is-large(:to="{ name: 'GeneratorQR' }")
         span.icon
           i.fa.fa-qrcode
@@ -21,7 +62,7 @@
           i.fa.fa-cubes
         span 3D Конструктор
 
-  .examples-section
+  .examples-section(ref="examplesRef")
     h2.title.is-3 Примеры моделей
     el-carousel(
       ref="carouselRef"
@@ -46,9 +87,21 @@
 </template>
 
 <script>
-import { ref } from 'vue';
+import { ref, onMounted, nextTick, watch } from 'vue';
+import { useRouter } from 'vue-router';
+import { storeToRefs } from 'pinia';
+
+const MAIN_STEPS = [
+  'main.social',
+  'main.theme',
+  'main.footerExamples',
+  'main.share',
+  'main.language',
+  'main.generators',
+];
 import PaymentMethodsButton from "@/components/monetisation/PaymentMethodsButton.vue";
 import SponsorList from "@/components/monetisation/SponsorList.vue";
+import { useTourStore } from '@/store/tour';
 
 export default {
   name: 'Main',
@@ -58,6 +111,49 @@ export default {
   },
   setup() {
     const carouselRef = ref(null);
+    const heroButtonsRef = ref(null);
+    const examplesRef = ref(null);
+    const router = useRouter();
+    const tourStore = useTourStore();
+    const { mainOpen: tourOpen } = storeToRefs(tourStore);
+    const tourCurrent = ref(0);
+
+    watch(tourOpen, (v) => {
+      if (v) {
+        tourCurrent.value = tourStore.startStepFor(MAIN_STEPS);
+        tourStore.markStepSeen(MAIN_STEPS[tourCurrent.value]);
+      }
+    });
+
+    const onTourChange = (idx) => {
+      tourStore.markStepSeen(MAIN_STEPS[idx]);
+    };
+
+    const findNavbarItem = (selector) => document.querySelector(selector)?.closest('.navbar-item') || document.querySelector(selector);
+    const socialTarget = () => findNavbarItem('.gen-tg-header-btn');
+    const themeTarget = () => findNavbarItem('.navbar-end .el-dropdown');
+    const generatorsTarget = () => heroButtonsRef.value;
+    const footerExamplesTarget = () => {
+      const btn = document.querySelector('.footer a.button.is-info');
+      return btn?.closest('.column') || btn;
+    };
+    const shareTarget = () => document.querySelector('.footer .share-buttons') || document.querySelector('.footer .columns .column:nth-last-child(2)');
+    const languageTarget = () => document.querySelector('.footer .columns .column:last-child');
+
+    const onTourFinish = () => {
+      tourStore.markAllSeen(MAIN_STEPS);
+      tourStore.mainOpen = false;
+      router.push({ name: 'GeneratorQR' });
+    };
+
+    const onTourClose = () => {};
+
+    onMounted(async () => {
+      if (tourStore.hasUnseen(MAIN_STEPS)) {
+        await nextTick();
+        tourStore.openFor('Main');
+      }
+    });
 
     const slides = [
       {
@@ -128,6 +224,19 @@ export default {
     return {
       slides,
       carouselRef,
+      heroButtonsRef,
+      examplesRef,
+      tourOpen,
+      tourCurrent,
+      onTourChange,
+      socialTarget,
+      themeTarget,
+      generatorsTarget,
+      footerExamplesTarget,
+      shareTarget,
+      languageTarget,
+      onTourFinish,
+      onTourClose,
     };
   },
 }

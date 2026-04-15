@@ -1,5 +1,26 @@
 <template lang="pug">
 .generator-page
+  el-tour(
+    v-model="tourStore.brailleOpen"
+    v-model:current="tourCurrent"
+    @finish="onTourFinish"
+    @close="onTourDone"
+    @change="onTourChange"
+    :next-button-props="{ children: 'Далее' }"
+    :prev-button-props="{ children: 'Назад' }"
+  )
+    el-tour-step(
+      :target="settingsTarget"
+      title="Настройки шрифта Брайля"
+      description="Введите текст и настройте параметры — вы получите 3D-модель с рельефным шрифтом Брайля."
+      placement="right"
+    )
+    el-tour-step(
+      :target="sceneTarget"
+      title="3D-сцена"
+      description="Здесь отображается сгенерированная модель. Вращайте и масштабируйте её мышью или жестами."
+      :next-button-props="{ children: 'Готово' }"
+    )
   .generator-layout
     .generator-sidebar
       .container-settings(v-if="menuVisible()")
@@ -55,6 +76,9 @@ import BrailleMenu from '@/components/generator/BrailleMenu.vue';
 import ExportModal from '@/components/generator/ExportModal.vue';
 import ExportPanel from '@/components/generator/ExportPanel.vue';
 import HistoryModal from "@/components/generator/HistoryModal.vue";
+import { useTourStore } from "@/store/tour";
+
+const BRAILLE_STEPS = ['braille.settings', 'braille.scene'];
 
 const exportList = useExportList()
 
@@ -85,18 +109,62 @@ export default {
       camera: null,
       renderer: null,
       scene: null,
+      tourStore: null,
+      tourCurrent: 0,
     }
+  },
+  watch: {
+    'tourStore.brailleOpen'(v) {
+      if (v && this.tourStore) {
+        this.tourCurrent = this.tourStore.startStepFor(BRAILLE_STEPS)
+        this.tourStore.markStepSeen(BRAILLE_STEPS[this.tourCurrent])
+      }
+    },
   },
   created() {
     this.fillExportList()
     this.v3dFacade = markRaw(new V3DFacade({debug: false}))
     this.storeExport = exportList
+    this.tourStore = useTourStore()
   },
   mounted() {
     this.initScene()
     this.startAnimation()
+    this.maybeStartTour()
+  },
+  computed: {
+    settingsTarget() {
+      return () => document.querySelector('.gen-settings-body')
+    },
+    sceneTarget() {
+      return () => document.getElementById('container3d')
+    },
   },
   methods: {
+    async maybeStartTour() {
+      if (!this.tourStore?.hasUnseen(BRAILLE_STEPS)) return
+      const waitFor = (sel, tries = 40) => new Promise((resolve) => {
+        const tick = () => {
+          if (document.querySelector(sel) || tries-- <= 0) return resolve()
+          setTimeout(tick, 150)
+        }
+        tick()
+      })
+      await waitFor('.gen-settings-body')
+      this.tourStore.openFor('GeneratorBraille')
+    },
+    onTourDone() {
+      if (this.tourStore) {
+        this.tourStore.brailleOpen = false
+      }
+    },
+    onTourFinish() {
+      this.tourStore?.markAllSeen(BRAILLE_STEPS)
+      this.onTourDone()
+    },
+    onTourChange(idx) {
+      this.tourStore?.markStepSeen(BRAILLE_STEPS[idx])
+    },
     menuVisible() {
       return this.sceneReady
     },

@@ -1,8 +1,24 @@
 <script setup>
 import { useThemeStore } from '@/store/theme';
-import { Sunny, Moon, Monitor } from '@element-plus/icons-vue';
+import { useRouter } from 'vue-router';
+import { Sunny, Moon, Monitor, QuestionFilled } from '@element-plus/icons-vue';
+import { useTourStore } from '@/store/tour';
 
 const themeStore = useThemeStore();
+const router = useRouter();
+const tourStore = useTourStore();
+
+const TOUR_PAGES = ['Main', 'GeneratorQR', 'GeneratorGRZ', 'GeneratorBraille', 'Constructor'];
+
+const startTour = async () => {
+  const current = router.currentRoute.value.name;
+  if (TOUR_PAGES.includes(current)) {
+    tourStore.openFor(current);
+  } else {
+    await router.push({ name: 'Main' });
+    tourStore.openFor('Main');
+  }
+};
 </script>
 
 <template lang="pug">
@@ -22,6 +38,14 @@ nav.navbar(role='navigation' aria-label='main navigation')
           span.icon
             i.fab.fa-telegram
           span.is-hidden-mobile {{$t('t.tgChannelButton')}}
+      .navbar-item
+        el-button(
+          circle
+          :icon="QuestionFilled"
+          aria-label="Пройти тур"
+          title="Пройти тур заново"
+          @click="startTour"
+        )
       .navbar-item
         el-dropdown(trigger="click" placement="bottom-end" @command="themeStore.setTheme")
           el-button(

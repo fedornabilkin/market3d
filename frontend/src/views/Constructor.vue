@@ -1,5 +1,39 @@
 <template lang="pug">
 .constructor-page
+  el-tour(
+    v-model="tourStore.constructorOpen"
+    v-model:current="tourCurrent"
+    @finish="onTourFinish"
+    @close="onTourDone"
+    @change="onTourChange"
+    :next-button-props="{ children: 'Далее' }"
+    :prev-button-props="{ children: 'Назад' }"
+  )
+    el-tour-step(
+      :target="nodesTarget"
+      title="Панель узлов"
+      description="Здесь отображается дерево узлов сцены. Добавляйте примитивы и управляйте ими."
+      placement="right"
+    )
+    el-tour-step(
+      :target="settingsTarget"
+      title="Панель настроек"
+      description="Здесь настраиваются свойства выбранного узла: размеры, положение, материалы."
+      placement="left"
+    )
+    el-tour-step(
+      :target="actionToolbarTarget"
+      title="Управление объектом"
+      description="Группировка, отмена/повтор, дублирование, зеркалирование, прилипание, фаска, удаление — действия над выделенными объектами."
+      placement="top"
+    )
+    el-tour-step(
+      :target="exportButtonsTarget"
+      title="Экспорт и импорт"
+      description="Скачайте модель в STL/OBJ или загрузите существующий STL-файл в сцену."
+      placement="top"
+      :next-button-props="{ children: 'Готово' }"
+    )
   .constructor-sidebar
     .constructor-panel.constructor-panel--nodes
       .scene-switcher
@@ -344,6 +378,42 @@ import type { PrimitiveType } from '@/v3d/constructor';
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader';
 import { dataURItoBlob } from '@/utils';
 import NodeTree from '@/components/constructor/NodeTree.vue';
+import { useTourStore } from '@/store/tour';
+
+const tourStore = useTourStore();
+const CONSTRUCTOR_STEPS = [
+  'constructor.nodes',
+  'constructor.settings',
+  'constructor.actions',
+  'constructor.export',
+];
+const tourCurrent = ref(0);
+const nodesTarget = () => document.querySelector('.constructor-panel--nodes') as HTMLElement | null;
+const settingsTarget = () => document.querySelector('.constructor-panel--settings') as HTMLElement | null;
+const actionToolbarTarget = () => document.querySelector('.action-toolbar') as HTMLElement | null;
+const exportButtonsTarget = () => document.querySelector('.scene-toolbar') as HTMLElement | null;
+watch(() => tourStore.constructorOpen, (v) => {
+  if (v) {
+    tourCurrent.value = tourStore.startStepFor(CONSTRUCTOR_STEPS);
+    tourStore.markStepSeen(CONSTRUCTOR_STEPS[tourCurrent.value]);
+  }
+});
+const onTourChange = (idx: number) => {
+  tourStore.markStepSeen(CONSTRUCTOR_STEPS[idx]);
+};
+const onTourDone = () => {
+  tourStore.constructorOpen = false;
+};
+const onTourFinish = () => {
+  tourStore.markAllSeen(CONSTRUCTOR_STEPS);
+  onTourDone();
+};
+onMounted(async () => {
+  if (tourStore.hasUnseen(CONSTRUCTOR_STEPS)) {
+    await new Promise((r) => setTimeout(r, 100));
+    tourStore.openFor('Constructor');
+  }
+});
 
 const SCENE_COUNT = 3;
 const STORAGE_KEYS = Array.from({ length: SCENE_COUNT }, (_, i) => `constructor_scene_v1_${i}`);
