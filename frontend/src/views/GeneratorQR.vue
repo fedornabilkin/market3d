@@ -10,6 +10,11 @@
     :prev-button-props="{ children: 'Назад' }"
   )
     el-tour-step(
+      :target="tourButtonTarget"
+      title="Кнопка запуска тура"
+      description="Нажмите эту кнопку в любой момент, чтобы пройти тур по текущей странице заново."
+    )
+    el-tour-step(
       :target="scanTarget"
       title="Сканирование QR камерой"
       description="Нажмите, чтобы отсканировать QR-код с помощью камеры устройства."
@@ -25,19 +30,19 @@
       :target="exportSettingsTarget"
       title="Экспорт настроек"
       description="Сохраните текущие параметры генератора в JSON-файл, чтобы позже восстановить их."
-      placement="left"
+      :placement="tp('left')"
     )
     el-tour-step(
       :target="importSettingsTarget"
       title="Импорт настроек"
       description="Загрузите ранее сохранённый JSON-файл с параметрами, чтобы быстро восстановить сцену."
-      placement="left"
+      :placement="tp('left')"
     )
     el-tour-step(
       :target="panelsTarget"
       title="Чекбокс активации панели"
       description="У каждой секции настроек есть чекбокс активации. Включите его, чтобы панель участвовала в генерации модели. По такому же принципу работают и остальные секции."
-      placement="right"
+      :placement="tp('right')"
     )
     el-tour-step(
       :target="sceneTarget"
@@ -55,6 +60,12 @@
       title="Экспорт 3D-файла"
       description="Скачайте готовую модель в STL, OBJ или PNG. История скачиваний сохраняется в браузере."
       placement="top"
+    )
+    el-tour-step(
+      :target="donateTarget"
+      title="Поддержите проект"
+      description="Сервис бесплатный и развивается в свободное время. Если он оказался полезен — скиньте на кофе разработчику, это очень мотивирует!"
+      :placement="tp('left')"
       :next-button-props="{ children: 'Готово' }"
     )
   .generator-layout
@@ -125,8 +136,10 @@ import {TooltipBuilder} from "@/entity/builder";
 import {dataURItoBlob} from '@/utils';
 import YoomoneyWidget from "@/components/monetisation/YoomoneyWidget.vue";
 import { useTourStore } from "@/store/tour";
+import { useTourPlacement } from "@/service/useTourPlacement";
 
 const QR_STEPS = [
+  'common.tourButton',
   'qr.scan',
   'qr.read',
   'qr.exportSettings',
@@ -135,6 +148,7 @@ const QR_STEPS = [
   'qr.scene',
   'qr.tooltip',
   'qr.exportPanel',
+  'qr.donate',
 ];
 
 const shareHash = useShareHash()
@@ -142,6 +156,10 @@ const exportList = useExportList()
 
 export default {
   name: 'GeneratorQR',
+  setup() {
+    const { tp } = useTourPlacement();
+    return { tp };
+  },
   components: {
     DonateCard,
     YoomoneyWidget,
@@ -202,32 +220,66 @@ export default {
     this.maybeStartGenTour()
   },
   computed: {
+    tourButtonTarget() {
+      return () => {
+        const el = document.querySelector('.gen-tour-btn')
+        return el && el.offsetWidth > 0 ? el : null
+      }
+    },
     scanTarget() {
-      return () => document.querySelectorAll('.gen-toolbar-left .gen-toolbar-btn')[0]
+      return () => {
+        const el = document.querySelectorAll('.gen-toolbar-left .gen-toolbar-btn')[0]
+        return el && el.offsetWidth > 0 ? el : null
+      }
     },
     readTarget() {
-      return () => document.querySelectorAll('.gen-toolbar-left .gen-toolbar-btn')[1]
+      return () => {
+        const el = document.querySelectorAll('.gen-toolbar-left .gen-toolbar-btn')[1]
+        return el && el.offsetWidth > 0 ? el : null
+      }
     },
     exportSettingsTarget() {
-      return () => document.querySelectorAll('.gen-settings-header-actions .gen-io-btn')[0]
+      return () => {
+        const el = document.querySelectorAll('.gen-settings-header-actions .gen-io-btn')[0]
+        return el && el.offsetWidth > 0 ? el : null
+      }
     },
     importSettingsTarget() {
-      return () => document.querySelectorAll('.gen-settings-header-actions .gen-io-btn')[1]
+      return () => {
+        const el = document.querySelectorAll('.gen-settings-header-actions .gen-io-btn')[1]
+        return el && el.offsetWidth > 0 ? el : null
+      }
     },
     panelsTarget() {
       return () => {
         const row = document.querySelector('.gen-settings-body .form-bg--qr')
-        return row?.querySelector('label.checkbox')?.parentElement || row
+        const el = row?.querySelector('label.checkbox')?.parentElement || row
+        return el && el.offsetWidth > 0 ? el : null
       }
     },
     sceneTarget() {
-      return () => document.getElementById('container3d')
+      return () => {
+        const el = document.getElementById('container3d')
+        return el && el.offsetWidth > 0 ? el : null
+      }
     },
     tooltipTarget() {
-      return () => document.querySelector('.gen-tooltip')
+      return () => {
+        const el = document.querySelector('.gen-tooltip')
+        return el && el.offsetWidth > 0 ? el : null
+      }
     },
     exportPanelTarget() {
-      return () => document.querySelector('.gen-export-panel .gen-export-actions') || document.querySelector('.gen-export-panel')
+      return () => {
+        const el = document.querySelector('.gen-export-panel .gen-export-actions') || document.querySelector('.gen-export-panel')
+        return el && el.offsetWidth > 0 ? el : null
+      }
+    },
+    donateTarget() {
+      return () => {
+        const el = document.querySelector('.gen-donate-card')
+        return el && el.offsetWidth > 0 ? el : null
+      }
     },
   },
   methods: {

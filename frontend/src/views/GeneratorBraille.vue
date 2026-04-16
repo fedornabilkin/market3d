@@ -10,10 +10,15 @@
     :prev-button-props="{ children: 'Назад' }"
   )
     el-tour-step(
+      :target="tourButtonTarget"
+      title="Кнопка запуска тура"
+      description="Нажмите эту кнопку в любой момент, чтобы пройти тур по текущей странице заново."
+    )
+    el-tour-step(
       :target="settingsTarget"
       title="Настройки шрифта Брайля"
       description="Введите текст и настройте параметры — вы получите 3D-модель с рельефным шрифтом Брайля."
-      placement="right"
+      :placement="tp('right')"
     )
     el-tour-step(
       :target="sceneTarget"
@@ -77,13 +82,18 @@ import ExportModal from '@/components/generator/ExportModal.vue';
 import ExportPanel from '@/components/generator/ExportPanel.vue';
 import HistoryModal from "@/components/generator/HistoryModal.vue";
 import { useTourStore } from "@/store/tour";
+import { useTourPlacement } from "@/service/useTourPlacement";
 
-const BRAILLE_STEPS = ['braille.settings', 'braille.scene'];
+const BRAILLE_STEPS = ['common.tourButton', 'braille.settings', 'braille.scene'];
 
 const exportList = useExportList()
 
 export default {
   name: 'GeneratorBraille',
+  setup() {
+    const { tp } = useTourPlacement();
+    return { tp };
+  },
   components: {
     DonateCard,
     BrailleMenu,
@@ -133,11 +143,23 @@ export default {
     this.maybeStartTour()
   },
   computed: {
+    tourButtonTarget() {
+      return () => {
+        const el = document.querySelector('.gen-tour-btn')
+        return el && el.offsetWidth > 0 ? el : null
+      }
+    },
     settingsTarget() {
-      return () => document.querySelector('.gen-settings-body')
+      return () => {
+        const el = document.querySelector('.gen-settings-body')
+        return el && el.offsetWidth > 0 ? el : null
+      }
     },
     sceneTarget() {
-      return () => document.getElementById('container3d')
+      return () => {
+        const el = document.getElementById('container3d')
+        return el && el.offsetWidth > 0 ? el : null
+      }
     },
   },
   methods: {

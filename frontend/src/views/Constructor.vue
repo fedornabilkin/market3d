@@ -10,16 +10,21 @@
     :prev-button-props="{ children: 'Назад' }"
   )
     el-tour-step(
+      :target="tourButtonTarget"
+      title="Кнопка запуска тура"
+      description="Нажмите эту кнопку в любой момент, чтобы пройти тур по текущей странице заново."
+    )
+    el-tour-step(
       :target="nodesTarget"
       title="Панель узлов"
       description="Здесь отображается дерево узлов сцены. Добавляйте примитивы и управляйте ими."
-      placement="right"
+      :placement="tp('right')"
     )
     el-tour-step(
       :target="settingsTarget"
       title="Панель настроек"
       description="Здесь настраиваются свойства выбранного узла: размеры, положение, материалы."
-      placement="left"
+      :placement="tp('left')"
     )
     el-tour-step(
       :target="actionToolbarTarget"
@@ -379,19 +384,24 @@ import { STLLoader } from 'three/examples/jsm/loaders/STLLoader';
 import { dataURItoBlob } from '@/utils';
 import NodeTree from '@/components/constructor/NodeTree.vue';
 import { useTourStore } from '@/store/tour';
+import { useTourPlacement } from '@/service/useTourPlacement';
 
 const tourStore = useTourStore();
+const { tp } = useTourPlacement();
 const CONSTRUCTOR_STEPS = [
+  'common.tourButton',
   'constructor.nodes',
   'constructor.settings',
   'constructor.actions',
   'constructor.export',
 ];
 const tourCurrent = ref(0);
-const nodesTarget = () => document.querySelector('.constructor-panel--nodes') as HTMLElement | null;
-const settingsTarget = () => document.querySelector('.constructor-panel--settings') as HTMLElement | null;
-const actionToolbarTarget = () => document.querySelector('.action-toolbar') as HTMLElement | null;
-const exportButtonsTarget = () => document.querySelector('.scene-toolbar') as HTMLElement | null;
+const visibleEl = (el: HTMLElement | null): HTMLElement | null => el && el.offsetWidth > 0 ? el : null;
+const tourButtonTarget = () => visibleEl(document.querySelector('.gen-tour-btn') as HTMLElement | null);
+const nodesTarget = () => visibleEl(document.querySelector('.constructor-panel--nodes') as HTMLElement | null);
+const settingsTarget = () => visibleEl(document.querySelector('.constructor-panel--settings') as HTMLElement | null);
+const actionToolbarTarget = () => visibleEl(document.querySelector('.action-toolbar') as HTMLElement | null);
+const exportButtonsTarget = () => visibleEl(document.querySelector('.scene-toolbar') as HTMLElement | null);
 watch(() => tourStore.constructorOpen, (v) => {
   if (v) {
     tourCurrent.value = tourStore.startStepFor(CONSTRUCTOR_STEPS);

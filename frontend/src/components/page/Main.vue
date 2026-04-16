@@ -10,6 +10,11 @@
     :prev-button-props="{ children: 'Назад' }"
   )
     el-tour-step(
+      :target="tourButtonTarget"
+      title="Кнопка запуска тура"
+      description="Нажмите эту кнопку в любой момент, чтобы пройти тур по текущей странице заново."
+    )
+    el-tour-step(
       :target="socialTarget"
       title="Социальные сети"
       description="Здесь вы можете перейти в наш Telegram-канал и чат обсуждений."
@@ -92,6 +97,7 @@ import { useRouter } from 'vue-router';
 import { storeToRefs } from 'pinia';
 
 const MAIN_STEPS = [
+  'common.tourButton',
   'main.social',
   'main.theme',
   'main.footerExamples',
@@ -129,16 +135,18 @@ export default {
       tourStore.markStepSeen(MAIN_STEPS[idx]);
     };
 
+    const visibleEl = (el) => el && el.offsetWidth > 0 ? el : null;
+    const tourButtonTarget = () => visibleEl(document.querySelector('.gen-tour-btn'));
     const findNavbarItem = (selector) => document.querySelector(selector)?.closest('.navbar-item') || document.querySelector(selector);
-    const socialTarget = () => findNavbarItem('.gen-tg-header-btn');
-    const themeTarget = () => findNavbarItem('.navbar-end .el-dropdown');
+    const socialTarget = () => visibleEl(findNavbarItem('.gen-tg-header-btn'));
+    const themeTarget = () => visibleEl(findNavbarItem('.navbar-end .el-dropdown'));
     const generatorsTarget = () => heroButtonsRef.value;
     const footerExamplesTarget = () => {
       const btn = document.querySelector('.footer a.button.is-info');
-      return btn?.closest('.column') || btn;
+      return visibleEl(btn?.closest('.column') || btn);
     };
-    const shareTarget = () => document.querySelector('.footer .share-buttons') || document.querySelector('.footer .columns .column:nth-last-child(2)');
-    const languageTarget = () => document.querySelector('.footer .columns .column:last-child');
+    const shareTarget = () => visibleEl(document.querySelector('.footer .share-buttons') || document.querySelector('.footer .columns .column:nth-last-child(2)'));
+    const languageTarget = () => visibleEl(document.querySelector('.footer .columns .column:last-child'));
 
     const onTourFinish = () => {
       tourStore.markAllSeen(MAIN_STEPS);
@@ -229,6 +237,7 @@ export default {
       tourOpen,
       tourCurrent,
       onTourChange,
+      tourButtonTarget,
       socialTarget,
       themeTarget,
       generatorsTarget,

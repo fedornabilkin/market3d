@@ -10,10 +10,15 @@
     :prev-button-props="{ children: 'Назад' }"
   )
     el-tour-step(
+      :target="tourButtonTarget"
+      title="Кнопка запуска тура"
+      description="Нажмите эту кнопку в любой момент, чтобы пройти тур по текущей странице заново."
+    )
+    el-tour-step(
       :target="settingsTarget"
       title="Настройки ГРЗ"
       description="Введите буквы, цифры и регион, настройте размеры — это влияет на итоговую 3D-модель номерного знака."
-      placement="right"
+      :placement="tp('right')"
     )
     el-tour-step(
       :target="sceneTarget"
@@ -77,13 +82,18 @@ import ExportModal from '@/components/generator/ExportModal.vue';
 import ExportPanel from '@/components/generator/ExportPanel.vue';
 import HistoryModal from "@/components/generator/HistoryModal.vue";
 import { useTourStore } from "@/store/tour";
+import { useTourPlacement } from "@/service/useTourPlacement";
 
-const GRZ_STEPS = ['grz.settings', 'grz.scene'];
+const GRZ_STEPS = ['common.tourButton', 'grz.settings', 'grz.scene'];
 
 const exportList = useExportList()
 
 export default {
   name: 'GeneratorGRZ',
+  setup() {
+    const { tp } = useTourPlacement();
+    return { tp };
+  },
   components: {
     DonateCard,
     GRZMenu,
@@ -128,11 +138,23 @@ export default {
     this.tourStore = useTourStore()
   },
   computed: {
+    tourButtonTarget() {
+      return () => {
+        const el = document.querySelector('.gen-tour-btn')
+        return el && el.offsetWidth > 0 ? el : null
+      }
+    },
     settingsTarget() {
-      return () => document.querySelector('.gen-settings-body')
+      return () => {
+        const el = document.querySelector('.gen-settings-body')
+        return el && el.offsetWidth > 0 ? el : null
+      }
     },
     sceneTarget() {
-      return () => document.getElementById('container3d')
+      return () => {
+        const el = document.getElementById('container3d')
+        return el && el.offsetWidth > 0 ? el : null
+      }
     },
   },
   mounted() {

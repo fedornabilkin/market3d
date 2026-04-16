@@ -25,7 +25,10 @@
       "Bash(mv v3d/generator/LicensePlateGenerator.js v3d/generator/GRZGenerator.js)",
       "Bash(xargs grep:*)",
       "Bash(grep -E \"\\\\.\\(js|ts\\)$\")",
-      "Bash(grep -E \"\\\\.vue$\")"
+      "Bash(grep -E \"\\\\.vue$\")",
+      "Bash(find /c/Users/nolikshpik/Desktop/projects/3d-market/frontend/src -name \"*.vue\" -exec grep -l \"tour-step\\\\|tour-guide\\\\|el-tour\" {} \\\\;)",
+      "Bash(xargs cat *)",
+      "Bash(find *)"
     ]
   }
 }

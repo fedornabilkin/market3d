@@ -740,3 +740,51 @@ html.theme-light .gen-progress-bar {
 html.theme-light .gen-progress-text {
   color: #6b7280;
 }
+
+/* ���── Tour — Dark Theme ──────────────────────────────────────── */
+html.dark .el-tour {
+  --el-tour-bg-color: #2d2d32;
+  --el-tour-title-text-color: #f3f4f6;
+  --el-tour-color: #e5e7eb;
+  --el-tour-close-color: #9ca3af;
+}
+
+html.dark .el-tour__content {
+  border: 1px solid #4b5563;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
+}
+
+html.dark .el-tour__arrow {
+  background: #2d2d32;
+  border-color: #4b5563;
+}
+
+html.dark .el-tour .el-button--primary {
+  background-color: #3b82f6;
+  border-color: #3b82f6;
+}
+
+html.dark .el-tour .el-button--default {
+  background-color: #374151;
+  border-color: #4b5563;
+  color: #e5e7eb;
+}
+
+html.dark .el-tour .el-tour-indicator {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+html.dark .el-tour .el-tour-indicator.is-active {
+  background: #3b82f6;
+}
+
+/* ─── Tour — Mobile Fix ─────────────────────────────────────── */
+@media screen and (max-width: 768px) {
+  .el-tour {
+    --el-tour-width: calc(100vw - 32px);
+  }
+
+  .el-tour__content {
+    max-width: calc(100vw - 16px) !important;
+  }
+}

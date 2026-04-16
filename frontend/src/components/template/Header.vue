@@ -39,7 +39,7 @@ nav.navbar(role='navigation' aria-label='main navigation')
             i.fab.fa-telegram
           span.is-hidden-mobile {{$t('t.tgChannelButton')}}
       .navbar-item
-        el-button(
+        el-button.gen-tour-btn(
           circle
           :icon="QuestionFilled"
           aria-label="Пройти тур"
