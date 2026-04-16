@@ -183,6 +183,30 @@ html.dark .form-bg-diff.form-bg--text { background: #1a2828 !important; }
 html.dark .form-bg-diff.form-bg--border { background: #282828 !important; }
 html.dark .form-bg-diff.form-bg--icon { background: #28261a !important; }
 html.dark .form-bg-diff.form-bg--keychain { background: #221e30 !important; }
+
+/* Icon grid — dark */
+html.dark .icon-grid-item {
+  border-color: #4b5563;
+  background: #374151;
+}
+html.dark .icon-grid-item img {
+  filter: brightness(0) invert(0.8);
+}
+html.dark .icon-grid-item:hover {
+  border-color: #60a5fa;
+  background: #1e3a5f;
+}
+html.dark .icon-grid-item:hover img {
+  filter: brightness(0) invert(1);
+}
+html.dark .icon-grid-item.is-selected {
+  border-color: #3b82f6;
+  background: #3b82f6;
+}
+html.dark .icon-grid-item.is-selected img {
+  filter: brightness(0) invert(1);
+}
+
 html.dark .option-pane {
   background-color: transparent;
   color: #e5e7eb;

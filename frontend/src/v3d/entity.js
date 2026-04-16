@@ -186,6 +186,19 @@ export class Keychain extends Entity {
   }
 }
 
+export class CoasterRings extends Entity {
+  count = 3
+  ringWidth = 1
+  spacing = 3
+  startRadius = 15
+  depth = 1
+
+  constructor(config = {}) {
+    super(config)
+    Object.assign(this, config)
+  }
+}
+
 export class Magnet extends Entity {
   shape =  'round'
   size =  10

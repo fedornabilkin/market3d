@@ -84,7 +84,7 @@ const base = new BaseEntity({active: true})
 const border = new BorderEntity({active: true})
 const code = new CodeEntity({active: true})
 const text = new TextEntity({active: true})
-const icon = new IconEntity()
+const icon = new IconEntity({ name: 'user' })
 const keychain = new KeychainEntity()
 const magnet = new MagnetEntity()
 

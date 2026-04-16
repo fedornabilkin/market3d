@@ -36,6 +36,12 @@ const routes: RouteRecordRaw[] = [
       meta: { requiresAuth: false },
     },
     {
+      path: '/generator/coaster',
+      name: 'GeneratorCoaster',
+      component: () => import('../views/GeneratorCoaster.vue'),
+      meta: { requiresAuth: false },
+    },
+    {
       path: '/constructor',
       name: 'Constructor',
       component: () => import('../views/Constructor.vue'),

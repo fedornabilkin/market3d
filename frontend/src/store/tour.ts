@@ -2,7 +2,7 @@ import { defineStore } from 'pinia';
 
 const SEEN_STEPS_KEY = 'site-tour-seen-steps';
 
-type PageKey = 'Main' | 'GeneratorQR' | 'GeneratorGRZ' | 'GeneratorBraille' | 'Constructor';
+type PageKey = 'Main' | 'GeneratorQR' | 'GeneratorGRZ' | 'GeneratorBraille' | 'GeneratorCoaster' | 'Constructor';
 
 function loadSeenSteps(): Record<string, true> {
   try {
@@ -21,6 +21,7 @@ export const useTourStore = defineStore('tour', {
     qrOpen: false,
     grzOpen: false,
     brailleOpen: false,
+    coasterOpen: false,
     constructorOpen: false,
     seenSteps: loadSeenSteps() as Record<string, true>,
   }),
@@ -31,6 +32,7 @@ export const useTourStore = defineStore('tour', {
       this.qrOpen = false;
       this.grzOpen = false;
       this.brailleOpen = false;
+      this.coasterOpen = false;
       this.constructorOpen = false;
     },
     openFor(page: PageKey) {
@@ -40,6 +42,7 @@ export const useTourStore = defineStore('tour', {
         else if (page === 'GeneratorQR') this.qrOpen = true;
         else if (page === 'GeneratorGRZ') this.grzOpen = true;
         else if (page === 'GeneratorBraille') this.brailleOpen = true;
+        else if (page === 'GeneratorCoaster') this.coasterOpen = true;
         else if (page === 'Constructor') this.constructorOpen = true;
       }, 0);
     },

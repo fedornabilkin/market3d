@@ -6,28 +6,32 @@ const activeChange = () => {
   props.options.icon.eventActive()
 }
 
-const change = () => {
-  selected('none')
-  props.options.icon.src = props.options.icon.srcCustom
+const onCustomSvgInput = () => {
+  // Custom SVG has priority — just set src directly
+  if (props.options.icon.srcCustom && props.options.icon.srcCustom.trim()) {
+    props.options.icon.src = props.options.icon.srcCustom
+  }
 }
 
 const selected = (name) => {
   props.options.icon.name = name
+  props.options.icon.srcCustom = undefined
 
-  if (name !== 'none') {
-    props.options.icon.clearSrcCustom()
+  const promise = new Promise((resolve) => {
+    setTimeout(() => {
+      resolve()
+    }, 1000)
+  })
 
-    const promise = new Promise((resolve) => {
-      setTimeout(() => {
-        resolve()
-      }, 1000)
-    })
-
-    promise.then(() => {
-      const preview = document.querySelector('#' + props.options.icon.htmlId)
-      props.options.icon.src = preview.contentDocument.querySelector('svg').outerHTML
-    })
-  }
+  promise.then(() => {
+    // Don't override if custom SVG was entered in the meantime
+    if (props.options.icon.srcCustom && props.options.icon.srcCustom.trim()) return
+    const preview = document.querySelector('#' + props.options.icon.htmlId)
+    if (preview && preview.contentDocument) {
+      const svg = preview.contentDocument.querySelector('svg')
+      if (svg) props.options.icon.src = svg.outerHTML
+    }
+  })
 }
 
 if (!props.options.icon.isNoneName()) {
@@ -86,45 +90,29 @@ const icons = [
             | {{$t('form.icon.activeLabel')}}
 
 .box.form-bg-diff.form-bg--icon(v-if="props.options.icon.active")
-  .field.is-horizontal
-    .field-label.is-small
-      label.label {{$t('form.icon.select')}}
-    .field-body
-      .field
-        .control
-          .dropdown.is-hoverable.mr-2
-            .dropdown-trigger
-              button.button.is-small(aria-haspopup='true' aria-controls='dropdown-menu2')
-                span.icon.is-small
-                  i.fa.fa-icons(aria-hidden='true')
-                span {{props.options.icon.name}}
-                span.icon.is-small
-                  i.fas.fa-angle-down(aria-hidden='true')
-            #dropdown-menu2.dropdown-menu(role='menu')
-              #dropdown-content2.dropdown-content
-                .columns.is-multiline
-                  .column.is-12
-                    .no-icon.icon-item.dropdown-item.is-vcentered(@click="selected('none')")
-                      span.title.is-size-7 {{$t('form.icon.noIcon')}}
-                  .column.is-4(v-for='icon in icons' :key='icon')
-                    .icon-item.dropdown-item.is-vcentered(@click='selected(icon)')
-                      img(width='18' height='18' :src="'/icons/' + icon + '.svg'" loading='lazy')
+  .icon-grid
+    .icon-grid-item(
+      v-for='icon in icons'
+      :key='icon'
+      :class="{ 'is-selected': props.options.icon.name === icon }"
+      @click='selected(icon)'
+      :title='icon'
+    )
+      img(:src="'/icons/' + icon + '.svg'" loading='lazy')
 
-          object(
-            v-if="!props.options.icon.isNoneName()"
-            :id="props.options.icon.htmlId"
-            type='image/svg+xml'
-            width='32'
-            height='32'
-            :data="'/icons/' + props.options.icon.name + '.svg'"
-          )
+  object.icon-svg-loader(
+    v-if="!props.options.icon.isNoneName()"
+    :id="props.options.icon.htmlId"
+    type='image/svg+xml'
+    :data="'/icons/' + props.options.icon.name + '.svg'"
+  )
 
   .field
     .control
       label.label.is-small {{$t('form.icon.custom')}}
       textarea.textarea.is-small(
         v-model='props.options.icon.srcCustom'
-        @keyup="change"
+        @keyup="onCustomSvgInput"
         rows='3'
         placeholder="svg"
       )
@@ -189,3 +177,59 @@ const icons = [
   p.is-size-7.has-text-warning(v-if="props.options.code.active") {{$t('form.errorCorrection')}}
 </template>
 
+<style scoped>
+.icon-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 0.75rem;
+}
+
+.icon-grid-item {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  border: 1px solid #dbdbdb;
+  background: #fff;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.icon-grid-item img {
+  width: 20px;
+  height: 20px;
+  opacity: 0.6;
+  transition: opacity 0.15s ease;
+}
+
+.icon-grid-item:hover {
+  border-color: #3273dc;
+  background: #f0f4ff;
+}
+
+.icon-grid-item:hover img {
+  opacity: 1;
+}
+
+.icon-grid-item.is-selected {
+  border-color: #3273dc;
+  background: #3273dc;
+}
+
+.icon-grid-item.is-selected img {
+  opacity: 1;
+  filter: brightness(0) invert(1);
+}
+
+.icon-svg-loader {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+</style>

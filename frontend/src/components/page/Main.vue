@@ -62,6 +62,10 @@
         span.icon
           i.fa.fa-braille
         span {{ $t('g.goToGeneratorBraille') }}
+      router-link.button.is-link.is-large.is-outlined(:to="{ name: 'GeneratorCoaster' }")
+        span.icon
+          i.fa.fa-bullseye
+        span Подставки
       router-link.button.is-info.is-large(:to="{ name: 'Constructor' }")
         span.icon
           i.fa.fa-cubes
@@ -131,10 +135,6 @@ export default {
       }
     });
 
-    const onTourChange = (idx) => {
-      tourStore.markStepSeen(MAIN_STEPS[idx]);
-    };
-
     const visibleEl = (el) => el && el.offsetWidth > 0 ? el : null;
     const tourButtonTarget = () => visibleEl(document.querySelector('.gen-tour-btn'));
     const findNavbarItem = (selector) => document.querySelector(selector)?.closest('.navbar-item') || document.querySelector(selector);
@@ -147,6 +147,24 @@ export default {
     };
     const shareTarget = () => visibleEl(document.querySelector('.footer .share-buttons') || document.querySelector('.footer .columns .column:nth-last-child(2)'));
     const languageTarget = () => visibleEl(document.querySelector('.footer .columns .column:last-child'));
+
+    const targetByStep = [
+      tourButtonTarget,
+      socialTarget,
+      themeTarget,
+      footerExamplesTarget,
+      shareTarget,
+      languageTarget,
+      generatorsTarget,
+    ];
+
+    const onTourChange = (idx) => {
+      tourStore.markStepSeen(MAIN_STEPS[idx]);
+      const el = targetByStep[idx]?.();
+      if (el?.scrollIntoView) {
+        el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'auto' });
+      }
+    };
 
     const onTourFinish = () => {
       tourStore.markAllSeen(MAIN_STEPS);

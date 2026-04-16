@@ -28,7 +28,8 @@
       "Bash(grep -E \"\\\\.vue$\")",
       "Bash(find /c/Users/nolikshpik/Desktop/projects/3d-market/frontend/src -name \"*.vue\" -exec grep -l \"tour-step\\\\|tour-guide\\\\|el-tour\" {} \\\\;)",
       "Bash(xargs cat *)",
-      "Bash(find *)"
+      "Bash(find *)",
+      "Bash(curl -s http://localhost:5174/generator/coaster)"
     ]
   }
 }
