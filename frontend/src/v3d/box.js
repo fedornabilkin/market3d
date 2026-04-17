@@ -311,7 +311,8 @@ export class Box {
     this.renderer = new WebGLRenderer({
       antialias: true,
       preserveDrawingBuffer: true,
-      alpha: true
+      alpha: true,
+      powerPreference: 'high-performance'
     })
     this.renderer.setPixelRatio(pixelRatio)
     this.renderer.setSize(width, height)
@@ -368,6 +369,10 @@ export class Box {
     this.grid = new GridHelper(1000, 100, 0x000000, 0x000000)
     this.grid.material.opacity = 0.2
     this.grid.material.transparent = true
+    // Grid is a backdrop — render it before everything and don't let it write
+    // depth, so any opaque geometry (like the name-tag backing) occludes it.
+    this.grid.material.depthWrite = false
+    this.grid.renderOrder = -1
     this.grid.rotation.x = Math.PI / 2
     return this.grid
   }

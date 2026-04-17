@@ -117,12 +117,8 @@ HistoryModal(
 </template>
 
 <script>
-import * as THREE from 'three';
-import {markRaw} from 'vue';
-import {V3DFacade} from "@/v3d/V3DFacade";
-import {useShareHash} from "@/service/shareHash";
-import {useUrlCreator} from "@/service/urlCreator.js";
-import {useExportList} from "@/store/exportList";
+import { useShareHash } from "@/service/shareHash";
+import { useUrlCreator } from "@/service/urlCreator.js";
 import QRCodeMenu from '@/components/generator/QRCodeMenu.vue';
 import ExportList from "@/components/generator/ExportList.vue";
 import ExportModal from '@/components/generator/ExportModal.vue';
@@ -131,12 +127,13 @@ import HistoryModal from "@/components/generator/HistoryModal.vue";
 import ShareModal from "@/components/generator/ShareModal.vue";
 import DonateCard from "@/components/monetisation/DonateCard.vue";
 import SbpMoney from "@/components/monetisation/SbpMoney.vue";
-import {Share} from "@/entity/share";
-import {TooltipBuilder} from "@/entity/builder";
-import {dataURItoBlob} from '@/utils';
 import YoomoneyWidget from "@/components/monetisation/YoomoneyWidget.vue";
+import { Share } from "@/entity/share";
+import { TooltipBuilder } from "@/entity/builder";
+import { dataURItoBlob } from '@/utils';
 import { useTourStore } from "@/store/tour";
 import { useTourPlacement } from "@/service/useTourPlacement";
+import { useGenerator } from "@/service/useGenerator";
 
 const QR_STEPS = [
   'common.tourButton',
@@ -151,14 +148,34 @@ const QR_STEPS = [
   'qr.donate',
 ];
 
-const shareHash = useShareHash()
-const exportList = useExportList()
+const shareHash = useShareHash();
+
+function buildFileName(options) {
+  const timestamp = new Date().getTime();
+  const o = options || {};
+  let param = '';
+  if (o.keychain?.active) param += 'key_';
+  if (o.code?.active) param += 'qr_';
+  if (o.base?.active) param += `${o.base.width}x${o.base.height}x${o.base.depth}-radius${o.base.cornerRadius}_`;
+  if (o.text?.active) param += `text${o.text.size}_`;
+  if (o.magnet?.active) param += `magnet${o.magnet.size}x${o.magnet.depth}_`;
+  return `${param}${timestamp}`;
+}
 
 export default {
   name: 'GeneratorQR',
   setup() {
     const { tp } = useTourPlacement();
-    return { tp };
+    const gen = useGenerator({ fileName: buildFileName });
+    const {
+      startAnimation: _genStartAnimation,
+      exportSTL: _genExportSTL,
+      exportOBJ: _genExportOBJ,
+      recoveryModel: _genRecoveryModel,
+      menuVisible: _genMenuVisible,
+      ...rest
+    } = gen;
+    return { tp, ...rest };
   },
   components: {
     DonateCard,
@@ -173,332 +190,230 @@ export default {
   },
   data() {
     return {
-      expSettings: {
-        active: false,
-        ascii: false,
-        multiple: false,
-      },
-      options: {},
-      v3dFacade: null,
       autoRotation: false,
-      historyDownloadModalVisible: false,
-      exportModalVisible: false,
       randomTooltip: {},
       shareModalVisible: false,
       shareData: null,
-      storeExport: null,
-      isGenerating: false,
       exportTimer: 5000,
-      camera: null,
-      renderer: null,
-      scene: null,
-      grid: null,
       isRecovery: false,
       tourStore: null,
       tourCurrent: 0,
     };
   },
   created() {
-    this.fillExportList()
-    // Используем markRaw для предотвращения реактивности Vue 3
-    this.v3dFacade = markRaw(new V3DFacade({ debug: false }))
-    this.storeExport = exportList
-    this.tourStore = useTourStore()
+    this.fillExportList();
+    this.tourStore = useTourStore();
   },
   watch: {
     'tourStore.qrOpen'(v) {
       if (v && this.tourStore) {
-        this.tourCurrent = this.tourStore.startStepFor(QR_STEPS)
-        this.tourStore.markStepSeen(QR_STEPS[this.tourCurrent])
+        this.tourCurrent = this.tourStore.startStepFor(QR_STEPS);
+        this.tourStore.markStepSeen(QR_STEPS[this.tourCurrent]);
       }
     },
   },
   mounted() {
-    this.initScene()
-    this.startAnimation()
-    this.getTooltip()
-    this.maybeStartGenTour()
+    this.initScene();
+    this.startAnimation();
+    this.getTooltip();
+    this.maybeStartGenTour();
   },
   computed: {
     tourButtonTarget() {
       return () => {
-        const el = document.querySelector('.gen-tour-btn')
-        return el && el.offsetWidth > 0 ? el : null
-      }
+        const el = document.querySelector('.gen-tour-btn');
+        return el && el.offsetWidth > 0 ? el : null;
+      };
     },
     scanTarget() {
       return () => {
-        const el = document.querySelectorAll('.gen-toolbar-left .gen-toolbar-btn')[0]
-        return el && el.offsetWidth > 0 ? el : null
-      }
+        const el = document.querySelectorAll('.gen-toolbar-left .gen-toolbar-btn')[0];
+        return el && el.offsetWidth > 0 ? el : null;
+      };
     },
     readTarget() {
       return () => {
-        const el = document.querySelectorAll('.gen-toolbar-left .gen-toolbar-btn')[1]
-        return el && el.offsetWidth > 0 ? el : null
-      }
+        const el = document.querySelectorAll('.gen-toolbar-left .gen-toolbar-btn')[1];
+        return el && el.offsetWidth > 0 ? el : null;
+      };
     },
     exportSettingsTarget() {
       return () => {
-        const el = document.querySelectorAll('.gen-settings-header-actions .gen-io-btn')[0]
-        return el && el.offsetWidth > 0 ? el : null
-      }
+        const el = document.querySelectorAll('.gen-settings-header-actions .gen-io-btn')[0];
+        return el && el.offsetWidth > 0 ? el : null;
+      };
     },
     importSettingsTarget() {
       return () => {
-        const el = document.querySelectorAll('.gen-settings-header-actions .gen-io-btn')[1]
-        return el && el.offsetWidth > 0 ? el : null
-      }
+        const el = document.querySelectorAll('.gen-settings-header-actions .gen-io-btn')[1];
+        return el && el.offsetWidth > 0 ? el : null;
+      };
     },
     panelsTarget() {
       return () => {
-        const row = document.querySelector('.gen-settings-body .form-bg--qr')
-        const el = row?.querySelector('label.checkbox')?.parentElement || row
-        return el && el.offsetWidth > 0 ? el : null
-      }
+        const row = document.querySelector('.gen-settings-body .form-bg--qr');
+        const el = row?.querySelector('label.checkbox')?.parentElement || row;
+        return el && el.offsetWidth > 0 ? el : null;
+      };
     },
     sceneTarget() {
       return () => {
-        const el = document.getElementById('container3d')
-        return el && el.offsetWidth > 0 ? el : null
-      }
+        const el = document.getElementById('container3d');
+        return el && el.offsetWidth > 0 ? el : null;
+      };
     },
     tooltipTarget() {
       return () => {
-        const el = document.querySelector('.gen-tooltip')
-        return el && el.offsetWidth > 0 ? el : null
-      }
+        const el = document.querySelector('.gen-tooltip');
+        return el && el.offsetWidth > 0 ? el : null;
+      };
     },
     exportPanelTarget() {
       return () => {
-        const el = document.querySelector('.gen-export-panel .gen-export-actions') || document.querySelector('.gen-export-panel')
-        return el && el.offsetWidth > 0 ? el : null
-      }
+        const el = document.querySelector('.gen-export-panel .gen-export-actions') || document.querySelector('.gen-export-panel');
+        return el && el.offsetWidth > 0 ? el : null;
+      };
     },
     donateTarget() {
       return () => {
-        const el = document.querySelector('.gen-donate-card')
-        return el && el.offsetWidth > 0 ? el : null
-      }
+        const el = document.querySelector('.gen-donate-card');
+        return el && el.offsetWidth > 0 ? el : null;
+      };
     },
   },
   methods: {
     async maybeStartGenTour() {
       const waitFor = (sel, tries = 40) => new Promise((resolve) => {
         const tick = () => {
-          if (document.querySelector(sel) || tries-- <= 0) return resolve()
-          setTimeout(tick, 150)
-        }
-        tick()
-      })
+          if (document.querySelector(sel) || tries-- <= 0) return resolve();
+          setTimeout(tick, 150);
+        };
+        tick();
+      });
       if (this.tourStore?.hasUnseen(QR_STEPS)) {
-        await waitFor('.gen-settings-body')
-        await waitFor('.gen-tooltip')
-        await waitFor('.gen-export-panel')
-        this.tourStore.openFor('GeneratorQR')
+        await waitFor('.gen-settings-body');
+        await waitFor('.gen-tooltip');
+        await waitFor('.gen-export-panel');
+        this.tourStore.openFor('GeneratorQR');
       }
     },
     onGenTourDone() {
       if (this.tourStore) {
-        this.tourStore.qrOpen = false
+        this.tourStore.qrOpen = false;
       }
     },
     onTourFinish() {
-      this.tourStore?.markAllSeen(QR_STEPS)
-      this.onGenTourDone()
+      this.tourStore?.markAllSeen(QR_STEPS);
+      this.onGenTourDone();
     },
     onTourChange(idx) {
-      this.tourStore?.markStepSeen(QR_STEPS[idx])
+      this.tourStore?.markStepSeen(QR_STEPS[idx]);
     },
     qrMenuVisible() {
-      return !this.isRecovery && this.v3dFacade.initialized
+      return !this.isRecovery && this.v3dFacade.initialized;
+    },
+    startAnimation() {
+      this.v3dFacade.startAnimation((time) => {
+        this.v3dFacade.getBox().animate(this.autoRotation, time);
+      });
     },
     getTooltip() {
-      let endpointApi = `/api/tooltip`
+      let endpointApi = `/api/tooltip`;
 
-      const host = window.location.host
+      const host = window.location.host;
       if (host.includes('localhost')) {
-        const noderedHost = import.meta.env.VITE_NODERED_HOST
-        endpointApi = `${noderedHost || 'localhost'}${endpointApi}`
+        const noderedHost = import.meta.env.VITE_NODERED_HOST;
+        endpointApi = `${noderedHost || 'localhost'}${endpointApi}`;
       }
 
       fetch(endpointApi)
         .then(res => res.json())
         .then((res) => {
-          const tltBuilder = new TooltipBuilder()
-          tltBuilder.build(res.data)
-          this.randomTooltip = tltBuilder.getEntity()
+          const tltBuilder = new TooltipBuilder();
+          tltBuilder.build(res.data);
+          this.randomTooltip = tltBuilder.getEntity();
         })
-        .catch((err) => {console.log(err)})
-
+        .catch((err) => { console.log(err); });
     },
-    initScene() {
-      const container = document.getElementById('container3d')
-      this.v3dFacade.initialize(container)
-
-      // Используем markRaw для предотвращения реактивности Vue 3
-      this.camera = markRaw(this.v3dFacade.getCamera())
-      this.renderer = markRaw(this.v3dFacade.getRenderer())
-      this.scene = markRaw(this.v3dFacade.getScene())
-      this.grid = markRaw(this.v3dFacade.getBox().grid)
-    },
-    generating() {
-      this.isGenerating = true
-    },
-    startAnimation() {
-      this.v3dFacade.startAnimation((time) => {
-        this.v3dFacade.getBox().animate(this.autoRotation, time)
-      })
+    _recordQrExport(image) {
+      const hash = shareHash.create(this.options);
+      this.storeExport.add(this.createShare(hash, image));
+      this.storeExport.downloadAllUpdate();
+      window.localStorage.setItem(this.storeExport.keyStoreAll, this.storeExport.getDownloadAll());
     },
     exportOBJ() {
-      this.exportModalVisible = true
-      this.autoRotation = false
+      this.exportModalVisible = true;
+      this.autoRotation = false;
 
       setTimeout(async () => {
-        await this.v3dFacade.exportOBJ(`${this.fileName()}.obj`)
-
-        const image = this.v3dFacade.getImageDataUrl()
-        exportList.add(this.createShare(shareHash.create(this.options), image))
-        exportList.downloadAllUpdate()
-        window.localStorage.setItem(exportList.keyStoreAll, exportList.getDownloadAll())
-        this.sendImage(image)
-      }, this.exportTimer)
+        await this.v3dFacade.exportOBJ(`${buildFileName(this.options)}.obj`);
+        const image = this.v3dFacade.getImageDataUrl();
+        this._recordQrExport(image);
+        this.sendImage(image);
+      }, this.exportTimer);
     },
     exportSTL() {
-      this.exportModalVisible = true
-      this.autoRotation = false
+      this.exportModalVisible = true;
+      this.autoRotation = false;
 
       setTimeout(async () => {
         await this.v3dFacade.exportSTL({
           binary: !this.expSettings.ascii,
           multiple: this.expSettings.multiple,
-          filename: `${this.fileName()}.stl`
-        })
-
-        const image = this.v3dFacade.getImageDataUrl()
-        exportList.add(this.createShare(shareHash.create(this.options), image))
-        exportList.downloadAllUpdate()
-        window.localStorage.setItem(exportList.keyStoreAll, exportList.getDownloadAll())
-
-        this.sendImage(image)
-      }, this.exportTimer)
-    },
-    fileName(key = '') {
-      const timestamp = new Date().getTime()
-      let prefix = `vsqr-3d-`
-      if (key !== '') {
-        prefix = key
-      }
-
-      let param = ''
-      if (key === '') {
-        prefix = ''
-        if (this.options.keychain.active) param += 'key_'
-        if (this.options.code.active) param += 'qr_'
-        if (this.options.base.active) param += `${this.options.base.width}x${this.options.base.height}x${this.options.base.depth}-radius${this.options.base.cornerRadius}_`
-        if (this.options.text.active) param += `text${this.options.text.size}_`
-        if (this.options.magnet.active) param += `magnet${this.options.magnet.size}x${this.options.magnet.depth}_`
-      }
-      return `${prefix}${param}${timestamp}`
-    },
-    exportPNG() {
-      const renderer = this.renderer
-      const container = document.getElementById('container3d')
-      const origWidth = container.clientWidth
-      const origHeight = container.clientHeight
-      const origPixelRatio = renderer.getPixelRatio()
-
-      const scale = 3
-      renderer.setPixelRatio(scale)
-      renderer.setSize(origWidth, origHeight)
-      renderer.render(this.scene, this.camera)
-
-      const dataUrl = renderer.domElement.toDataURL('image/png')
-
-      renderer.setPixelRatio(origPixelRatio)
-      renderer.setSize(origWidth, origHeight)
-
-      const a = document.createElement('a')
-      a.href = dataUrl
-      a.download = `${this.fileName()}.png`
-      a.click()
+          filename: `${buildFileName(this.options)}.stl`,
+        });
+        const image = this.v3dFacade.getImageDataUrl();
+        this._recordQrExport(image);
+        this.sendImage(image);
+      }, this.exportTimer);
     },
     sendImage(image) {
-      const host = window.location.host
-      const hash = window.location.hash
-      const url = `https://vsqr.ru/${hash}`
+      const host = window.location.host;
+      const hash = window.location.hash;
+      const url = `https://vsqr.ru/${hash}`;
 
-      const {endpoint: endpointApi} = useUrlCreator('/api/image', { url: url, host: host })
+      const { endpoint: endpointApi } = useUrlCreator('/api/image', { url: url, host: host });
 
       if (host.includes('localhost')) {
-        return
+        return;
       }
 
       fetch(endpointApi.value, {
         method: 'POST',
         headers: {
-          'Content-Type': 'image/png'
+          'Content-Type': 'image/png',
         },
-        body: dataURItoBlob(image)
+        body: dataURItoBlob(image),
       })
         .then(res => res.text())
         .then(() => {})
-        .catch((err) => {console.log(err)})
-        .finally(() => {})
+        .catch((err) => { console.log(err); })
+        .finally(() => {});
     },
     createShare(hash, src) {
-      return new Share({hash: hash, img: {src: src}, options: this.options, date: new Date().getTime()})
+      return new Share({ hash: hash, img: { src: src }, options: this.options, date: new Date().getTime() });
     },
     parseUrlShareHash() {
       if (shareHash.shareIsValid(window.location.hash)) {
         try {
-          this.shareData = shareHash.parse(window.location.hash)
+          this.shareData = shareHash.parse(window.location.hash);
         } catch (error) {
-          this.shareData = null
-          console.error('Invalid Sharing URL')
-          window.location.hash = ''
+          this.shareData = null;
+          console.error('Invalid Sharing URL');
+          window.location.hash = '';
         }
       }
     },
-    fillExportList() {
-      const list = JSON.parse(window.localStorage.getItem(exportList.keyStore)) || []
-      const collection = list.map((item) => {
-        return new Share(item)
-      })
-      exportList.fillCollection(collection)
-      exportList.setCallback((collection) => {
-        window.localStorage.setItem(exportList.keyStore, JSON.stringify(collection))
-      })
-
-      let downloadAll = window.localStorage.getItem(exportList.keyStoreAll)
-      // 60 days
-      if (collection.length > 0 && collection.length > downloadAll) {
-        downloadAll = collection.length
-      }
-      exportList.setDownloadAll(downloadAll)
-    },
     recoveryModel(item) {
-      this.isRecovery = true
-      this.shareData = JSON.parse(item.options)
-      setTimeout(() => {this.isRecovery = false}, 500)
-    },
-    exportReady(options) {
-      this.expSettings.active = true
-      try {
-        this.options = options
-      } catch (error) {
-        console.error(error)
-      } finally {
-        this.isGenerating = false
-      }
+      this.isRecovery = true;
+      this.shareData = JSON.parse(item.options);
+      setTimeout(() => { this.isRecovery = false; }, 500);
     },
   },
-
 }
 </script>
 
 <style>
-/* === Generator Page Layout === */
 .generator-page {
   max-width: 1400px;
   margin: 0 auto;
@@ -546,7 +461,6 @@ export default {
   background: rgba(128, 128, 128, 0.5);
 }
 
-/* === 3D Viewport === */
 .container-3d {
   position: relative;
   z-index: 100;
@@ -588,7 +502,6 @@ export default {
   100% { opacity: 0.3; }
 }
 
-/* === Tooltip === */
 .gen-tooltip {
   margin-top: 0.75rem;
   padding: 0.75rem 1rem;
@@ -599,61 +512,6 @@ export default {
   line-height: 1.5;
 }
 
-/* === Export Panel === */
-.gen-export-panel {
-  margin-top: 1rem;
-  padding: 1rem 1.25rem;
-  border-radius: 10px;
-  background: #f8f9fb;
-  border: 1px solid rgba(0, 0, 0, 0.06);
-}
-
-.gen-export-title {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  font-weight: 600;
-  font-size: 0.9rem;
-  margin-bottom: 0.75rem;
-  color: #363636;
-}
-
-.gen-export-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.gen-export-group {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.4rem;
-}
-
-.gen-export-btn {
-  border-radius: 6px !important;
-}
-
-.gen-export-option {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  padding: 0.25rem 0.6rem;
-  border-radius: 6px;
-  background: #fff;
-  border: 1px solid #dbdbdb;
-  font-size: 0.8rem;
-  cursor: pointer;
-  transition: background 0.15s, border-color 0.15s;
-}
-
-.gen-export-option:hover {
-  background: #f0f0f0;
-  border-color: #b5b5b5;
-}
-
-/* === Responsive === */
 @media screen and (max-width: 1023px) {
   .generator-layout {
     flex-direction: column;
@@ -675,7 +533,6 @@ export default {
   }
 }
 
-/* === Legacy compat === */
 #mode-buttons>button {
   margin-right: 20px;
 }

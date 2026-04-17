@@ -29,7 +29,14 @@
       "Bash(find /c/Users/nolikshpik/Desktop/projects/3d-market/frontend/src -name \"*.vue\" -exec grep -l \"tour-step\\\\|tour-guide\\\\|el-tour\" {} \\\\;)",
       "Bash(xargs cat *)",
       "Bash(find *)",
-      "Bash(curl -s http://localhost:5174/generator/coaster)"
+      "Bash(curl -s http://localhost:5174/generator/coaster)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:5174/)",
+      "Bash(curl -s \"http://localhost:5174/src/views/GeneratorQR.vue\")",
+      "Bash(curl -s http://localhost:5174/src/views/__TRACKED_VAR__.vue)",
+      "Bash(curl -s \"http://localhost:5174/src/v3d/generator/NameTagGenerator.js\")",
+      "Bash(curl -s http://localhost:5174/__TRACKED_VAR__)",
+      "Bash(grep *)",
+      "Bash(curl -s -o /dev/null -w '%{http_code}' http://localhost:5174/__TRACKED_VAR__)"
     ]
   }
 }

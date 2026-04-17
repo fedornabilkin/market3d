@@ -47,3 +47,59 @@ export default {
   emits: ['exportSTL', 'exportOBJ', 'exportPNG', 'update:multiple', 'update:ascii'],
 }
 </script>
+
+<style scoped>
+.gen-export-panel {
+  margin-top: 1rem;
+  padding: 1rem 1.25rem;
+  border-radius: 10px;
+  background: #f8f9fb;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.gen-export-title {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-weight: 600;
+  font-size: 0.9rem;
+  margin-bottom: 0.75rem;
+  color: #363636;
+}
+
+.gen-export-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.gen-export-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.gen-export-btn,
+:slotted(.gen-export-btn) {
+  border-radius: 6px !important;
+}
+
+.gen-export-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.25rem 0.6rem;
+  border-radius: 6px;
+  background: #fff;
+  border: 1px solid #dbdbdb;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.gen-export-option:hover {
+  background: #f0f0f0;
+  border-color: #b5b5b5;
+}
+</style>

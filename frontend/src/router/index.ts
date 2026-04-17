@@ -42,6 +42,12 @@ const routes: RouteRecordRaw[] = [
       meta: { requiresAuth: false },
     },
     {
+      path: '/generator/nametag',
+      name: 'GeneratorNameTag',
+      component: () => import('../views/GeneratorNameTag.vue'),
+      meta: { requiresAuth: false },
+    },
+    {
       path: '/constructor',
       name: 'Constructor',
       component: () => import('../views/Constructor.vue'),

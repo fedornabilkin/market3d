@@ -1,7 +1,7 @@
 <template lang="pug">
 .generator-page
   el-tour(
-    v-model="tourStore.grzOpen"
+    v-model="tourStore.nameTagOpen"
     v-model:current="tourCurrent"
     @finish="onTourFinish"
     @close="onTourDone"
@@ -15,21 +15,51 @@
       description="Нажмите эту кнопку в любой момент, чтобы пройти тур по текущей странице заново."
     )
     el-tour-step(
-      :target="settingsTarget"
-      title="Настройки ГРЗ"
-      description="Введите буквы, цифры и регион, настройте размеры — это влияет на итоговую 3D-модель номерного знака."
+      :target="textTarget"
+      title="Текст и шрифт"
+      description="Введите надпись, задайте размер, высоту букв, интервал и цвет."
+      :placement="tp('right')"
+    )
+    el-tour-step(
+      :target="fontTarget"
+      title="Шрифт"
+      description="Выберите встроенный шрифт или загрузите свой в формате Three.js typeface.json."
+      :placement="tp('right')"
+    )
+    el-tour-step(
+      :target="backingTarget"
+      title="Подложка"
+      description="Подложка повторяет контур надписи с настраиваемым отступом и толщиной."
+      :placement="tp('right')"
+    )
+    el-tour-step(
+      :target="bevelTarget"
+      title="Фаска букв"
+      description="Добавьте скос по краям букв — управляйте шириной и глубиной фаски."
+      :placement="tp('right')"
+    )
+    el-tour-step(
+      :target="hollowTarget"
+      title="Полые буквы"
+      description="Вырежьте внутреннюю часть букв, оставив стенки заданной толщины и дно."
+      :placement="tp('right')"
+    )
+    el-tour-step(
+      :target="randomTarget"
+      title="Случайная высота"
+      description="Придайте надписи живой вид — каждая буква получит свою высоту с заданным разбросом."
       :placement="tp('right')"
     )
     el-tour-step(
       :target="sceneTarget"
       title="3D-сцена"
-      description="Здесь отображается сгенерированная модель. Вращайте и масштабируйте её мышью или жестами."
+      description="Здесь отображается модель. Вращайте и масштабируйте её мышью или жестами."
       :next-button-props="{ children: 'Готово' }"
     )
   .generator-layout
     .generator-sidebar
       .container-settings(v-if="menuVisible()")
-        GRZMenu(:v3dFacade="v3dFacade" @generating="generating" @exportReady="exportReady")
+        NameTagMenu(:v3dFacade="v3dFacade" @generating="generating" @exportReady="exportReady")
 
     .generator-main
       DonateCard
@@ -50,13 +80,13 @@
         button.button.is-small.gen-export-btn(@click="historyDownloadModalVisible=true")
           span.icon
             i.fa.fa-calendar-day(aria-hidden="true")
-          span.is-hidden-mobile {{$t('e.downloadHistory')}}
+          span.is-hidden-mobile {{ $t('e.downloadHistory') }}
           span ({{ storeExport.getCollection().length }})
 
         button.button.is-small.gen-export-btn(v-if="storeExport.getDownloadAll() > 0")
           span.icon
             i.fa.fa-arrow-circle-down(aria-hidden="true")
-          span.is-hidden-mobile {{$t('e.downloadAll')}}
+          span.is-hidden-mobile {{ $t('e.downloadAll') }}
           span ({{ storeExport.getDownloadAll() }})
 
   ExportModal(v-if="exportModalVisible" :isActive="exportModalVisible" @close="exportModalVisible=false")
@@ -72,28 +102,34 @@
 </template>
 
 <script>
-import DonateCard from "@/components/monetisation/DonateCard.vue";
-import GRZMenu from '@/components/generator/GRZMenu.vue';
+import DonateCard from '@/components/monetisation/DonateCard.vue';
+import NameTagMenu from '@/components/generator/NameTagMenu.vue';
 import ExportModal from '@/components/generator/ExportModal.vue';
 import ExportPanel from '@/components/generator/ExportPanel.vue';
-import HistoryModal from "@/components/generator/HistoryModal.vue";
-import { useTourStore } from "@/store/tour";
-import { useTourPlacement } from "@/service/useTourPlacement";
-import { useGenerator } from "@/service/useGenerator";
+import HistoryModal from '@/components/generator/HistoryModal.vue';
+import { useTourStore } from '@/store/tour';
+import { useTourPlacement } from '@/service/useTourPlacement';
+import { useGenerator } from '@/service/useGenerator';
 
-const GRZ_STEPS = ['common.tourButton', 'grz.settings', 'grz.scene'];
+const NAMETAG_STEPS = [
+  'common.tourButton',
+  'nametag.text',
+  'nametag.font',
+  'nametag.backing',
+  'nametag.bevel',
+  'nametag.hollow',
+  'nametag.random',
+  'nametag.scene',
+];
 
 function buildFileName(options) {
   const timestamp = Date.now();
-  const o = options || {};
-  let param = 'plate_';
-  if (o.letter1) param += `${o.letter1}${o.digits}${o.letter2}${o.letter3}_${o.region}_`;
-  param += `${o.width || 65}mm_`;
-  return `${param}${timestamp}`;
+  const msg = (options?.nametag?.message || 'nametag').replace(/[^\w]+/g, '_').slice(0, 20) || 'nametag';
+  return `nametag_${msg}_${timestamp}`;
 }
 
 export default {
-  name: 'GeneratorGRZ',
+  name: 'GeneratorNameTag',
   setup() {
     const { tp } = useTourPlacement();
     const gen = useGenerator({ fileName: buildFileName });
@@ -101,7 +137,7 @@ export default {
   },
   components: {
     DonateCard,
-    GRZMenu,
+    NameTagMenu,
     ExportModal,
     ExportPanel,
     HistoryModal,
@@ -110,76 +146,88 @@ export default {
     return {
       tourStore: null,
       tourCurrent: 0,
-    }
+    };
   },
   watch: {
-    'tourStore.grzOpen'(v) {
+    'tourStore.nameTagOpen'(v) {
       if (v && this.tourStore) {
-        this.tourCurrent = this.tourStore.startStepFor(GRZ_STEPS)
-        this.tourStore.markStepSeen(GRZ_STEPS[this.tourCurrent])
+        this.tourCurrent = this.tourStore.startStepFor(NAMETAG_STEPS);
+        this.tourStore.markStepSeen(NAMETAG_STEPS[this.tourCurrent]);
       }
     },
   },
   created() {
-    this.fillExportList()
-    this.tourStore = useTourStore()
+    this.fillExportList();
+    this.tourStore = useTourStore();
+  },
+  mounted() {
+    this.initScene();
+    this.startAnimation();
+    this.maybeStartTour();
   },
   computed: {
     tourButtonTarget() {
       return () => {
-        const el = document.querySelector('.gen-tour-btn')
-        return el && el.offsetWidth > 0 ? el : null
-      }
+        const el = document.querySelector('.gen-tour-btn');
+        return el && el.offsetWidth > 0 ? el : null;
+      };
     },
-    settingsTarget() {
-      return () => {
-        const el = document.querySelector('.gen-settings-body')
-        return el && el.offsetWidth > 0 ? el : null
-      }
+    textTarget() {
+      return () => document.querySelector('.nametag-section--text');
+    },
+    fontTarget() {
+      return () => document.querySelector('.nametag-section--font');
+    },
+    backingTarget() {
+      return () => document.querySelector('.nametag-section--backing');
+    },
+    bevelTarget() {
+      return () => document.querySelector('.nametag-section--bevel');
+    },
+    hollowTarget() {
+      return () => document.querySelector('.nametag-section--hollow');
+    },
+    randomTarget() {
+      return () => document.querySelector('.nametag-section--random');
     },
     sceneTarget() {
       return () => {
-        const el = document.getElementById('container3d')
-        return el && el.offsetWidth > 0 ? el : null
-      }
+        const el = document.getElementById('container3d');
+        return el && el.offsetWidth > 0 ? el : null;
+      };
     },
-  },
-  mounted() {
-    this.initScene()
-    this.startAnimation()
-    this.maybeStartTour()
   },
   methods: {
     async maybeStartTour() {
-      if (!this.tourStore?.hasUnseen(GRZ_STEPS)) return
-      const waitFor = (sel, tries = 40) => new Promise((resolve) => {
-        const tick = () => {
-          if (document.querySelector(sel) || tries-- <= 0) return resolve()
-          setTimeout(tick, 150)
-        }
-        tick()
-      })
-      await waitFor('.gen-settings-body')
-      this.tourStore.openFor('GeneratorGRZ')
+      if (!this.tourStore?.hasUnseen(NAMETAG_STEPS)) return;
+      const waitFor = (sel, tries = 40) =>
+        new Promise((resolve) => {
+          const tick = () => {
+            if (document.querySelector(sel) || tries-- <= 0) return resolve();
+            setTimeout(tick, 150);
+          };
+          tick();
+        });
+      await waitFor('.nametag-section--text');
+      this.tourStore.openFor('GeneratorNameTag');
     },
     onTourDone() {
       if (this.tourStore) {
-        this.tourStore.grzOpen = false
+        this.tourStore.nameTagOpen = false;
       }
     },
     onTourFinish() {
-      this.tourStore?.markAllSeen(GRZ_STEPS)
-      this.onTourDone()
+      this.tourStore?.markAllSeen(NAMETAG_STEPS);
+      this.onTourDone();
     },
     onTourChange(idx) {
-      this.tourStore?.markStepSeen(GRZ_STEPS[idx])
+      this.tourStore?.markStepSeen(NAMETAG_STEPS[idx]);
     },
   },
-}
+};
 </script>
 
 <style>
-/* === Generator Page Layout === */
 .generator-page {
   max-width: 1400px;
   margin: 0 auto;
@@ -227,7 +275,6 @@ export default {
   background: rgba(128, 128, 128, 0.5);
 }
 
-/* === 3D Viewport === */
 .container-3d {
   position: relative;
   z-index: 100;
@@ -269,7 +316,6 @@ export default {
   100% { opacity: 0.3; }
 }
 
-/* === Responsive === */
 @media screen and (max-width: 1023px) {
   .generator-layout {
     flex-direction: column;

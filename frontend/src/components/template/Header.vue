@@ -8,7 +8,7 @@ const themeStore = useThemeStore();
 const router = useRouter();
 const tourStore = useTourStore();
 
-const TOUR_PAGES = ['Main', 'GeneratorQR', 'GeneratorGRZ', 'GeneratorBraille', 'GeneratorCoaster', 'Constructor'];
+const TOUR_PAGES = ['Main', 'GeneratorQR', 'GeneratorGRZ', 'GeneratorBraille', 'GeneratorCoaster', 'GeneratorNameTag', 'Constructor'];
 
 const startTour = async () => {
   const current = router.currentRoute.value.name;

@@ -66,6 +66,10 @@
         span.icon
           i.fa.fa-bullseye
         span Подставки
+      router-link.button.is-success.is-large.is-outlined(:to="{ name: 'GeneratorNameTag' }")
+        span.icon
+          i.fa.fa-signature
+        span Надписи-брелоки
       router-link.button.is-info.is-large(:to="{ name: 'Constructor' }")
         span.icon
           i.fa.fa-cubes

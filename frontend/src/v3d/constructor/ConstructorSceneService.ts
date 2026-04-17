@@ -312,7 +312,7 @@ export class ConstructorSceneService {
     this.camera.position.set(0, 160, 300);
 
     // Renderer
-    this.renderer = new THREE.WebGLRenderer({ antialias: true });
+    this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     this.renderer.setSize(width, height);
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     containerEl.appendChild(this.renderer.domElement);

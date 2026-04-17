@@ -199,6 +199,61 @@ export class CoasterRings extends Entity {
   }
 }
 
+export class NameTag extends Entity {
+  message = 'NAME'
+  fontName = 'Inter_ExtraBold'
+  /** base64 / JSON string of a user-uploaded typeface.json */
+  customFontData = null
+  /** Display label for the custom font when loaded. */
+  customFontName = null
+  size = 18
+  depth = 2
+  letterSpacing = 1.2
+
+  backing = {
+    active: true,
+    padding: 4,
+    depth: 2,
+    color: '#ffffff',
+    curveSegments: 6,
+  }
+
+  bevel = {
+    active: true,
+    size: 0.3,
+    thickness: 0.3,
+    segments: 3,
+  }
+
+  hollow = {
+    active: false,
+    wallThickness: 0.8,
+    floorThickness: 0.6,
+  }
+
+  randomHeight = {
+    active: false,
+    variance: 0.35,
+    seed: 42,
+  }
+
+  keychain = {
+    active: true,
+    placement: 'left',
+    holeDiameter: 6,
+    borderWidth: 3,
+    height: 3,
+    color: null,
+    offsetX: 0,
+    offsetY: 0,
+  }
+
+  constructor(config = {}) {
+    super(config)
+    Object.assign(this, config)
+  }
+}
+
 export class Magnet extends Entity {
   shape =  'round'
   size =  10
