@@ -159,6 +159,7 @@ export class Primitive extends ModelNode {
           turns: p.turns ?? 5,
           profile: (p.threadProfile as 'trapezoid') ?? 'trapezoid',
           segmentsPerTurn: seg,
+          leftHand: p.leftHand === true,
         });
       default:
         return new THREE.BoxGeometry(1, 1, 1);

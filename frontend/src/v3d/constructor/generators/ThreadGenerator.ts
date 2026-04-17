@@ -16,6 +16,8 @@ export interface ThreadSettings {
   profile: 'trapezoid';
   /** Segments per turn (helix resolution). */
   segmentsPerTurn: number;
+  /** Left-hand thread when true; right-hand (default) when false/omitted. */
+  leftHand?: boolean;
 }
 
 export const DEFAULT_THREAD_SETTINGS: ThreadSettings = {
@@ -25,20 +27,23 @@ export const DEFAULT_THREAD_SETTINGS: ThreadSettings = {
   turns: 5,
   profile: 'trapezoid',
   segmentsPerTurn: 64,
+  leftHand: false,
 };
 
 /**
- * Generates a closed (watertight) thread tube using a cylindrical grid.
- *
- * The mesh is a hollow tube whose outer surface follows the thread profile
- * and whose inner surface is a plain cylinder at (innerR − ε).  The small
- * overlap ensures clean CSG union with a matching cylinder (no coplanar faces).
+ * Generates a closed (watertight) solid cylinder with a helical thread ridge.
  *
  * Structure:
- *   1. Outer surface — radius varies with thread profile (innerR … outerR)
- *   2. Inner surface — constant radius (innerR − ε), reversed winding
- *   3. Bottom annular cap connecting outer → inner at y = 0
- *   4. Top annular cap connecting outer → inner at y = totalHeight
+ *   1. Outer surface — grid where r = profileRadius(θ, y) ∈ [innerR … outerR].
+ *      Root sections (r=innerR) form the bare cylinder; peak sections (r=outerR)
+ *      form the thread ridge.
+ *   2. Bottom / top "tooth-flange" annuli at y=0 and y=H — flat rings between
+ *      the outer surface (varying r) and the cap-edge ring (constant r=innerR).
+ *   3. Bottom / top caps — plain disks of radius innerR (clean cylindrical ends,
+ *      no thread-shaped jags).
+ *
+ * Because both caps are circular disks at r=innerR, CSG unions with any external
+ * cylinder are clean and do not produce voids regardless of cylinder height.
  *
  * The helix runs along the Y axis.
  */
@@ -49,17 +54,14 @@ export function generateThreadGeometry(settings: ThreadSettings): THREE.BufferGe
     pitch,
     turns,
     segmentsPerTurn,
+    leftHand,
   } = settings;
+  const handSign = leftHand ? 1 : -1;
 
   const outerR = outerDiameter / 2;
   const innerR = innerDiameter / 2;
   const depth = outerR - innerR;
   const totalHeight = pitch * turns;
-
-  // Small inward overlap so the inner wall penetrates a matching cylinder,
-  // avoiding coplanar-face issues during CSG union.
-  const CSG_OVERLAP = 0.01;
-  const innerWallR = innerR - CSG_OVERLAP;
 
   // ── Trapezoidal profile parameters ─────────────────────────────────
   const flatTop = depth * 0.25;
@@ -91,7 +93,7 @@ export function generateThreadGeometry(settings: ThreadSettings): THREE.BufferGe
   // ── 1. Outer surface: (aSegs+1) × hSteps grid ─────────────────────
   for (let ai = 0; ai <= aSegs; ai++) {
     const theta = (ai / aSegs) * Math.PI * 2;
-    const helixShift = (theta / (Math.PI * 2)) * pitch;
+    const helixShift = (theta / (Math.PI * 2)) * pitch * handSign;
     const ct = Math.cos(theta);
     const st = Math.sin(theta);
     for (let hi = 0; hi < hSteps; hi++) {
@@ -113,50 +115,58 @@ export function generateThreadGeometry(settings: ThreadSettings): THREE.BufferGe
     }
   }
 
-  // ── 2. Inner surface: same angular/height grid at innerWallR ───────
-  const innerOff = (aSegs + 1) * hSteps;
+  // ── Cap-edge rings at r = innerR (one vertex per angular segment) ─
+  const bottomRingOff = positions.length / 3;
   for (let ai = 0; ai <= aSegs; ai++) {
     const theta = (ai / aSegs) * Math.PI * 2;
-    const ct = Math.cos(theta);
-    const st = Math.sin(theta);
-    for (let hi = 0; hi < hSteps; hi++) {
-      const y = (hi / hSegs) * totalHeight;
-      positions.push(innerWallR * ct, y, innerWallR * st);
-    }
+    positions.push(innerR * Math.cos(theta), 0, innerR * Math.sin(theta));
+  }
+  const topRingOff = positions.length / 3;
+  for (let ai = 0; ai <= aSegs; ai++) {
+    const theta = (ai / aSegs) * Math.PI * 2;
+    positions.push(innerR * Math.cos(theta), totalHeight, innerR * Math.sin(theta));
   }
 
-  // Inner surface indices (reversed winding → normals point inward)
+  // ── Axis center vertices for cap triangle fans ────────────────────
+  const bottomCenterIdx = positions.length / 3;
+  positions.push(0, 0, 0);
+  const topCenterIdx = positions.length / 3;
+  positions.push(0, totalHeight, 0);
+
+  // ── 2. Bottom tooth-flange annulus (y = 0, −Y normal) ─────────────
+  // Thin flat ring between outer (varying r) and cap-edge ring (r=innerR).
+  // Collapses to zero area where outer r == innerR (root sections).
   for (let ai = 0; ai < aSegs; ai++) {
-    for (let hi = 0; hi < hSteps - 1; hi++) {
-      const a = innerOff + ai * hSteps + hi;
-      const b = a + 1;
-      const c = innerOff + (ai + 1) * hSteps + hi;
-      const d = c + 1;
-      indices.push(a, c, b);
-      indices.push(b, c, d);
-    }
+    const oA = ai * hSteps;
+    const oB = (ai + 1) * hSteps;
+    const cA = bottomRingOff + ai;
+    const cB = bottomRingOff + (ai + 1);
+    indices.push(oA, oB, cA);
+    indices.push(oB, cB, cA);
   }
 
-  // ── 3. Bottom annular cap (y = 0) ──────────────────────────────────
-  for (let ai = 0; ai < aSegs; ai++) {
-    const oA = ai * hSteps;            // outer, this angle
-    const oB = (ai + 1) * hSteps;      // outer, next angle
-    const iA = innerOff + ai * hSteps;  // inner, this angle
-    const iB = innerOff + (ai + 1) * hSteps;
-    // Downward (−Y) normal
-    indices.push(oA, iA, oB);
-    indices.push(oB, iA, iB);
-  }
-
-  // ── 4. Top annular cap (y = totalHeight) ───────────────────────────
+  // ── 3. Top tooth-flange annulus (y = totalHeight, +Y normal) ──────
   for (let ai = 0; ai < aSegs; ai++) {
     const oA = ai * hSteps + (hSteps - 1);
     const oB = (ai + 1) * hSteps + (hSteps - 1);
-    const iA = innerOff + ai * hSteps + (hSteps - 1);
-    const iB = innerOff + (ai + 1) * hSteps + (hSteps - 1);
-    // Upward (+Y) normal
-    indices.push(oA, oB, iA);
-    indices.push(oB, iB, iA);
+    const cA = topRingOff + ai;
+    const cB = topRingOff + (ai + 1);
+    indices.push(oA, cA, oB);
+    indices.push(oB, cA, cB);
+  }
+
+  // ── 4. Bottom cap disk (y = 0, −Y normal) ─────────────────────────
+  for (let ai = 0; ai < aSegs; ai++) {
+    const cA = bottomRingOff + ai;
+    const cB = bottomRingOff + (ai + 1);
+    indices.push(bottomCenterIdx, cA, cB);
+  }
+
+  // ── 5. Top cap disk (y = totalHeight, +Y normal) ──────────────────
+  for (let ai = 0; ai < aSegs; ai++) {
+    const cA = topRingOff + ai;
+    const cB = topRingOff + (ai + 1);
+    indices.push(topCenterIdx, cB, cA);
   }
 
   // ── Assemble ───────────────────────────────────────────────────────

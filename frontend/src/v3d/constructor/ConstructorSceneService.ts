@@ -307,9 +307,11 @@ export class ConstructorSceneService {
     // Grid
     this.gridMode.init(this.scene);
 
-    // Camera
+    // Camera — target the grid center so orbit feels natural even though world
+    // origin now sits at the grid's left-front corner.
+    const gridCenter = this.gridMode.getCenter();
     this.camera = new THREE.PerspectiveCamera(50, width / height, 0.1, 5000);
-    this.camera.position.set(0, 160, 300);
+    this.camera.position.set(gridCenter.x, 160, gridCenter.z + 300);
 
     // Renderer
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
@@ -327,11 +329,13 @@ export class ConstructorSceneService {
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enableDamping = true;
     this.controls.mouseButtons.LEFT = null as unknown as MOUSE;
-    this.controls.mouseButtons.MIDDLE = null as unknown as MOUSE; // middle button used for camera cruise
+    this.controls.mouseButtons.MIDDLE = MOUSE.DOLLY;
     this.controls.mouseButtons.RIGHT = MOUSE.ROTATE;
     this.controls.zoomSpeed = this.zoomSpeed;
     this.controls.minDistance = 10;
     this.controls.maxDistance = 2000;
+    this.controls.target.copy(gridCenter);
+    this.controls.update();
     // Disable arrow key camera movement — arrows are used to move objects
     this.controls.enableKeys = false;
 
@@ -1095,12 +1099,16 @@ export class ConstructorSceneService {
    * direction: 'left' | 'right' | 'forward' | 'backward' for horizontal XZ plane,
    *            'up' | 'down' for vertical Y axis.
    */
-  moveSelectedByKey(direction: 'left' | 'right' | 'forward' | 'backward' | 'up' | 'down'): void {
+  moveSelectedByKey(
+    direction: 'left' | 'right' | 'forward' | 'backward' | 'up' | 'down',
+    multiplier: number = 1
+  ): void {
     const node = this.selectedNode;
     if (!node) return;
     node.params = node.params || {};
     node.params.position = node.params.position || { x: 0, y: 0, z: 0 };
-    const step = this.snapStep > 0 ? this.snapStep : 1;
+    const baseStep = this.snapStep > 0 ? this.snapStep : 1;
+    const step = baseStep * (multiplier > 0 ? multiplier : 1);
     const p = node.params.position;
 
     if (direction === 'up' || direction === 'down') {

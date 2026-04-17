@@ -200,7 +200,7 @@ export class CoasterRings extends Entity {
 }
 
 export class NameTag extends Entity {
-  message = 'NAME'
+  message = 'vsqr'
   fontName = 'Inter_ExtraBold'
   /** base64 / JSON string of a user-uploaded typeface.json */
   customFontData = null

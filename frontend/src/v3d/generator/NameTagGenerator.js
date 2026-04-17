@@ -1,11 +1,14 @@
 import * as THREE from 'three';
 import { Font } from 'three/examples/jsm/loaders/FontLoader';
 import { TextGeometry } from 'three/examples/jsm/geometries/TextGeometry';
+import * as BufferGeometryUtils from 'three/examples/jsm/utils/BufferGeometryUtils';
+import polygonClipping from 'polygon-clipping';
+import { Brush, Evaluator, SUBTRACTION } from 'three-bvh-csg';
 import fontInterExtraBold from '@/assets/fonts/Inter_ExtraBold.json';
 import fontInterExtraBoldItalic from '@/assets/fonts/Inter_ExtraBold_Italic.json';
 import fontInterSemiBold from '@/assets/fonts/Inter_SemiBold.json';
 import fontInterSemiBoldItalic from '@/assets/fonts/Inter_SemiBold_Italic.json';
-import BaseGenerator from '@/v3d/generator/base';
+import BaseGenerator, { parseHexColor } from '@/v3d/generator/base';
 
 const BUNDLED_FONTS = {
   Inter_ExtraBold: fontInterExtraBold,
@@ -23,13 +26,6 @@ export function getBundledFontList() {
   ];
 }
 
-function parseHexColor(hexStr, defaultNum) {
-  if (hexStr == null || typeof hexStr !== 'string') return defaultNum;
-  const hex = hexStr.replace(/^#/, '');
-  if (!/^[0-9a-fA-F]{6}$/.test(hex)) return defaultNum;
-  return parseInt(hex, 16);
-}
-
 // Deterministic pseudo-random from seed + index. Keeps letter heights stable
 // across regenerations unless seed changes.
 function seededRandom(seed, index) {
@@ -41,7 +37,7 @@ export default class NameTagGenerator extends BaseGenerator {
   constructor(options = {}) {
     super();
     this.options = {
-      message: 'NAME',
+      message: 'vsqr',
       fontName: 'Inter_ExtraBold',
       customFontData: null,
       size: 18,
@@ -132,14 +128,12 @@ export default class NameTagGenerator extends BaseGenerator {
     const padding = Math.max(0, b.padding || 0);
     const depth = Math.max(0.1, b.depth || 1);
     const curveSegments = b.curveSegments || 6;
-    // Arc resolution scales with padding so larger plates still look round.
     const arcSegments = Math.max(4, Math.round(padding * 1.5) + 4);
 
-    // Build shapes per-glyph and offset their x by layout.infos[i].x so the
-    // backing uses the same letterSpacing-aware positions as _createLetters.
-    // Using font.generateShapes(message) would ignore letterSpacing and make
-    // the plate drift left/right of the text.
-    const backingShapes = [];
+    // Collect each offset glyph contour as a polygon-clipping Polygon
+    // (array of rings, outer ring first). Holes in glyphs (e.g. 'O' counter)
+    // are dropped intentionally — backing should be a filled plate.
+    const offsetPolys = [];
     for (const info of layout.infos) {
       if (!info.printable) continue;
       const glyphShapes = this.font.generateShapes(info.char, this.options.size);
@@ -154,41 +148,42 @@ export default class NameTagGenerator extends BaseGenerator {
           ? this._offsetPolygonRounded(closed, padding, arcSegments)
           : closed.slice();
         if (offset.length < 3) continue;
-        backingShapes.push(new THREE.Shape(offset));
+        offsetPolys.push([offset.map((p) => [p.x, p.y])]);
       }
     }
-    if (!backingShapes.length) return null;
+    if (!offsetPolys.length) return null;
+
+    // 2D polygon union → single multi-polygon with holes where appropriate.
+    // Gives a manifold 2D outline — no CSG, no seams, no z-fighting.
+    let merged;
+    try {
+      merged = polygonClipping.union(offsetPolys[0], ...offsetPolys.slice(1));
+    } catch (e) {
+      console.warn('NameTagGenerator: polygon-clipping union failed, falling back to raw shapes', e);
+      merged = offsetPolys.map((poly) => [poly[0]]);
+    }
+
+    const shapes = [];
+    for (const poly of merged) {
+      if (!poly.length || poly[0].length < 3) continue;
+      const outer = poly[0].map(([x, y]) => new THREE.Vector2(x, y));
+      const shape = new THREE.Shape(outer);
+      for (let i = 1; i < poly.length; i++) {
+        const hole = poly[i].map(([x, y]) => new THREE.Vector2(x, y));
+        if (hole.length >= 3) shape.holes.push(new THREE.Path(hole));
+      }
+      shapes.push(shape);
+    }
+    if (!shapes.length) return null;
 
     const material = new THREE.MeshPhongMaterial({ color: parseHexColor(b.color, 0xffffff) });
+    const geo = new THREE.ExtrudeGeometry(shapes, {
+      depth,
+      bevelEnabled: false,
+      curveSegments,
+    });
+    const mesh = new THREE.Mesh(geo, material);
 
-    // Merge overlapping per-letter plates into one continuous solid via CSG
-    // union. Without this, letters that overlap after offsetting leave visible
-    // seams and z-fighting on the top face. Falls back to multi-shape extrusion
-    // if any union step fails (degenerate glyphs, etc).
-    let mesh = null;
-    try {
-      for (const shape of backingShapes) {
-        const geo = new THREE.ExtrudeGeometry([shape], {
-          depth,
-          bevelEnabled: false,
-          curveSegments,
-        });
-        const part = new THREE.Mesh(geo, material);
-        part.updateMatrix();
-        mesh = mesh ? this.unionMesh(mesh, part) : part;
-      }
-    } catch (e) {
-      console.warn('NameTagGenerator: backing union failed, using overlapped extrusion', e);
-      const geo = new THREE.ExtrudeGeometry(backingShapes, {
-        depth,
-        bevelEnabled: false,
-        curveSegments,
-      });
-      mesh = new THREE.Mesh(geo, material);
-    }
-
-    // Center horizontally (generateShapes lays text starting at x=0). Bottom
-    // sits on the grid (z=0); letters go on top via _letterBaseZ().
     mesh.position.set(-layout.totalWidth / 2, -this.options.size / 2, 0);
     mesh.updateMatrix();
     return mesh;
@@ -351,7 +346,7 @@ export default class NameTagGenerator extends BaseGenerator {
 
   _hollowOutLetter(outerMesh, material, letterDepth, wall, floor) {
     // Carve a scaled-down copy of the glyph out of the top face, leaving walls and
-    // an optional floor at the bottom. Bounding box gives us a local scale factor.
+    // an optional floor at the bottom. Uses three-bvh-csg for numerical robustness.
     const box = new THREE.Box3().setFromObject(outerMesh);
     const size = new THREE.Vector3();
     box.getSize(size);
@@ -364,24 +359,27 @@ export default class NameTagGenerator extends BaseGenerator {
     const sx = (size.x - wall * 2) / size.x;
     const sy = (size.y - wall * 2) / size.y;
 
-    // Build a simple box that covers the glyph footprint at reduced XY; then intersect
-    // with a scaled copy of the outline. Simpler approach: clone outer geometry,
-    // scale X/Y around glyph center, and subtract it from the outer mesh.
     const innerGeo = outerMesh.geometry.clone();
     innerGeo.translate(-center.x, -center.y, 0);
     innerGeo.scale(sx, sy, 1);
     innerGeo.translate(center.x, center.y, 0);
-    // Lift inner by floor thickness so we keep a floor; extend upward past the top
-    // so CSG cleanly removes the top portion.
     innerGeo.translate(0, 0, floor);
 
-    const innerMesh = new THREE.Mesh(innerGeo, material);
-    innerMesh.updateMatrix();
-
     try {
-      return this.subtractMesh(outerMesh, innerMesh);
+      const outerBrush = new Brush(this.prepForBvhCsg(outerMesh.geometry));
+      outerBrush.updateMatrixWorld();
+      const innerBrush = new Brush(this.prepForBvhCsg(innerGeo));
+      innerBrush.updateMatrixWorld();
+
+      const evaluator = new Evaluator();
+      const result = evaluator.evaluate(outerBrush, innerBrush, SUBTRACTION);
+      // Weld coincident vertices produced by BVH CSG to guarantee a manifold mesh.
+      result.geometry = BufferGeometryUtils.mergeVertices(result.geometry, 1e-4);
+      result.geometry.computeVertexNormals();
+      result.material = material;
+      return result;
     } catch (e) {
-      console.warn('NameTagGenerator: hollow CSG failed', e);
+      console.warn('NameTagGenerator: hollow BVH CSG failed', e);
       return outerMesh;
     }
   }
@@ -398,101 +396,13 @@ export default class NameTagGenerator extends BaseGenerator {
     const plateDepth = b.active ? Math.max(0.1, b.depth || 1) : Math.max(0.5, this.options.depth / 2);
     const padding = b.active ? Math.max(0, b.padding || 0) : 0;
 
-    // Bounds that the text+backing occupy (after positioning in _createBacking).
-    const halfW = layout.totalWidth / 2 + padding;
-    const halfH = this.options.size / 2 + padding;
-
-    const holeDiam = Math.max(1, kc.holeDiameter || 6);
-    const bw = Math.max(0.5, kc.borderWidth || 3);
-    const height = Math.max(0, kc.height || 0);
-    const tabW = holeDiam + bw;
-    const tabH = holeDiam + bw;
-
-    const keychainColor = parseHexColor(
-      kc.color,
-      parseHexColor(b.color, 0xffffff),
-    );
-
-    const shape = this.getRoundedRectShape(-tabW / 2, -tabH / 2, tabW, tabH + height, tabH / 2);
-    const geo = new THREE.ExtrudeGeometry(shape, {
-      steps: 1, depth: plateDepth, bevelEnabled: false,
+    return this.buildKeychainTab({
+      kc,
+      depth: plateDepth,
+      plateHalfW: layout.totalWidth / 2 + padding,
+      plateHalfH: this.options.size / 2 + padding,
+      tabShape: 'pill',
+      plateColor: b.color,
     });
-    const material = new THREE.MeshPhongMaterial({ color: keychainColor });
-    let mesh = new THREE.Mesh(geo, material);
-    mesh.updateMatrix();
-
-    // Hole
-    const holeGeo = new THREE.CylinderGeometry(holeDiam / 2, holeDiam / 2, plateDepth * 2, 32);
-    const holeMesh = new THREE.Mesh(holeGeo, material);
-    holeMesh.rotation.x = -Math.PI / 2;
-    holeMesh.position.set(0, 0, plateDepth / 2);
-    holeMesh.updateMatrix();
-    try {
-      mesh = this.subtractMesh(mesh, holeMesh);
-    } catch (e) {
-      console.warn('NameTagGenerator: keychain hole CSG failed', e);
-    }
-
-    const placement = kc.placement || 'left';
-    let x, y, zR;
-    if (placement === 'top') {
-      x = 0;
-      y = halfH + tabW / 2 + height / 2 - bw / 2;
-      zR = -Math.PI;
-    } else if (placement === 'topLeft') {
-      x = -halfW - tabW / 2 + bw * 1.5;
-      y = halfH + tabW / 2 - bw * 1.5;
-      zR = -Math.PI / 4 + -Math.PI / 2;
-    } else if (placement === 'topRight') {
-      x = halfW + tabW / 2 - bw * 1.5;
-      y = halfH + tabW / 2 - bw * 1.5;
-      zR = Math.PI / 4 + Math.PI / 2;
-    } else {
-      // left
-      x = -halfW - tabW / 2 - height / 2 + bw / 2;
-      y = 0;
-      zR = -Math.PI / 2;
-    }
-
-    mesh.position.set(x + (kc.offsetX || 0), y + (kc.offsetY || 0), 0);
-    mesh.rotation.z = zR;
-    mesh.updateMatrix();
-
-    if (!kc.mirror) return mesh;
-
-    // Mirror: duplicate on the opposite side of the plate.
-    const mirrorGeo = new THREE.ExtrudeGeometry(shape, {
-      steps: 1, depth: plateDepth, bevelEnabled: false,
-    });
-    let mirror = new THREE.Mesh(mirrorGeo, material);
-    mirror.updateMatrix();
-    try {
-      mirror = this.subtractMesh(mirror, holeMesh);
-    } catch (e) {
-      console.warn('NameTagGenerator: mirror keychain hole CSG failed', e);
-    }
-
-    let mx, my, mzR;
-    if (placement === 'top') {
-      mx = x + (kc.offsetX || 0);
-      my = -(y + (kc.offsetY || 0));
-      mzR = zR + Math.PI;
-    } else if (placement === 'left') {
-      mx = -(x + (kc.offsetX || 0));
-      my = y + (kc.offsetY || 0);
-      mzR = zR + Math.PI;
-    } else {
-      mx = -(x + (kc.offsetX || 0));
-      my = -(y + (kc.offsetY || 0));
-      mzR = zR + Math.PI;
-    }
-    mirror.position.set(mx, my, 0);
-    mirror.rotation.z = mzR;
-    mirror.updateMatrix();
-
-    const group = new THREE.Group();
-    group.add(mesh);
-    group.add(mirror);
-    return group;
   }
 }

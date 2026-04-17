@@ -133,6 +133,11 @@ export class GridService {
     this.addBrandLabel(group, 'VSQR.RU',
       new THREE.Vector3(-halfWidth + axisLen + 6, 0.01, halfLength));
 
+    // Shift the grid so its left-front corner coincides with world origin:
+    // X ∈ [0, gridWidthMm], Z ∈ [-gridLengthMm, 0]. Internally the grid is still
+    // built symmetric around its own local (0,0,0); the offset is applied on the group.
+    group.position.set(halfWidth, 0, -halfLength);
+
     group.visible = this.gridVisible;
     this.mmGridGroup = group;
     this.scene.add(group);

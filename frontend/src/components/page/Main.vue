@@ -15,9 +15,14 @@
       description="Нажмите эту кнопку в любой момент, чтобы пройти тур по текущей странице заново."
     )
     el-tour-step(
+      :target="discussTarget"
+      title="Пожелания"
+      description="Telegram-чат, где можно задать вопрос, поделиться идеей или предложить улучшение."
+    )
+    el-tour-step(
       :target="socialTarget"
-      title="Социальные сети"
-      description="Здесь вы можете перейти в наш Telegram-канал и чат обсуждений."
+      title="Новости проекта"
+      description="Telegram-канал проекта — следите за обновлениями и анонсами."
     )
     el-tour-step(
       :target="themeTarget"
@@ -106,6 +111,7 @@ import { storeToRefs } from 'pinia';
 
 const MAIN_STEPS = [
   'common.tourButton',
+  'main.discuss',
   'main.social',
   'main.theme',
   'main.footerExamples',
@@ -142,6 +148,7 @@ export default {
     const visibleEl = (el) => el && el.offsetWidth > 0 ? el : null;
     const tourButtonTarget = () => visibleEl(document.querySelector('.gen-tour-btn'));
     const findNavbarItem = (selector) => document.querySelector(selector)?.closest('.navbar-item') || document.querySelector(selector);
+    const discussTarget = () => visibleEl(findNavbarItem('.gen-discuss-btn'));
     const socialTarget = () => visibleEl(findNavbarItem('.gen-tg-header-btn'));
     const themeTarget = () => visibleEl(findNavbarItem('.navbar-end .el-dropdown'));
     const generatorsTarget = () => heroButtonsRef.value;
@@ -154,6 +161,7 @@ export default {
 
     const targetByStep = [
       tourButtonTarget,
+      discussTarget,
       socialTarget,
       themeTarget,
       footerExamplesTarget,
@@ -260,6 +268,7 @@ export default {
       tourCurrent,
       onTourChange,
       tourButtonTarget,
+      discussTarget,
       socialTarget,
       themeTarget,
       generatorsTarget,

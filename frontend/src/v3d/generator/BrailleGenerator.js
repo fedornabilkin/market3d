@@ -2,16 +2,9 @@ import * as THREE from 'three';
 import {Font} from 'three/examples/jsm/loaders/FontLoader';
 import {TextGeometry} from 'three/examples/jsm/geometries/TextGeometry';
 import fontInterExtraBold from '@/assets/fonts/Inter_ExtraBold.json';
-import BaseGenerator from '@/v3d/generator/base';
+import BaseGenerator, {parseHexColor} from '@/v3d/generator/base';
 import {RectangleRoundedShape} from '@/v3d/primitives/shape';
 import {AlphabetEn, AlphabetRu} from '@/service/braille/alphabet';
-
-function parseHexColor(hexStr, defaultNum) {
-  if (hexStr == null || typeof hexStr !== 'string') return defaultNum
-  const hex = hexStr.replace(/^#/, '')
-  if (!/^[0-9a-fA-F]{6}$/.test(hex)) return defaultNum
-  return parseInt(hex, 16)
-}
 
 /**
  * Генератор 3D-модели текста шрифтом Брайля.
@@ -211,56 +204,14 @@ export default class BrailleGenerator extends BaseGenerator {
   // ─── Брелок ─────────────────────────────────────────────
 
   createKeychain() {
-    // Повторяем логику из GRZGenerator
-    const kc = this.options.keychain
-    const holeDiam = kc.holeDiameter
-    const bw = kc.borderWidth
-    const tabW = holeDiam + bw
-    const tabH = holeDiam + bw
-
-    const keychainColor = parseHexColor(kc.color, parseHexColor(this.options.base.color, 0xffffff))
-
-    const shape = this.getRoundedRectShape(-tabW / 2, -tabH / 2, tabW, tabH + kc.height, tabH / 2)
-
-    const geo = new THREE.ExtrudeGeometry(shape, {
-      steps: 1, depth: this.options.base.depth, bevelEnabled: false,
+    return this.buildKeychainTab({
+      kc: this.options.keychain,
+      depth: this.options.base.depth,
+      plateHalfW: this.options.base.width / 2,
+      plateHalfH: this.options.base.height / 2,
+      tabShape: 'pill',
+      plateColor: this.options.base?.color,
     })
-
-    const material = new THREE.MeshPhongMaterial({color: keychainColor})
-    let mesh = new THREE.Mesh(geo, material)
-    mesh.updateMatrix()
-
-    // Отверстие
-    const holeGeo = new THREE.CylinderGeometry(holeDiam / 2, holeDiam / 2, this.options.base.depth, 32)
-    const holeMesh = new THREE.Mesh(holeGeo, material)
-    holeMesh.rotation.x = -Math.PI / 2
-    holeMesh.position.set(0, 0, this.options.base.depth / 2)
-    holeMesh.updateMatrix()
-
-    mesh = this.subtractMesh(mesh, holeMesh)
-
-    const placement = kc.placement || 'left'
-    let x, y, zR
-
-    if (placement === 'left') {
-      x = -this.options.base.width / 2 - tabW / 2 - kc.height / 2 + bw / 2
-      y = 0
-      zR = -Math.PI / 2
-    } else if (placement === 'top') {
-      x = 0
-      y = this.options.base.height / 2 + tabW / 2 + kc.height / 2 - bw / 2
-      zR = -Math.PI
-    } else {
-      x = -this.options.base.width / 2 - tabW / 2 - kc.height / 2 + bw / 2
-      y = 0
-      zR = -Math.PI / 2
-    }
-
-    mesh.position.set(x + (kc.offsetX || 0), y + (kc.offsetY || 0), 0)
-    mesh.rotation.z = zR
-    mesh.updateMatrix()
-
-    return mesh
   }
 
   // ─── Вспомогательные ────────────────────────────────────

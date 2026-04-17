@@ -3,14 +3,7 @@ import { Font } from 'three/examples/jsm/loaders/FontLoader';
 import { TextGeometry } from 'three/examples/jsm/geometries/TextGeometry';
 import { SVGLoader } from 'three/examples/jsm/loaders/SVGLoader';
 import fontInterExtraBold from '@/assets/fonts/Inter_ExtraBold.json';
-import BaseGenerator from '@/v3d/generator/base';
-
-function parseHexColor(hexStr, defaultNum) {
-  if (hexStr == null || typeof hexStr !== 'string') return defaultNum;
-  const hex = hexStr.replace(/^#/, '');
-  if (!/^[0-9a-fA-F]{6}$/.test(hex)) return defaultNum;
-  return parseInt(hex, 16);
-}
+import BaseGenerator, { parseHexColor } from '@/v3d/generator/base';
 
 export default class CoasterGenerator extends BaseGenerator {
   constructor(options = {}) {
@@ -271,52 +264,14 @@ export default class CoasterGenerator extends BaseGenerator {
   // ─── Keychain ─────────────────────────────────────────
 
   _createKeychain() {
-    const kc = this.options.keychain;
     const b = this.options.base;
-    const holeDiam = kc.holeDiameter;
-    const bw = kc.borderWidth;
-    const tabW = holeDiam + bw;
-    const tabH = holeDiam + bw;
-
-    const keychainColor = parseHexColor(kc.color, parseHexColor(b.color, 0xffffff));
-    const shape = this.getRoundedRectShape(-tabW / 2, -tabH / 2, tabW, tabH + kc.height, tabH / 2);
-
-    const geo = new THREE.ExtrudeGeometry(shape, {
-      steps: 1, depth: b.depth, bevelEnabled: false,
+    return this.buildKeychainTab({
+      kc: this.options.keychain,
+      depth: b.depth,
+      plateHalfW: b.width / 2,
+      plateHalfH: (b.shape === 'circle' ? b.width : b.height) / 2,
+      tabShape: 'pill',
+      plateColor: b.color,
     });
-
-    const material = new THREE.MeshPhongMaterial({ color: keychainColor });
-    let mesh = new THREE.Mesh(geo, material);
-    mesh.updateMatrix();
-
-    // Hole
-    const holeGeo = new THREE.CylinderGeometry(holeDiam / 2, holeDiam / 2, b.depth, 32);
-    const holeMesh = new THREE.Mesh(holeGeo, material);
-    holeMesh.rotation.x = -Math.PI / 2;
-    holeMesh.position.set(0, 0, b.depth / 2);
-    holeMesh.updateMatrix();
-    mesh = this.subtractMesh(mesh, holeMesh);
-
-    // Position
-    const placement = kc.placement || 'left';
-    let x, y, zR;
-    const halfW = b.width / 2;
-    const halfH = (b.shape === 'circle' ? b.width : b.height) / 2;
-
-    if (placement === 'top') {
-      x = 0;
-      y = halfH + tabW / 2 + kc.height / 2 - bw / 2;
-      zR = -Math.PI;
-    } else {
-      // left
-      x = -halfW - tabW / 2 - kc.height / 2 + bw / 2;
-      y = 0;
-      zR = -Math.PI / 2;
-    }
-
-    mesh.position.set(x + (kc.offsetX || 0), y + (kc.offsetY || 0), 0);
-    mesh.rotation.z = zR;
-    mesh.updateMatrix();
-    return mesh;
   }
 }

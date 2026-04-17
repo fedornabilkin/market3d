@@ -36,7 +36,10 @@
       "Bash(curl -s \"http://localhost:5174/src/v3d/generator/NameTagGenerator.js\")",
       "Bash(curl -s http://localhost:5174/__TRACKED_VAR__)",
       "Bash(grep *)",
-      "Bash(curl -s -o /dev/null -w '%{http_code}' http://localhost:5174/__TRACKED_VAR__)"
+      "Bash(curl -s -o /dev/null -w '%{http_code}' http://localhost:5174/__TRACKED_VAR__)",
+      "Bash(curl *)",
+      "Bash(netstat -ano)",
+      "Bash(echo \"base.ts: $\\(curl -s -o /dev/null -w \"%{http_code}\" \"http://localhost:5174/src/v3d/generator/base.ts\"\\)\")"
     ]
   }
 }

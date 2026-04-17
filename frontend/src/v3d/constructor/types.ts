@@ -56,6 +56,7 @@ export interface PrimitiveParams {
   pitch?: number;
   turns?: number;
   threadProfile?: string;
+  leftHand?: boolean;
   [key: string]: unknown;
 }
 

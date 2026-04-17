@@ -2,8 +2,8 @@ import * as THREE from 'three';
 import {Font} from 'three/examples/jsm/loaders/FontLoader';
 import {TextGeometry} from 'three/examples/jsm/geometries/TextGeometry';
 import fontInterExtraBold from '@/assets/fonts/Inter_ExtraBold.json';
-import BaseGenerator from '@/v3d/generator/base';
-import {RectangleRoundedShape, RectangleRoundedCornerShape} from '@/v3d/primitives/shape';
+import BaseGenerator, {parseHexColor} from '@/v3d/generator/base';
+import {RectangleRoundedShape} from '@/v3d/primitives/shape';
 
 // Пропорции реального номерного знака РФ (ГОСТ Р 50577-2018): 520 × 112 мм
 const REAL_WIDTH = 520
@@ -18,13 +18,6 @@ const CYR_TO_LAT = {
 
 function cyrToLat(text) {
   return text.split('').map(ch => CYR_TO_LAT[ch] || ch).join('')
-}
-
-function parseHexColor(hexStr, defaultNum) {
-  if (hexStr == null || typeof hexStr !== 'string') return defaultNum
-  const hex = hexStr.replace(/^#/, '')
-  if (!/^[0-9a-fA-F]{6}$/.test(hex)) return defaultNum
-  return parseInt(hex, 16)
 }
 
 /**
@@ -126,38 +119,15 @@ export default class GRZGenerator extends BaseGenerator {
 
   createBorder() {
     const border = this.options.border
-    const w = this.plateWidth
-    const h = this.plateHeight
-    const r = this.options.base.cornerRadius
-    const bw = border.width || 1
-
-    const outerShape = new RectangleRoundedShape({x: -w / 2, y: -h / 2, r, w, h})
-    const borderDepth = border.depth || 1
-    const outerGeo = new THREE.ExtrudeGeometry(outerShape.create(), {
-      steps: 1, depth: borderDepth, bevelEnabled: false,
+    return this.buildBorderFrame({
+      width: this.plateWidth,
+      height: this.plateHeight,
+      cornerRadius: this.options.base.cornerRadius,
+      borderWidth: border.width || 1,
+      borderDepth: border.depth || 1,
+      baseDepth: this.baseDepth,
+      color: border.color,
     })
-
-    const innerR = Math.max(0, r - bw * Math.sin(Math.PI / 4))
-    const innerShape = new RectangleRoundedShape({
-      x: -(w - bw * 2) / 2,
-      y: -(h - bw * 2) / 2,
-      r: innerR,
-      w: w - bw * 2,
-      h: h - bw * 2,
-    })
-    const innerGeo = new THREE.ExtrudeGeometry(innerShape.create(), {
-      steps: 1, depth: borderDepth, bevelEnabled: false,
-    })
-
-    const borderColor = parseHexColor(border.color, 0x000000)
-    const material = new THREE.MeshPhongMaterial({color: borderColor})
-    const outer = new THREE.Mesh(outerGeo, material)
-    const inner = new THREE.Mesh(innerGeo, material)
-
-    const frame = this.subtractMesh(outer, inner)
-    frame.position.z = this.baseDepth
-    frame.updateMatrix()
-    return frame
   }
 
   // ─── Разделительная линия ────────────────────────────────
@@ -312,115 +282,14 @@ export default class GRZGenerator extends BaseGenerator {
   // ─── Брелок (отверстие) ─────────────────────────────────
 
   createKeychain() {
-    const kc = this.options.keychain
-    const holeDiam = kc.holeDiameter
-    const bw = kc.borderWidth
-    const tabW = holeDiam + bw
-    const tabH = holeDiam + bw
-
-    const keychainColor = parseHexColor(kc.color, parseHexColor(this.options.base.color, 0xffffff))
-
-    // Полукруглая «ушка» для брелока
-    const shape = new RectangleRoundedCornerShape({
-      x: -tabW / 2,
-      y: -tabH / 2,
-      rA: 0,
-      rB: 0,
-      rC: tabH / 2,
-      rD: tabH / 2,
-      w: tabW,
-      h: tabH + kc.height,
+    return this.buildKeychainTab({
+      kc: this.options.keychain,
+      depth: this.baseDepth,
+      plateHalfW: this.plateWidth / 2,
+      plateHalfH: this.plateHeight / 2,
+      tabShape: 'd',
+      plateColor: this.options.base?.color,
     })
-
-    const geo = new THREE.ExtrudeGeometry(shape.create(), {
-      steps: 1, depth: this.baseDepth, bevelEnabled: false,
-    })
-
-    const material = new THREE.MeshPhongMaterial({color: keychainColor})
-    let mesh = new THREE.Mesh(geo, material)
-    mesh.updateMatrix()
-
-    // Отверстие
-    const holeGeo = new THREE.CylinderGeometry(holeDiam / 2, holeDiam / 2, this.baseDepth, 32)
-    const holeMesh = new THREE.Mesh(holeGeo, material)
-    holeMesh.rotation.x = -Math.PI / 2
-    holeMesh.position.set(0, 0, this.baseDepth / 2)
-    holeMesh.updateMatrix()
-
-    mesh = this.subtractMesh(mesh, holeMesh)
-
-    // Позиционируем
-    let x, y, zR
-    const placement = kc.placement || 'left'
-
-    if (placement === 'left') {
-      x = -this.plateWidth / 2 - tabW / 2 - kc.height / 2 + bw / 2
-      y = 0
-      zR = -Math.PI / 2
-    } else if (placement === 'top') {
-      x = 0
-      y = this.plateHeight / 2 + tabW / 2 + kc.height / 2 - bw / 2
-      zR = -Math.PI
-    } else if (placement === 'topLeft') {
-      x = -this.plateWidth / 2 - tabW / 2 + bw * 1.5
-      y = this.plateHeight / 2 + tabW / 2 - bw * 1.5
-      zR = -Math.PI / 4 + -Math.PI / 2
-    } else if (placement === 'topRight') {
-      x = this.plateWidth / 2 + tabW / 2 - bw * 1.5
-      y = this.plateHeight / 2 + tabW / 2 - bw * 1.5
-      zR = Math.PI / 4 + Math.PI / 2
-    } else {
-      x = -this.plateWidth / 2 - tabW / 2 - kc.height / 2 + bw / 2
-      y = 0
-      zR = -Math.PI / 2
-    }
-
-    mesh.position.set(x + (kc.offsetX || 0), y + (kc.offsetY || 0), 0)
-    mesh.rotation.z = zR
-    mesh.updateMatrix()
-
-    // Зеркальное отражение
-    if (kc.mirror) {
-      const mirrorShape = new RectangleRoundedCornerShape({
-        x: -tabW / 2,
-        y: -tabH / 2,
-        rA: 0,
-        rB: 0,
-        rC: tabH / 2,
-        rD: tabH / 2,
-        w: tabW,
-        h: tabH + kc.height,
-      })
-      const mirrorGeo = new THREE.ExtrudeGeometry(mirrorShape.create(), {
-        steps: 1, depth: this.baseDepth, bevelEnabled: false,
-      })
-      let mirror = new THREE.Mesh(mirrorGeo, material)
-      mirror.updateMatrix()
-      mirror = this.subtractMesh(mirror, holeMesh)
-
-      let mx, my, mzR
-      if (placement === 'left') {
-        mx = -x - (kc.offsetX || 0)
-        my = y + (kc.offsetY || 0)
-        mzR = zR + Math.PI
-      } else if (placement === 'top') {
-        mx = x + (kc.offsetX || 0)
-        my = -y - (kc.offsetY || 0)
-        mzR = zR + Math.PI
-      } else {
-        mx = -x - (kc.offsetX || 0)
-        my = -y - (kc.offsetY || 0)
-        mzR = zR + Math.PI
-      }
-
-      mirror.position.set(mx, my, 0)
-      mirror.rotation.z = mzR
-      mirror.updateMatrix()
-
-      mesh = this.unionMesh(mesh, mirror)
-    }
-
-    return mesh
   }
 
   // ─── Вспомогательные ────────────────────────────────────

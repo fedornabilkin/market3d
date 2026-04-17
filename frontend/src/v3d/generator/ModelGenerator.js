@@ -1,29 +1,18 @@
 import * as THREE from 'three';
 import {Font} from 'three/examples/jsm/loaders/FontLoader';
 import {TextGeometry} from 'three/examples/jsm/geometries/TextGeometry';
+import * as BufferGeometryUtils from 'three/examples/jsm/utils/BufferGeometryUtils';
+import {Brush, Evaluator, SUBTRACTION} from 'three-bvh-csg';
 import fontInterSemiBold from '@/assets/fonts/Inter_SemiBold.json';
 import fontInterSemiBoldItalic from '@/assets/fonts/Inter_SemiBold_Italic.json';
 import fontInterExtraBold from '@/assets/fonts/Inter_ExtraBold.json';
 import fontInterExtraBoldItalic from '@/assets/fonts/Inter_ExtraBold_Italic.json';
-import BaseGenerator from '@/v3d/generator/base';
-import {RectangleRoundedCornerShape, RectangleRoundedShape} from "@/v3d/primitives/shape";
+import BaseGenerator, {parseHexColor} from '@/v3d/generator/base';
+import {RectangleRoundedShape} from "@/v3d/primitives/shape";
 import {SVGLoader} from "three/examples/jsm/loaders/SVGLoader";
 import {Magnet} from "@/v3d/entity";
 
 const lineSpacing = 2
-
-/**
- * Parse hex color string (#rrggbb) to Three.js color number (0xrrggbb).
- * @param {string|undefined|null} hexStr - Hex string or undefined/null
- * @param {number} defaultNum - Default color number if hexStr invalid
- * @returns {number}
- */
-function parseHexColor(hexStr, defaultNum) {
-  if (hexStr == null || typeof hexStr !== 'string') return defaultNum
-  const hex = hexStr.replace(/^#/, '')
-  if (!/^[0-9a-fA-F]{6}$/.test(hex)) return defaultNum
-  return parseInt(hex, 16)
-}
 
 /**
  * Unified generator class for creating 3D models with or without QR code
@@ -81,98 +70,156 @@ export default class ModelGenerator extends BaseGenerator {
       return undefined
     }
 
-    const shape = new RectangleRoundedShape({
+    const baseColor = parseHexColor(this.options.base?.color, 0xffffff)
+    const materialBase = new THREE.MeshPhongMaterial({ color: baseColor })
+
+    // Плейт со сквозными отверстиями магнитов собирается как Shape + Path holes
+    // и экструдируется одним геометрическим вызовом — итоговая сетка манифолдная
+    // по построению, без CSG. Для "скрытых" отверстий (не сквозных) используем
+    // three-bvh-csg с последующим mergeVertices для гарантии манифолдности.
+    const baseShape = new RectangleRoundedShape({
       x: -this.options.base.width / 2,
       y: -this.options.base.height / 2,
       r: this.options.base.cornerRadius,
       w: this.options.base.width,
       h: this.options.base.height,
-    })
+    }).create()
 
-    const model = new THREE.ExtrudeGeometry(shape.create(), {
-      steps: 1,
-      depth: this.options.base.depth,
-      bevelEnabled: false,
-    })
+    const magnetSlots = this._computeMagnetSlots()
+    const throughHoles = []
+    const blindHoles = []
 
-    const baseColor = parseHexColor(this.options.base?.color, 0xffffff)
-    const materialBase = new THREE.MeshPhongMaterial({ color: baseColor })
-    let baseMesh = new THREE.Mesh(model, materialBase)
-    baseMesh.updateMatrix()
-
-    if (this.options.magnet.active) {
-      const size = this.options.magnet.size
-      const depth = this.options.magnet.depth
-      const material = this.createMaterial('0x000000')
-
-      // Определяем максимальную раскладку (до 3 рядов) и клампим запрошенное количество.
-      const gap = Math.max(0, this.options.magnet.gap || 0)
-      const {maxCols, maxRows, maxTotal} = Magnet.computeLayout(
-        this.options.base.width,
-        this.options.base.height,
-        size,
-        gap,
-      )
-
-      const requested = Math.max(1, Math.floor(this.options.magnet.count || 1))
-      const total = Math.min(requested, maxTotal)
-
-      if (total > 0) {
-        const horizontal = this.options.base.width >= this.options.base.height
-        const longSide = horizontal ? this.options.base.width : this.options.base.height
-        const shortSide = horizontal ? this.options.base.height : this.options.base.width
-
-        // Минимальное количество рядов, чтобы вместить total, ограничено maxRows.
-        const rows = Math.min(maxRows, Math.max(1, Math.ceil(total / maxCols)))
-        // Кол-во колонок "в сетке" — последний ряд может быть неполным и центрируется.
-        const cols = Math.ceil(total / rows)
-
-        let placed = 0
-        for (let r = 0; r < rows && placed < total; r++) {
-          const rowCount = Math.min(cols, total - placed)
-          // Центрируем короткий последний ряд в пределах колонок полного ряда.
-          const colStart = (cols - rowCount) / 2
-          // Центр ряда по короткой оси: при rows === 1 — центр базы.
-          const rowOffset = rows === 1 ? 0 : (-shortSide / 2 + shortSide / rows * (r + 0.5))
-
-          for (let c = 0; c < rowCount; c++) {
-            const slot = colStart + c
-            const colOffset = -longSide / 2 + longSide / cols * (slot + 0.5)
-
-            let holeMesh
-            if (this.options.magnet.shape === 'round') {
-              const geometryMagnet = new THREE.CylinderGeometry(size / 2, size / 2, depth, 32)
-              holeMesh = new THREE.Mesh(geometryMagnet, material)
-              holeMesh.rotation.x = -Math.PI / 2
-            } else {
-              // shape = square
-              const geometryMagnet = new THREE.BoxGeometry(size, size, depth)
-              holeMesh = new THREE.Mesh(geometryMagnet, material)
-            }
-            holeMesh.position.z = depth / 2
-            if (this.options.magnet.hidden) {
-              holeMesh.position.z += this.options.magnet.offsetZ
-            }
-
-            if (horizontal) {
-              holeMesh.position.x = baseMesh.position.x + colOffset
-              holeMesh.position.y = baseMesh.position.y + rowOffset
-            } else {
-              holeMesh.position.x = baseMesh.position.x + rowOffset
-              holeMesh.position.y = baseMesh.position.y + colOffset
-            }
-            holeMesh.updateMatrix()
-
-            baseMesh = this.subtractMesh(baseMesh, holeMesh)
-            baseMesh.updateMatrix()
-
-            placed++
-          }
-        }
+    if (magnetSlots) {
+      const baseDepth = this.options.base.depth
+      const magDepth = this.options.magnet.depth
+      // Сквозным считаем отверстие без offsetZ, идущее от низа до верха плиты.
+      const isThrough = !this.options.magnet.hidden && magDepth >= baseDepth - 1e-4
+      for (const slot of magnetSlots.slots) {
+        if (isThrough) throughHoles.push(slot)
+        else blindHoles.push(slot)
       }
     }
 
+    // Добавляем сквозные отверстия как Path holes в Shape.
+    for (const slot of throughHoles) {
+      baseShape.holes.push(this._magnetHolePath(slot.x, slot.y))
+    }
+
+    const geo = new THREE.ExtrudeGeometry(baseShape, {
+      steps: 1,
+      depth: this.options.base.depth,
+      bevelEnabled: false,
+      curveSegments: 32,
+    })
+    let baseMesh = new THREE.Mesh(geo, materialBase)
+    baseMesh.updateMatrix()
+
+    // Слепые отверстия вырезаем через BVH CSG — это честный 3D-boolean,
+    // который не упирается в coplanar-проблемы three-csg-ts.
+    if (blindHoles.length) {
+      baseMesh = this._subtractBlindHoles(baseMesh, blindHoles)
+      baseMesh.material = materialBase
+    }
+
     return baseMesh
+  }
+
+  /** Рассчитывает координаты центров магнитных отверстий в плоскости XY. */
+  _computeMagnetSlots() {
+    if (!this.options.magnet.active) return null
+    const size = this.options.magnet.size
+    const gap = Math.max(0, this.options.magnet.gap || 0)
+    const {maxCols, maxRows, maxTotal} = Magnet.computeLayout(
+      this.options.base.width,
+      this.options.base.height,
+      size,
+      gap,
+    )
+    const requested = Math.max(1, Math.floor(this.options.magnet.count || 1))
+    const total = Math.min(requested, maxTotal)
+    if (total <= 0) return null
+
+    const horizontal = this.options.base.width >= this.options.base.height
+    const longSide = horizontal ? this.options.base.width : this.options.base.height
+    const shortSide = horizontal ? this.options.base.height : this.options.base.width
+    const rows = Math.min(maxRows, Math.max(1, Math.ceil(total / maxCols)))
+    const cols = Math.ceil(total / rows)
+
+    const slots = []
+    let placed = 0
+    for (let r = 0; r < rows && placed < total; r++) {
+      const rowCount = Math.min(cols, total - placed)
+      const colStart = (cols - rowCount) / 2
+      const rowOffset = rows === 1 ? 0 : (-shortSide / 2 + shortSide / rows * (r + 0.5))
+      for (let c = 0; c < rowCount; c++) {
+        const slot = colStart + c
+        const colOffset = -longSide / 2 + longSide / cols * (slot + 0.5)
+        const x = horizontal ? colOffset : rowOffset
+        const y = horizontal ? rowOffset : colOffset
+        slots.push({x, y})
+        placed++
+      }
+    }
+    return {slots}
+  }
+
+  /** Path-отверстие под магнит в локальной системе координат Shape'а плиты. */
+  _magnetHolePath(cx, cy) {
+    const size = this.options.magnet.size
+    const path = new THREE.Path()
+    if (this.options.magnet.shape === 'round') {
+      path.absellipse(cx, cy, size / 2, size / 2, 0, Math.PI * 2, true, 0)
+    } else {
+      const half = size / 2
+      // Винтящий порядок против часовой стрелки — для ExtrudeGeometry это hole.
+      path.moveTo(cx - half, cy - half)
+      path.lineTo(cx - half, cy + half)
+      path.lineTo(cx + half, cy + half)
+      path.lineTo(cx + half, cy - half)
+      path.lineTo(cx - half, cy - half)
+    }
+    return path
+  }
+
+  /**
+   * Вычитает из плиты набор слепых (не сквозных) отверстий через three-bvh-csg.
+   * После вычитания склеиваем совпадающие вершины, чтобы результат был манифолдным.
+   */
+  _subtractBlindHoles(plateMesh, slots) {
+    try {
+      const size = this.options.magnet.size
+      const depth = this.options.magnet.depth
+      const offsetZ = this.options.magnet.hidden ? (this.options.magnet.offsetZ || 0) : 0
+
+      const plateBrush = new Brush(this.prepForBvhCsg(plateMesh.geometry))
+      plateBrush.updateMatrixWorld()
+
+      const evaluator = new Evaluator()
+      let current = plateBrush
+      for (const slot of slots) {
+        let holeGeo
+        if (this.options.magnet.shape === 'round') {
+          holeGeo = new THREE.CylinderGeometry(size / 2, size / 2, depth, 32)
+          holeGeo.rotateX(Math.PI / 2)
+        } else {
+          holeGeo = new THREE.BoxGeometry(size, size, depth)
+        }
+        holeGeo.translate(slot.x, slot.y, depth / 2 + offsetZ)
+        const holeBrush = new Brush(this.prepForBvhCsg(holeGeo))
+        holeBrush.updateMatrixWorld()
+        const result = evaluator.evaluate(current, holeBrush, SUBTRACTION)
+        current = result
+      }
+
+      const finalGeo = BufferGeometryUtils.mergeVertices(current.geometry, 1e-4)
+      finalGeo.computeVertexNormals()
+      const mesh = new THREE.Mesh(finalGeo, plateMesh.material)
+      mesh.updateMatrix()
+      return mesh
+    } catch (e) {
+      console.warn('ModelGenerator: BVH CSG blind-hole subtract failed', e)
+      return plateMesh
+    }
   }
 
   /**
@@ -247,147 +294,30 @@ export default class ModelGenerator extends BaseGenerator {
     if (!this.options.border.active) {
       return undefined
     }
-    let shape = new RectangleRoundedShape({
-      x: -this.options.base.width / 2,
-      y: -this.options.base.height / 2,
-      r: this.options.base.cornerRadius,
-      w: this.options.base.width,
-      h: this.options.base.height,
+
+    return this.buildBorderFrame({
+      width: this.options.base.width,
+      height: this.options.base.height,
+      cornerRadius: this.options.base.cornerRadius,
+      borderWidth: this.options.border.width,
+      borderDepth: this.options.border.depth,
+      baseDepth: this.options.base.depth,
+      color: this.options.border?.color,
     })
-
-    const model = new THREE.ExtrudeGeometry(shape.create(), {
-      steps: 1,
-      depth: this.options.border.depth,
-      bevelEnabled: false,
-    })
-
-    const borderColor = parseHexColor(this.options.border?.color, 0x000000)
-    const materialBorder = new THREE.MeshPhongMaterial({ color: borderColor })
-    const mesh = new THREE.Mesh(model, materialBorder)
-
-    const shapeHole = new RectangleRoundedShape({
-      x: -(this.options.base.width - this.options.border.width * 2) / 2,
-      y: -(this.options.base.height - this.options.border.width * 2) / 2,
-      // sin 90 градусов
-      r: this.options.base.cornerRadius - this.options.border.width * Math.sin(Math.PI / 4),
-      w: (this.options.base.width - this.options.border.width * 2),
-      h: (this.options.base.height - this.options.border.width * 2),
-    })
-
-    const modelHole = new THREE.ExtrudeGeometry(shapeHole.create(), {
-      steps: 1,
-      depth: this.options.border.depth,
-      bevelEnabled: false,
-    })
-
-    const meshHole = new THREE.Mesh(modelHole, materialBorder)
-
-    const meshFrame = this.subtractMesh(mesh, meshHole)
-    meshFrame.position.z = this.options.base.depth
-    meshFrame.updateMatrix()
-
-    return meshFrame
   }
 
   /**
-   * @return {THREE.Mesh|undefined} the mesh of the keychain attachment hole
+   * @return {THREE.Mesh|THREE.Group|undefined} the mesh of the keychain attachment hole
    */
   getKeychainMesh() {
-    if (!this.options.keychain.active) {
-      return undefined
-    }
-    const holeRadius = this.options.keychain.holeDiameter / 2
-    const keyChainBorder = this.options.keychain.borderWidth
-    const height = this.options.keychain.holeDiameter + keyChainBorder
-    const width = this.options.keychain.holeDiameter + keyChainBorder
-
-    const shape = new RectangleRoundedCornerShape({
-      x: -width / 2,
-      y: -height / 2,
-      rA: 0,
-      rB: 0,
-      rC: height / 2,
-      rD: height / 2,
-      w: width,
-      h: height + this.options.keychain.height,
-    })
-
-    const model = new THREE.ExtrudeGeometry(shape.create(), {
-      steps: 1,
+    return this.buildKeychainTab({
+      kc: this.options.keychain,
       depth: this.options.base.depth,
-      bevelEnabled: false,
+      plateHalfW: this.options.base.width / 2,
+      plateHalfH: this.options.base.height / 2,
+      tabShape: 'd',
+      plateColor: this.options.base?.color,
     })
-
-    const keychainColor = parseHexColor(this.options.keychain?.color, 0xffffff)
-    const materialKeychain = new THREE.MeshPhongMaterial({ color: keychainColor })
-    const mesh = new THREE.Mesh(model, materialKeychain)
-    mesh.position.z = 0
-    mesh.updateMatrix()
-
-    const modelHole = new THREE.CylinderGeometry(holeRadius, holeRadius, this.options.base.depth, 32)
-    const meshHole = new THREE.Mesh(modelHole, materialKeychain)
-
-    meshHole.rotation.x = -Math.PI / 2
-    meshHole.position.z = this.options.base.depth / 2
-    meshHole.position.x = 0
-    meshHole.position.y = 0
-    meshHole.updateMatrix()
-
-    let finalMesh = this.subtractMesh(mesh, meshHole)
-    let x = -this.options.base.width / 2 - width / 2 + keyChainBorder / 2
-    let y = finalMesh.position.y
-    let zR = -Math.PI / 2
-
-    if (this.options.keychain.placement === 'top') {
-      x = finalMesh.position.x
-      y = this.options.base.height / 2 + height / 2 - keyChainBorder / 2
-      zR = -Math.PI
-    }
-    if (this.options.keychain.placement === 'topLeft') {
-      y = this.options.base.height / 2 + height / 2 - keyChainBorder * 1.5
-      x = -this.options.base.width / 2 - width / 2 + keyChainBorder * 1.5
-      zR = -Math.PI / 4 + -Math.PI / 2
-    }
-    if (this.options.keychain.placement === 'topRight') {
-      y = this.options.base.height / 2 + height / 2 - keyChainBorder * 1.5
-      x = this.options.base.width / 2 - width / 2 + keyChainBorder * 1.5
-      zR = Math.PI / 4 + Math.PI / 2
-    }
-
-    finalMesh.position.y = y + this.options.keychain.offsetY
-    finalMesh.position.x = x + this.options.keychain.offsetX
-    finalMesh.rotation.z = zR
-    finalMesh.updateMatrix()
-
-    if (this.options.keychain.mirror) {
-      const mirror = this.subtractMesh(mesh, meshHole)
-      if (this.options.keychain.placement === 'left') {
-        x = -x - this.options.keychain.offsetX
-        y = y + this.options.keychain.offsetY
-        zR = zR + Math.PI
-      } else if (this.options.keychain.placement === 'top') {
-        x = x + this.options.keychain.offsetX
-        y = -y - this.options.keychain.offsetY
-        zR = zR + Math.PI
-      } else if (this.options.keychain.placement === 'topLeft') {
-        x = -x - this.options.keychain.offsetX
-        y = -y - this.options.keychain.offsetY
-        zR = zR + Math.PI
-      } else if (this.options.keychain.placement === 'topRight') {
-        x = -x - this.options.keychain.offsetX
-        y = -y - this.options.keychain.offsetY
-        zR = zR - Math.PI
-      }
-
-      mirror.position.y = y
-      mirror.position.x = x
-      mirror.rotation.z = zR
-      mirror.updateMatrix()
-
-      finalMesh = this.unionMesh(finalMesh, mirror)
-    }
-
-    return finalMesh
   }
 
   /**

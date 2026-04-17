@@ -103,6 +103,10 @@
             .field
               label.label Сегментов на виток
               input.input.is-small(type="number" step="8" min="8" v-model.number="threadSettings.segmentsPerTurn")
+            .field
+              label.checkbox
+                input(type="checkbox" v-model="threadSettings.leftHand")
+                span  Левая резьба
           .field
             button.button.is-small.is-primary(@click="confirmGenerator" style="width:100%") Применить
       template(v-else-if="chamferModeActive")
@@ -189,6 +193,15 @@
 
   .constructor-canvas-wrap
     div(ref="containerRef" class="canvas-container")
+    .snap-toolbar
+      span.snap-toolbar-label Шаг привязки
+      button.snap-step-btn(
+        v-for="step in snapValues"
+        :key="step"
+        :class="{ 'is-active': snapStep === step }"
+        @click="applySnapStep(step)"
+      ) {{ step }}
+      span.snap-toolbar-unit мм
     .action-toolbar
       span.selection-counter(v-if="selectedNodes.length" :title="`Выделено объектов: ${selectedNodes.length}`")
         i.fas.fa-mouse-pointer
@@ -204,7 +217,7 @@
       button.btn-icon(@click="redo" :disabled="!canRedo" title="Повторить (Ctrl+Shift+Z)")
         i.fas.fa-redo
       .toolbar-separator
-      button.btn-icon(@click="duplicateSelected" :disabled="!canDeleteSelected" title="Дублировать (Ctrl+D)")
+      button.btn-icon(@click="(e) => duplicateSelected(e.shiftKey)" :disabled="!canDeleteSelected" title="Дублировать (Ctrl+D). С Shift — клон меньше на шаг привязки")
         i.fas.fa-clone
       button.btn-icon(
         :class="{ 'is-active-tool': mirrorModeActive }"
@@ -564,6 +577,7 @@ const threadSettings = ref({
   pitch: 2,
   turns: 5,
   segmentsPerTurn: 64,
+  leftHand: false,
 });
 watch([chamferRadius], () => {
   if (sceneService && chamferModeActive.value) {
@@ -593,6 +607,11 @@ const selectedColor = ref('#cccccc');
 const selectedName = ref('');
 
 const snapStep = ref(1);
+const snapValues = [0.1, 0.25, 0.5, 1, 2, 5, 10];
+function applySnapStep(step: number) {
+  snapStep.value = step;
+  sceneService?.setSnapStep(step);
+}
 
 const showSceneSettings = ref(false);
 const sceneSettings = ref({
@@ -1016,7 +1035,7 @@ const smartDup = {
   lastDelta: null as { pos: {x:number,y:number,z:number}, scale: {x:number,y:number,z:number}, rot: {x:number,y:number,z:number} } | null,
 };
 
-function duplicateSelected() {
+function duplicateSelected(shrink: boolean = false) {
   const node = selectedNode.value;
   const r = modelApp.value!.getModelManager().getTree();
   if (!node || !r) return;
@@ -1027,6 +1046,34 @@ function duplicateSelected() {
 
   const cloned = node.clone();
   cloned.params = cloned.params || {};
+
+  if (shrink && snapStep.value > 0 && sceneService) {
+    const obj = sceneService.findObject3DByNode(node);
+    if (obj) {
+      const box = new THREE.Box3().setFromObject(obj);
+      const size = new THREE.Vector3();
+      box.getSize(size);
+      const step = snapStep.value;
+      const EPS = 1e-4;
+      const fx = size.x > step + EPS ? (size.x - step) / size.x : EPS;
+      const fy = size.y > step + EPS ? (size.y - step) / size.y : EPS;
+      const fz = size.z > step + EPS ? (size.z - step) / size.z : EPS;
+      const cs = cloned.params.scale || { x: 1, y: 1, z: 1 };
+      cloned.params.scale = { x: cs.x * fx, y: cs.y * fy, z: cs.z * fz };
+    }
+    smartDup.lastDelta = null;
+
+    withHistory(() => { parent.children.push(cloned); });
+    smartDup.lastClone = cloned;
+    smartDup.snapshotParams = {
+      position: cloned.params.position ? { ...cloned.params.position } : undefined,
+      scale: cloned.params.scale ? { ...cloned.params.scale } : undefined,
+      rotation: cloned.params.rotation ? { ...cloned.params.rotation } : undefined,
+    };
+    if (sceneService) sceneService.rebuildSceneFromTree();
+    onSelectNode(cloned);
+    return;
+  }
 
   // If duplicating the previous clone, compute or reuse delta
   if (smartDup.lastClone && toRaw(node) === toRaw(smartDup.lastClone) && smartDup.snapshotParams) {
@@ -1547,14 +1594,15 @@ function handleKeydown(event: KeyboardEvent) {
     const root = modelApp.value!.getModelManager().getTree();
     const beforeJSON = s.toJSON(root);
 
+    const mult = event.shiftKey ? 5 : 1;
     if (hasCtrl) {
-      if (event.key === 'ArrowUp') sceneService.moveSelectedByKey('up');
-      else if (event.key === 'ArrowDown') sceneService.moveSelectedByKey('down');
+      if (event.key === 'ArrowUp') sceneService.moveSelectedByKey('up', mult);
+      else if (event.key === 'ArrowDown') sceneService.moveSelectedByKey('down', mult);
     } else {
-      if (event.key === 'ArrowLeft') sceneService.moveSelectedByKey('left');
-      else if (event.key === 'ArrowRight') sceneService.moveSelectedByKey('right');
-      else if (event.key === 'ArrowUp') sceneService.moveSelectedByKey('forward');
-      else if (event.key === 'ArrowDown') sceneService.moveSelectedByKey('backward');
+      if (event.key === 'ArrowLeft') sceneService.moveSelectedByKey('left', mult);
+      else if (event.key === 'ArrowRight') sceneService.moveSelectedByKey('right', mult);
+      else if (event.key === 'ArrowUp') sceneService.moveSelectedByKey('forward', mult);
+      else if (event.key === 'ArrowDown') sceneService.moveSelectedByKey('backward', mult);
     }
 
     const afterJSON = s.toJSON(root);
@@ -1602,7 +1650,7 @@ function handleKeydown(event: KeyboardEvent) {
   }
   if (event.code === 'KeyD') {
     event.preventDefault();
-    if (canDeleteSelected.value) duplicateSelected();
+    if (canDeleteSelected.value) duplicateSelected(event.shiftKey);
     return;
   }
   if (event.code === 'KeyM') {
@@ -1870,6 +1918,7 @@ onMounted(() => {
       turns: ts.turns,
       threadProfile: ts.profile,
       segments: ts.segmentsPerTurn,
+      leftHand: ts.leftHand === true,
     }, { position: { x: 0, y: 0, z: 0 } });
     prim.name = name;
 
@@ -2229,6 +2278,51 @@ onBeforeUnmount(() => {
 .scene-toolbar .btn-icon {
   font-size: 0.9rem;
   padding: 0.3rem 0.45rem;
+}
+
+/* ─── Snap-step toolbar (bottom-center over canvas) ──────────── */
+.snap-toolbar {
+  position: absolute;
+  bottom: 0.6rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid #d0d0d0;
+  border-radius: 6px;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.75rem;
+  color: #555;
+}
+.snap-toolbar-label {
+  margin-right: 0.3rem;
+  font-weight: 600;
+}
+.snap-toolbar-unit {
+  margin-left: 0.25rem;
+  color: #888;
+}
+.snap-step-btn {
+  min-width: 2rem;
+  padding: 0.2rem 0.45rem;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: #333;
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.snap-step-btn:hover {
+  background: #e8e8e8;
+}
+.snap-step-btn.is-active {
+  background: #3273dc;
+  color: #fff;
+  border-color: #3273dc;
 }
 
 /* ─── Chamfer settings panel ─────────────────────────────────── */

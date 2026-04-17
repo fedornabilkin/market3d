@@ -54,6 +54,11 @@ export class GridMode {
     this.service?.setSize(this.widthMm, this.lengthMm);
   }
 
+  /** World-space center of the grid surface (Y=0 plane). */
+  getCenter(): THREE.Vector3 {
+    return new THREE.Vector3(this.widthMm / 2, 0, -this.lengthMm / 2);
+  }
+
   // ─── Frame update ────────────────────────────────────────────────────────
 
   /** Update label billboard orientation. Call once per frame. */
