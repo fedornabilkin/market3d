@@ -1,17 +1,23 @@
 import * as THREE from 'three';
 
 /**
- * A detected edge of a box — one of the 12 classical edges of a bounding box.
- * Coordinates are stored in both local geometry space and world space.
+ * A detected edge — either one of the 12 classical box edges, or a circular rim
+ * of a cylindrical primitive. Coordinates are in both local geometry and world space.
  */
 export interface BBoxEdge {
-  /** Dominant axis of the edge */
+  /** Linear = straight segment edge; circular = cylinder/cone rim. */
+  kind: 'linear' | 'circular';
+
+  /** Dominant axis of a linear edge; for circular rims, the rim's axis normal (always 'y' for cylinders). */
   axis: 'x' | 'y' | 'z';
 
   // ─── World space (for visuals & hit-testing) ──────────────────────────
+  /** Linear: segment start. Circular: rim center. */
   start: THREE.Vector3;
+  /** Linear: segment end. Circular: rim center (same as start). */
   end: THREE.Vector3;
   mid: THREE.Vector3;
+  /** Linear: [start, end]. Circular: sampled points on the rim circle. */
   worldChain: THREE.Vector3[];
 
   // ─── Local geometry space (for chamfer creation) ──────────────────────
@@ -22,11 +28,16 @@ export interface BBoxEdge {
 
   /**
    * Direction from the edge toward the bbox center in chamfer-local space
-   * (where Y is always the edge axis). Values are +1 or -1.
-   * Used to position the quarter-cylinder chamfer at the correct corner.
+   * (where Y is always the edge axis). Values are +1 or -1. Linear only.
    */
   perpDirX: number;
   perpDirZ: number;
+
+  // ─── Circular-only fields ─────────────────────────────────────────────
+  /** Rim radius in mesh-local space. */
+  radius?: number;
+  /** True if this rim sits on the cylinder's top face, false for bottom. */
+  isTopRim?: boolean;
 }
 
 export interface ChamferSettings {
@@ -100,12 +111,15 @@ export class ChamferMode {
     mesh.updateMatrixWorld(true);
 
     if (this.cachedEdgeObjUuid !== mesh.uuid) {
-      this.cachedEdges = this.buildBoxEdges(mesh);
+      const nodeType = (mesh.userData as { node?: { type?: string } }).node?.type;
+      this.cachedEdges = nodeType === 'cylinder'
+        ? this.buildCylinderEdges(mesh)
+        : this.buildBoxEdges(mesh);
       this.cachedEdgeObjUuid = mesh.uuid;
     }
 
     if (!this.cachedEdges || this.cachedEdges.length === 0) return null;
-    return this.findClosestEdge(this.cachedEdges, hitPoint);
+    return this.findClosestEdge(this.cachedEdges, hitPoint, mesh);
   }
 
   /**
@@ -173,6 +187,7 @@ export class ChamferMode {
       const worldMid = worldA.clone().lerp(worldB, 0.5);
 
       result.push({
+        kind: 'linear',
         axis,
         start: worldA,
         end: worldB,
@@ -190,12 +205,73 @@ export class ChamferMode {
     return result;
   }
 
-  private findClosestEdge(edges: BBoxEdge[], hitPoint: THREE.Vector3): BBoxEdge | null {
+  /**
+   * Build 2 circular rim edges (top + bottom) for a cylinder primitive.
+   * Sampled chain points let the visualization draw a smooth arc even after
+   * the mesh is rotated in world space.
+   */
+  private buildCylinderEdges(mesh: THREE.Mesh): BBoxEdge[] {
+    const node = (mesh.userData as { node?: { geometryParams?: Record<string, number> } }).node;
+    const p = node?.geometryParams;
+    if (!p) return [];
+
+    const h = p.height ?? 1;
+    const rTop = p.radiusTop ?? p.radius ?? 0.5;
+    const rBot = p.radiusBottom ?? p.radius ?? 0.5;
+    const wm = mesh.matrixWorld;
+
+    const sampleCount = 48;
+    const result: BBoxEdge[] = [];
+
+    for (const rim of [
+      { isTop: false, radius: rBot, y: -h / 2 },
+      { isTop: true, radius: rTop, y: h / 2 },
+    ]) {
+      const localChain: THREE.Vector3[] = [];
+      const worldChain: THREE.Vector3[] = [];
+      for (let i = 0; i < sampleCount; i++) {
+        const a = (i / sampleCount) * Math.PI * 2;
+        const lv = new THREE.Vector3(Math.cos(a) * rim.radius, rim.y, Math.sin(a) * rim.radius);
+        localChain.push(lv);
+        worldChain.push(lv.clone().applyMatrix4(wm));
+      }
+      const localCenter = new THREE.Vector3(0, rim.y, 0);
+      const worldCenter = localCenter.clone().applyMatrix4(wm);
+
+      result.push({
+        kind: 'circular',
+        axis: 'y',
+        start: worldCenter.clone(),
+        end: worldCenter.clone(),
+        mid: worldCenter,
+        worldChain,
+        localStart: localCenter.clone(),
+        localEnd: localCenter.clone(),
+        localMid: localCenter,
+        localChain,
+        perpDirX: 0,
+        perpDirZ: 0,
+        radius: rim.radius,
+        isTopRim: rim.isTop,
+      });
+    }
+
+    return result;
+  }
+
+  private findClosestEdge(edges: BBoxEdge[], hitPoint: THREE.Vector3, mesh: THREE.Mesh): BBoxEdge | null {
     let closest: BBoxEdge | null = null;
     let minDist = Infinity;
 
+    // For circular edges we need the hit point in mesh-local space so radial
+    // distance is measured against the unrotated cylinder axis (Y).
+    const invMatrix = new THREE.Matrix4().copy(mesh.matrixWorld).invert();
+    const localHit = hitPoint.clone().applyMatrix4(invMatrix);
+
     for (const edge of edges) {
-      const d = this.distanceToSegment(hitPoint, edge.start, edge.end);
+      const d = edge.kind === 'circular' && edge.radius != null
+        ? this.distanceToCircle(localHit, edge.localMid.y, edge.radius)
+        : this.distanceToSegment(hitPoint, edge.start, edge.end);
       if (d < minDist) {
         minDist = d;
         closest = edge;
@@ -203,6 +279,13 @@ export class ChamferMode {
     }
 
     return closest;
+  }
+
+  private distanceToCircle(localHit: THREE.Vector3, circleY: number, radius: number): number {
+    const radial = Math.hypot(localHit.x, localHit.z);
+    const dr = radial - radius;
+    const dy = localHit.y - circleY;
+    return Math.hypot(dr, dy);
   }
 
   private findFirstMesh(obj: THREE.Object3D): THREE.Mesh | null {
@@ -290,8 +373,13 @@ export class ChamferMode {
       this.scene.remove(this.edgeHighlight);
     }
 
-    const geo = new THREE.BufferGeometry().setFromPoints([edge.start, edge.end]);
-    this.edgeHighlight = new THREE.Line(geo, this.edgeMaterial!);
+    if (edge.kind === 'circular') {
+      const geo = new THREE.BufferGeometry().setFromPoints(edge.worldChain);
+      this.edgeHighlight = new THREE.LineLoop(geo, this.edgeMaterial!);
+    } else {
+      const geo = new THREE.BufferGeometry().setFromPoints([edge.start, edge.end]);
+      this.edgeHighlight = new THREE.Line(geo, this.edgeMaterial!);
+    }
     this.edgeHighlight.renderOrder = 10;
     this.scene.add(this.edgeHighlight);
   }
@@ -302,6 +390,11 @@ export class ChamferMode {
 
     this.clearPreview();
     this.previewGroup = new THREE.Group();
+
+    if (edge.kind === 'circular') {
+      this.buildCircularPreview(edge);
+      return;
+    }
 
     const r = this.settings.radius;
     const edgeLen = edge.start.distanceTo(edge.end);
@@ -361,6 +454,38 @@ export class ChamferMode {
 
     this.previewGroup.add(container);
 
+    this.previewGroup.renderOrder = 9;
+    this.scene.add(this.previewGroup);
+  }
+
+  /**
+   * Preview for a cylinder rim fillet: a horizontal torus placed at the inside
+   * corner (major = R − r, minor = r), orientated to match the cylinder's world
+   * transform. This represents the shape of the fillet arc that will be added
+   * to the corner (and the matching annular material that will be removed).
+   */
+  private buildCircularPreview(edge: BBoxEdge): void {
+    if (!this.scene || !this.targetObject || !this.previewGroup) return;
+    const mesh = this.findFirstMesh(this.targetObject);
+    if (!mesh || edge.radius == null) return;
+
+    const r = this.settings.radius;
+    const major = Math.max(0.01, edge.radius - r);
+
+    const geo = new THREE.TorusGeometry(major, r, 12, 48);
+    // Default torus lies in XY; rotate into XZ so axis = Y (cylinder axis).
+    geo.rotateX(Math.PI / 2);
+
+    const previewMesh = new THREE.Mesh(geo, this.previewMaterial!);
+    // Shift along Y so the torus sits flush with the rim face.
+    const sign = edge.isTopRim ? -1 : +1;
+    previewMesh.position.y = edge.localMid.y + sign * r;
+
+    const container = new THREE.Group();
+    container.applyMatrix4(mesh.matrixWorld);
+    container.add(previewMesh);
+
+    this.previewGroup.add(container);
     this.previewGroup.renderOrder = 9;
     this.scene.add(this.previewGroup);
   }

@@ -1340,7 +1340,9 @@ function applyChamferToEdge(
 
   const r = settings.radius;
 
-  const chamferGroup = buildLinearChamfer(edge, r, settings.profile, node);
+  const chamferGroup = edge.kind === 'circular'
+    ? buildCircularChamfer(edge, r, node)
+    : buildLinearChamfer(edge, r, settings.profile, node);
 
   withHistory(() => {
     if (node instanceof GroupNode) {
@@ -1425,6 +1427,81 @@ function buildLinearChamfer(
     chamferGroup.params.rotation = { x: 0, y: 0, z: Math.PI / 2 };
   } else if (edge.axis === 'z') {
     chamferGroup.params.rotation = { x: Math.PI / 2, y: 0, z: 0 };
+  }
+
+  return chamferGroup;
+}
+
+/**
+ * Build chamfer group for a cylinder rim (circular edge) — concave fillet.
+ *
+ * Subtracting this group (isHole) from the cylinder yields a rounded outer rim.
+ * The group's effective volume is (annulus − fillet_torus):
+ *   outer_cyl(R, r)  −  inner_cyl(R−r, r+eps)  −  torus(R−r, r)
+ * (Group CSG: solids combined, then holes subtracted — so all three primitives
+ * collapse into that single expression in one CSG pass.)
+ *
+ * Canonical orientation builds the chamfer for the BOTTOM rim; the top rim is
+ * handled by translating to y=h and flipping with rotation.x = π (axially
+ * symmetric around Y, so the Z flip is harmless).
+ */
+function buildCircularChamfer(
+  edge: Record<string, any>,
+  r: number,
+  node: ModelNode,
+): GroupNode {
+  const R = Math.max(0.01, edge.radius as number);
+  const fillet = Math.min(r, R * 0.99);
+  const isTopRim = edge.isTopRim === true;
+  const lm = (edge.localMid as THREE.Vector3).clone();
+  if (node instanceof Primitive) {
+    lm.y += node.getHalfHeight();
+  }
+
+  const eps = 0.05;
+  const chamferGroup = new GroupNode();
+  chamferGroup.operation = 'union';
+  chamferGroup.name = 'Скругление';
+
+  // Annulus outer wall — radius R, height r, bottom face at group-local y=0.
+  const outerCyl = new Primitive('cylinder', {
+    radiusTop: R, radiusBottom: R, height: fillet, segments: 64,
+  });
+  outerCyl.params = { position: { x: 0, y: 0, z: 0 } };
+
+  // Inner cylinder carving out the annulus hollow; slightly taller/wider than
+  // the outer slab so CSG doesn't hit coplanar faces.
+  const innerCyl = new Primitive('cylinder', {
+    radiusTop: R - fillet,
+    radiusBottom: R - fillet,
+    height: fillet + eps,
+    segments: 64,
+  });
+  innerCyl.params = { position: { x: 0, y: -eps / 2, z: 0 }, isHole: true };
+
+  // Fillet torus — major radius (R−r), minor radius r, rotated so its axis is Y.
+  // Primitive torus halfHeight = tube, so position.y=0 places its center at y=r
+  // which is exactly the inside corner of the annulus.
+  const torus = new Primitive('torus', {
+    radius: R - fillet,
+    tube: fillet,
+    segments: 48,
+  });
+  torus.params = {
+    position: { x: 0, y: 0, z: 0 },
+    rotation: { x: Math.PI / 2, y: 0, z: 0 },
+    isHole: true,
+  };
+
+  chamferGroup.children.push(outerCyl, innerCyl, torus);
+
+  chamferGroup.params = {
+    position: { x: lm.x, y: lm.y, z: lm.z },
+    isHole: true,
+  };
+
+  if (isTopRim) {
+    chamferGroup.params.rotation = { x: Math.PI, y: 0, z: 0 };
   }
 
   return chamferGroup;
