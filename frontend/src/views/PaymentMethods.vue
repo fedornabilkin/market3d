@@ -33,6 +33,9 @@
 import { computed, onMounted } from 'vue';
 import Breadcrumbs from '../components/registry/Breadcrumbs.vue';
 import { useSponsorsStore } from '../store/sponsors';
+import { useSeoHeadI18n } from '@/composables/useSeoHead';
+
+useSeoHeadI18n('seo.paymentMethods');
 
 const sponsorsStore = useSponsorsStore();
 

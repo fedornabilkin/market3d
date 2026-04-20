@@ -4,7 +4,7 @@
   el-card
     template(#header)
       .header-section
-        h2 Активные кластеры
+        h1.title.is-4 {{ $t('seo.clusterList.h1') }}
         router-link(v-if="authStore.isAuthenticated" to="/clusters/create")
           el-button(type="primary") Создать
     ClusterFilter(
@@ -42,6 +42,9 @@ import ClusterFilter from '../components/registry/ClusterFilter.vue';
 import ClusterList from '../components/registry/ClusterList.vue';
 import Pagination from '../components/registry/Pagination.vue';
 import Breadcrumbs from '../components/registry/Breadcrumbs.vue';
+import { useSeoHeadI18n } from '@/composables/useSeoHead';
+
+useSeoHeadI18n('seo.clusterList');
 
 const route = useRoute();
 const clustersStore = useClustersStore();

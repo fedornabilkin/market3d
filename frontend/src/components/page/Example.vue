@@ -1,6 +1,9 @@
 <script setup>
 import CardExample from "@/components/example/CardExample.vue";
 import Breadcrumbs from "@/components/registry/Breadcrumbs.vue";
+import { useSeoHeadI18n } from '@/composables/useSeoHead';
+
+useSeoHeadI18n('seo.example');
 
 const items = {
   qr1: {
@@ -67,8 +70,8 @@ const items = {
   .container.is-fluid
     Breadcrumbs
     .box
-      h1.title.is-2 Примеры STL моделей 3d
-      p.subtitle.is-4 Примеры 3д моделей демонстрируют возможности генератора.
+      h1.title.is-2 {{ $t('seo.example.h1') }}
+      p.subtitle.is-4 {{ $t('seo.example.subtitle') }}
 
       .columns
         .column.is-half
@@ -139,6 +142,14 @@ const items = {
     .columns.is-desktop
       .column(v-for="item in items")
         CardExample(:item="item")
+
+    .box.constructor-promo
+      h2.title.is-4 {{ $t('seo.example.constructorBlock.title') }}
+      p {{ $t('seo.example.constructorBlock.text') }}
+      router-link.button.is-info.is-medium.mt-3(:to="{ name: 'Constructor' }")
+        span.icon
+          i.fa.fa-cubes
+        span {{ $t('seo.example.constructorBlock.button') }}
 </template>
 
 <style scoped>

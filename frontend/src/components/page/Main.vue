@@ -52,8 +52,8 @@
       :next-button-props="{ children: 'Перейти к генератору QR' }"
     )
   .hero-section
-    h1.title.is-1 {{ $t('g.title') }}
-    h2.subtitle.is-4 {{ $t('g.subtitle') }}
+    h1.title.is-1 {{ $t('seo.main.h1') }}
+    h2.subtitle.is-4 {{ $t('seo.main.subtitle') }}
     .hero-buttons(ref="heroButtonsRef")
       router-link.button.is-primary.is-large(:to="{ name: 'GeneratorQR' }")
         span.icon
@@ -122,6 +122,7 @@ const MAIN_STEPS = [
 import PaymentMethodsButton from "@/components/monetisation/PaymentMethodsButton.vue";
 import SponsorList from "@/components/monetisation/SponsorList.vue";
 import { useTourStore } from '@/store/tour';
+import { useSeoHeadI18n } from '@/composables/useSeoHead';
 
 export default {
   name: 'Main',
@@ -130,6 +131,7 @@ export default {
     PaymentMethodsButton,
   },
   setup() {
+    useSeoHeadI18n('seo.main');
     const carouselRef = ref(null);
     const heroButtonsRef = ref(null);
     const examplesRef = ref(null);

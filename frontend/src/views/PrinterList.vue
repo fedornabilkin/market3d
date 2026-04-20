@@ -4,7 +4,7 @@
   el-card
     template(#header)
       .header-section
-        h2 Принтеры
+        h1.title.is-4 {{ $t('seo.printerList.h1') }}
         router-link(to="/printers/register")
           el-button(type="primary") Создать
     PrinterFilter(:filters="filters" @update:filters="handleFilterUpdate")
@@ -36,6 +36,9 @@ import PrinterFilter from '../components/registry/PrinterFilter.vue';
 import PrinterCard from '../components/registry/PrinterCard.vue';
 import Pagination from '../components/registry/Pagination.vue';
 import Breadcrumbs from '../components/registry/Breadcrumbs.vue';
+import { useSeoHeadI18n } from '@/composables/useSeoHead';
+
+useSeoHeadI18n('seo.printerList');
 
 const route = useRoute();
 const router = useRouter();

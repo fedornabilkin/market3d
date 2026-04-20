@@ -26,6 +26,9 @@
       description="Здесь отображается сгенерированная модель. Вращайте и масштабируйте её мышью или жестами."
       :next-button-props="{ children: 'Готово' }"
     )
+  header.generator-header
+    h1.title.is-3 {{ $t('seo.generatorBraille.h1') }}
+    p.subtitle.is-6 {{ $t('seo.generatorBraille.subtitle') }}
   .generator-layout
     .generator-sidebar
       .container-settings(v-if="menuVisible()")
@@ -80,6 +83,7 @@ import HistoryModal from "@/components/generator/HistoryModal.vue";
 import { useTourStore } from "@/store/tour";
 import { useTourPlacement } from "@/service/useTourPlacement";
 import { useGenerator } from "@/service/useGenerator";
+import { useSeoHeadI18n } from "@/composables/useSeoHead";
 
 const BRAILLE_STEPS = ['common.tourButton', 'braille.settings', 'braille.scene'];
 
@@ -92,6 +96,7 @@ function buildFileName(options) {
 export default {
   name: 'GeneratorBraille',
   setup() {
+    useSeoHeadI18n('seo.generatorBraille');
     const { tp } = useTourPlacement();
     const gen = useGenerator({ fileName: buildFileName });
     return { tp, ...gen };

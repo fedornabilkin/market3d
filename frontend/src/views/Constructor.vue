@@ -441,6 +441,9 @@ import { dataURItoBlob } from '@/utils';
 import NodeTree from '@/components/constructor/NodeTree.vue';
 import { useTourStore } from '@/store/tour';
 import { useTourPlacement } from '@/service/useTourPlacement';
+import { useSeoHeadI18n } from '@/composables/useSeoHead';
+
+useSeoHeadI18n('seo.constructor');
 
 const tourStore = useTourStore();
 const { tp } = useTourPlacement();
@@ -485,65 +488,6 @@ const SCENE_COUNT = 3;
 const STORAGE_KEYS = Array.from({ length: SCENE_COUNT }, (_, i) => `constructor_scene_v1_${i}`);
 const RAD_TO_DEG = 180 / Math.PI;
 const DEG_TO_RAD = Math.PI / 180;
-
-// ─── SEO ──────────────────────────────────────────────────────────────────
-
-const SEO = {
-  title: '3D Конструктор — визуальный редактор моделей для 3D печати | VSQR.RU',
-  description: 'Бесплатный онлайн 3D конструктор. Создавайте модели из примитивов, объединяйте через CSG, экспортируйте в STL и OBJ для 3D печати.',
-  keywords: '3d конструктор, 3d редактор, stl, obj, 3d печать, csg, онлайн конструктор, визуальный редактор, 3d моделирование',
-  url: 'https://vsqr.ru/constructor',
-  image: 'https://vsqr.ru/android-chrome-192x192.png',
-  siteName: 'vsqr',
-};
-
-let _originalTitle = '';
-const _seoMetas: HTMLMetaElement[] = [];
-
-function installSeoMeta() {
-  _originalTitle = document.title;
-  document.title = SEO.title;
-
-  const tags: Record<string, string> = {
-    'description': SEO.description,
-    'keywords': SEO.keywords,
-    'og:title': SEO.title,
-    'og:description': SEO.description,
-    'og:url': SEO.url,
-    'og:image': SEO.image,
-    'og:type': 'website',
-    'og:site_name': SEO.siteName,
-    'twitter:card': 'summary',
-    'twitter:title': SEO.title,
-    'twitter:description': SEO.description,
-    'twitter:image:src': SEO.image,
-    'twitter:site': SEO.url,
-  };
-
-  for (const [key, value] of Object.entries(tags)) {
-    const isOg = key.startsWith('og:');
-    const isTwitter = key.startsWith('twitter:');
-    const attr = isOg || isTwitter ? 'property' : 'name';
-
-    // Remove existing tag if any
-    const existing = document.querySelector(`meta[${attr}="${key}"]`);
-    if (existing) existing.remove();
-
-    const meta = document.createElement('meta');
-    meta.setAttribute(attr, key);
-    meta.setAttribute('content', value);
-    document.head.appendChild(meta);
-    _seoMetas.push(meta);
-  }
-}
-
-function uninstallSeoMeta() {
-  document.title = _originalTitle;
-  for (const meta of _seoMetas) {
-    meta.remove();
-  }
-  _seoMetas.length = 0;
-}
 
 // ─── Refs ──────────────────────────────────────────────────────────────────
 
@@ -2004,8 +1948,6 @@ function handleImportSTL(event: Event) {
 // ─── Lifecycle ────────────────────────────────────────────────────────────
 
 onMounted(() => {
-  installSeoMeta();
-
   if (!containerRef.value) return;
 
   const serializer = new Serializer();
@@ -2163,7 +2105,6 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
-  uninstallSeoMeta();
   if (sceneService) {
     sceneService.unmount();
     sceneService = null;

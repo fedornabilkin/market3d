@@ -1,5 +1,8 @@
 <script setup>
 import {useRouter} from "vue-router";
+import { useSeoHeadI18n } from '@/composables/useSeoHead';
+
+useSeoHeadI18n('seo.notFound', { noIndex: true });
 
 const router = useRouter()
 const goBack = () => {

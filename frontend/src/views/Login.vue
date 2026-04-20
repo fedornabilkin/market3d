@@ -24,6 +24,9 @@ import { useRouter } from 'vue-router';
 import { useAuthStore } from '../store/auth';
 import type { FormInstance, FormRules } from 'element-plus';
 import Breadcrumbs from '../components/registry/Breadcrumbs.vue';
+import { useSeoHeadI18n } from '@/composables/useSeoHead';
+
+useSeoHeadI18n('seo.login', { noIndex: true });
 
 const router = useRouter();
 const authStore = useAuthStore();

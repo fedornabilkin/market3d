@@ -26,6 +26,9 @@
       description="Здесь отображается сгенерированная модель. Вращайте и масштабируйте её мышью или жестами."
       :next-button-props="{ children: 'Готово' }"
     )
+  header.generator-header
+    h1.title.is-3 {{ $t('seo.generatorGrz.h1') }}
+    p.subtitle.is-6 {{ $t('seo.generatorGrz.subtitle') }}
   .generator-layout
     .generator-sidebar
       .container-settings(v-if="menuVisible()")
@@ -80,6 +83,7 @@ import HistoryModal from "@/components/generator/HistoryModal.vue";
 import { useTourStore } from "@/store/tour";
 import { useTourPlacement } from "@/service/useTourPlacement";
 import { useGenerator } from "@/service/useGenerator";
+import { useSeoHeadI18n } from "@/composables/useSeoHead";
 
 const GRZ_STEPS = ['common.tourButton', 'grz.settings', 'grz.scene'];
 
@@ -95,6 +99,7 @@ function buildFileName(options) {
 export default {
   name: 'GeneratorGRZ',
   setup() {
+    useSeoHeadI18n('seo.generatorGrz');
     const { tp } = useTourPlacement();
     const gen = useGenerator({ fileName: buildFileName });
     return { tp, ...gen };
@@ -184,6 +189,20 @@ export default {
   max-width: 1400px;
   margin: 0 auto;
   padding: 1rem;
+}
+
+.generator-header {
+  text-align: center;
+  margin-bottom: 1.5rem;
+}
+
+.generator-header .title {
+  margin-bottom: 0.5rem;
+}
+
+.generator-header .subtitle {
+  opacity: 0.8;
+  margin-bottom: 0;
 }
 
 .generator-layout {

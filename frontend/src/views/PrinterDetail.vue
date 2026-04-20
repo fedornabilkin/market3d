@@ -69,6 +69,9 @@ import { usePrintersStore } from '../store/printers';
 import { useAuthStore } from '../store/auth';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import Breadcrumbs from '../components/registry/Breadcrumbs.vue';
+import { useSeoHeadI18n } from '@/composables/useSeoHead';
+
+useSeoHeadI18n('seo.printerDetail');
 
 const route = useRoute();
 const printersStore = usePrintersStore();

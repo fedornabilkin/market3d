@@ -56,6 +56,9 @@
       description="Здесь отображается модель. Вращайте и масштабируйте её мышью или жестами."
       :next-button-props="{ children: 'Готово' }"
     )
+  header.generator-header
+    h1.title.is-3 {{ $t('seo.generatorNametag.h1') }}
+    p.subtitle.is-6 {{ $t('seo.generatorNametag.subtitle') }}
   .generator-layout
     .generator-sidebar
       .container-settings(v-if="menuVisible()")
@@ -110,6 +113,7 @@ import HistoryModal from '@/components/generator/HistoryModal.vue';
 import { useTourStore } from '@/store/tour';
 import { useTourPlacement } from '@/service/useTourPlacement';
 import { useGenerator } from '@/service/useGenerator';
+import { useSeoHeadI18n } from '@/composables/useSeoHead';
 
 const NAMETAG_STEPS = [
   'common.tourButton',
@@ -131,6 +135,7 @@ function buildFileName(options) {
 export default {
   name: 'GeneratorNameTag',
   setup() {
+    useSeoHeadI18n('seo.generatorNametag');
     const { tp } = useTourPlacement();
     const gen = useGenerator({ fileName: buildFileName });
     return { tp, ...gen };

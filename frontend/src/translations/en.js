@@ -388,5 +388,99 @@ export default {
     copyLink: 'Скопировать ссылку',
   },
 
+  seo: {
+    main: {
+      title: '3D STL Generator — keychains, QR, license plates, Braille, coasters, name tags',
+      description: 'Free online 3D model generators for printing: QR codes, license plates, Braille, coasters, keychain name tags, plus a visual 3D constructor. Export to STL and OBJ.',
+      keywords: '3d generator, stl file, 3d printing, online constructor, 3d printer models, stl generator',
+      h1: 'Online 3D model generators for printing',
+      subtitle: 'Build STL files in your browser — QR codes, license plates, Braille, coasters, 3D lettering and freeform assemblies.',
+    },
+    example: {
+      title: 'STL model examples — keychains, QR codes, tags | vsqr',
+      description: 'Gallery of ready-made 3D models: QR codes, keychains with icons and text, name tags. Each example ships with presets — open it in the generator with one click.',
+      keywords: 'stl examples, 3d models, qr code 3d, keychain stl, ready-made 3d printing models',
+      h1: 'STL model examples for 3D printing',
+      subtitle: 'A showcase of models built with our generators — pick one and open it in the editor.',
+      constructorBlock: {
+        title: '3D Constructor — assemble your own model from primitives',
+        text: 'If the generators feel limiting, open the 3D constructor. A scene with primitives (box, sphere, cylinder, torus, 3D text), grid-snap movement, boolean operations and STL import. Projects are saved in your browser, so you can return later. Export the finished build to STL or OBJ for 3D printing.',
+        button: 'Open 3D Constructor',
+      },
+    },
+    generatorGrz: {
+      title: 'License Plate 3D Generator — STL for 3D printing | vsqr',
+      description: 'Build a 3D license plate online: enter letters, digits and region, tune sizes and thickness, and download an STL file for your 3D printer.',
+      keywords: 'license plate 3d, car plate stl, license plate 3d printing, plate generator',
+      h1: 'License Plate 3D Generator',
+      subtitle: 'A number plate for 3D printing — enter letters, digits and region.',
+    },
+    generatorBraille: {
+      title: 'Braille 3D Generator — tactile text in STL | vsqr',
+      description: 'Online generator for embossed Braille in 3D. Enter text, pick 6- or 8-dot standard, tune dot height and download an STL file for tactile printing.',
+      keywords: 'braille 3d, braille stl, tactile text 3d printing, tactile signs, accessibility',
+      h1: 'Braille 3D Generator',
+      subtitle: 'Embossed tactile text — for signs, labels and inclusive projects.',
+    },
+    generatorCoaster: {
+      title: '3D Coaster Generator — STL online | vsqr',
+      description: 'Design a 3D coaster: round or square, target rings, text, icon and keychain loop. Tune sizes and color, then download an STL for 3D printing.',
+      keywords: 'coaster 3d stl, 3d print coaster, coaster generator, drink coaster 3d',
+      h1: '3D Coaster Generator',
+      subtitle: 'Round or square coasters with text and icon — exported as STL.',
+    },
+    generatorNametag: {
+      title: '3D Lettering & Name Tag Generator — STL text | vsqr',
+      description: 'Build 3D lettering: pick a font, set letter height, add a bevel, backing plate or hollow letters. Ready-made signs or a keychain with a name — as STL.',
+      keywords: 'text 3d, 3d lettering stl, name keychain, text 3d print, 3d font, sign generator',
+      h1: '3D Lettering & Name Tag Generator',
+      subtitle: '3D text with bevel, backing plate and hollow letters — ready for 3D printing.',
+    },
+    constructor: {
+      title: '3D Model Constructor — build STL online | vsqr',
+      description: 'Browser-based visual 3D editor: primitives (box, sphere, cylinder, torus, text), boolean operations, STL import, grid snapping, undo history. Export to STL and OBJ.',
+      keywords: '3d constructor online, build 3d model, csg online, stl editor in browser, boolean operations 3d, online stl editor',
+      h1: '3D Model Constructor',
+      subtitle: 'Assemble models from primitives and export the build to STL or OBJ.',
+    },
+    paymentMethods: {
+      title: 'Support vsqr — payment methods',
+      description: 'Help us keep the free 3D generators running. Support via YooKassa, YooMoney, SBP and other convenient methods.',
+      keywords: 'support vsqr, donate 3d generator, yookassa, yoomoney, sbp',
+      h1: 'Support the project',
+    },
+    printerList: {
+      title: '3D Printer Catalogue — rent and print services | vsqr',
+      description: 'Curated list of 3D printers: models, materials, build volume, price per hour. Filter by state and capabilities — and order 3D printing.',
+      keywords: '3d printer catalogue, 3d printer rental, 3d printing service, printer list, order 3d printing',
+      h1: '3D Printer Catalogue',
+    },
+    clusterList: {
+      title: '3D Printing Clusters — services by city | vsqr',
+      description: 'Active 3D printer clusters: regional printing services with materials, colors and order conditions.',
+      keywords: '3d printing cluster, 3d printing service, nearby 3d printer, where to order 3d printing',
+      h1: 'Active 3D printing clusters',
+    },
+    printerDetail: {
+      title: '3D printer — specs and materials | vsqr',
+      description: 'Details on the 3D printer: manufacturer, model, build volume, available materials and colors, printing conditions.',
+    },
+    clusterDetail: {
+      title: '3D printing cluster — composition and materials | vsqr',
+      description: 'Cluster details: region, city, list of printers, materials, colors and order conditions.',
+    },
+    login: {
+      title: 'Sign in — vsqr',
+      description: 'Sign in to your vsqr account to manage 3D printing orders, your printers and clusters.',
+    },
+    register: {
+      title: 'Sign up — vsqr',
+      description: 'Create a vsqr account to place 3D printing orders and publish printers.',
+    },
+    notFound: {
+      title: 'Page not found — vsqr',
+      description: 'Sorry, this page does not exist. Go back or open the home page.',
+    },
+  },
 
 };
