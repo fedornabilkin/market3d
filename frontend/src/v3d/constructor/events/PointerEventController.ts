@@ -482,8 +482,18 @@ export class PointerEventController {
         targetPoint.x -= host.dragOffset.x;
         targetPoint.z -= host.dragOffset.y;
         if (host.snapStep > 0) {
-          targetPoint.x = Math.round(targetPoint.x / host.snapStep) * host.snapStep;
-          targetPoint.z = Math.round(targetPoint.z / host.snapStep) * host.snapStep;
+          // Snap the left (min.x) and front (min.z) face of the AABB to grid
+          // lines rather than the center — odd-sized objects keep their visible
+          // face on the grid instead of drifting by half-a-unit.
+          const worldPos = new THREE.Vector3();
+          host.dragTarget.getWorldPosition(worldPos);
+          const bbox = new THREE.Box3().setFromObject(host.dragTarget);
+          const offMinX = bbox.min.x - worldPos.x;
+          const offMinZ = bbox.min.z - worldPos.z;
+          const snappedMinX = Math.round((targetPoint.x + offMinX) / host.snapStep) * host.snapStep;
+          const snappedMinZ = Math.round((targetPoint.z + offMinZ) / host.snapStep) * host.snapStep;
+          targetPoint.x = snappedMinX - offMinX;
+          targetPoint.z = snappedMinZ - offMinZ;
         }
 
         // Cruise mode: snap to neighbor edges

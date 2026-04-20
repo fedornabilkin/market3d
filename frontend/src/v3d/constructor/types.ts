@@ -13,7 +13,8 @@ export type PrimitiveType =
   | 'torus'
   | 'plane'
   | 'ring'
-  | 'thread';
+  | 'thread'
+  | 'knurl';
 
 /** Transform params compatible with Three.js (position, scale, rotation). */
 export interface NodeParams {
@@ -57,6 +58,11 @@ export interface PrimitiveParams {
   turns?: number;
   threadProfile?: string;
   leftHand?: boolean;
+  // Knurl
+  notchCount?: number;
+  knurlPattern?: string;
+  knurlAngle?: number;
+  segmentsPerNotch?: number;
   [key: string]: unknown;
 }
 

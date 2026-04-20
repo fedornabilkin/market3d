@@ -1,16 +1,19 @@
 import * as THREE from 'three';
 import { generateThreadGeometry, DEFAULT_THREAD_SETTINGS } from './ThreadGenerator';
 import type { ThreadSettings } from './ThreadGenerator';
+import { generateKnurlGeometry, DEFAULT_KNURL_SETTINGS } from './KnurlGenerator';
+import type { KnurlSettings } from './KnurlGenerator';
 
-export type GeneratorType = 'thread';
+export type GeneratorType = 'thread' | 'knurl';
 
 export interface GeneratorSettings {
   type: GeneratorType;
   thread: ThreadSettings;
+  knurl: KnurlSettings;
 }
 
 /**
- * Mode controller for procedural generators (thread, gear, spring, …).
+ * Mode controller for procedural generators (thread, knurl, …).
  *
  * Manages the active generator type, its settings, and a live preview mesh
  * that updates when settings change.  When the user confirms, the callback
@@ -24,6 +27,7 @@ export class GeneratorMode {
   settings: GeneratorSettings = {
     type: 'thread',
     thread: { ...DEFAULT_THREAD_SETTINGS },
+    knurl: { ...DEFAULT_KNURL_SETTINGS },
   };
 
   /** Called when the user confirms generation. Delivers the final geometry + height. */
@@ -77,6 +81,7 @@ export class GeneratorMode {
       opacity: 0.6,
       side: THREE.DoubleSide,
       depthWrite: false,
+      flatShading: this.settings.type === 'knurl',
     });
 
     this.previewMesh = new THREE.Mesh(geometry, material);
@@ -107,6 +112,9 @@ export class GeneratorMode {
     if (s.type === 'thread') {
       height = s.thread.pitch * s.thread.turns;
       name = 'Резьба';
+    } else if (s.type === 'knurl') {
+      height = s.knurl.height;
+      name = 'Насечки';
     }
 
     this.onGenerate(geometry, height, name);
@@ -119,6 +127,8 @@ export class GeneratorMode {
     switch (s.type) {
       case 'thread':
         return generateThreadGeometry(s.thread);
+      case 'knurl':
+        return generateKnurlGeometry(s.knurl);
       default:
         return null;
     }

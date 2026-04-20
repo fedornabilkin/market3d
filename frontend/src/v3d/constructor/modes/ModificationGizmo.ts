@@ -652,68 +652,34 @@ export class ModificationGizmo {
 
   private getDimensionLabel(type: HandleType): string | null {
     if (!this.node) return null;
-    const g = this.node.geometryParams;
-    const s = this.node.params?.scale;
-    const sx = s?.x ?? 1;
-    const sy = s?.y ?? 1;
-    const sz = s?.z ?? 1;
 
-    // For groups without geometryParams, use bounding box size
-    if (!g) {
-      const bw = +this.boxSize.x.toFixed(1);
-      const bh = +this.boxSize.y.toFixed(1);
-      const bd = +this.boxSize.z.toFixed(1);
-      switch (type) {
-        case 'edgeWidthLeft':
-        case 'edgeWidthRight':
-          return `W: ${bw}`;
-        case 'edgeLengthFront':
-        case 'edgeLengthBack':
-          return `D: ${bd}`;
-        case 'height':
-          return `H: ${bh}`;
-        case 'cornerBL':
-        case 'cornerBR':
-        case 'cornerTL':
-        case 'cornerTR':
-          return `${bw} × ${bd}`;
-        case 'offsetY':
-          return `Y: ${+(this.node.params?.position?.y ?? 0).toFixed(1)}`;
-        default:
-          return null;
-      }
-    }
-
-    const nodeType = this.node.type as string | undefined;
-    const w = g.width ?? 1;
-    const h = g.height ?? 1;
-    const d = g.depth ?? 1;
-    const r = g.radius ?? 0.5;
-    const tube = g.tube ?? 0.2;
-
-    // Projected bounding dimensions for round objects
-    const isRound = nodeType === 'sphere' || nodeType === 'cylinder' || nodeType === 'cone';
-    const isTorus = nodeType === 'torus';
-    const projW = isRound ? 2 * r : isTorus ? 2 * (r + tube) : w;
-    const projD = isRound ? 2 * r : isTorus ? 2 * (r + tube) : d;
-    const projH = nodeType === 'sphere' ? 2 * r : isTorus ? 2 * tube : h;
+    // Use AABB dimensions directly — uniformly covers primitives (including
+    // cylinders with different radiusTop/radiusBottom), rotated/scaled objects,
+    // groups and imports. Values align with what's visible on the grid.
+    const bw = +this.boxSize.x.toFixed(2);
+    const bh = +this.boxSize.y.toFixed(2);
+    const bd = +this.boxSize.z.toFixed(2);
+    const rawBottomY = this.box.min.y;
+    // Snap near-zero bottom to 0 so an object sitting on the grid never shows a
+    // small negative number from floating-point drift or group-pivot offsets.
+    const bottomY = Math.abs(rawBottomY) < 0.05 ? 0 : +rawBottomY.toFixed(2);
 
     switch (type) {
       case 'edgeWidthLeft':
       case 'edgeWidthRight':
-        return `W: ${+(projW * sx).toFixed(2)}`;
+        return `W: ${bw}`;
       case 'edgeLengthFront':
       case 'edgeLengthBack':
-        return `D: ${+(projD * sz).toFixed(2)}`;
+        return `D: ${bd}`;
       case 'height':
-        return `H: ${+(projH * sy).toFixed(2)}`;
+        return `H: ${bh}`;
       case 'cornerBL':
       case 'cornerBR':
       case 'cornerTL':
       case 'cornerTR':
-        return `${+(projW * sx).toFixed(2)} × ${+(projD * sz).toFixed(2)}`;
+        return `${bw} × ${bd}`;
       case 'offsetY':
-        return `Y: ${+(this.node.params?.position?.y ?? 0).toFixed(2)}`;
+        return `Y: ${bottomY}`;
       case 'rotateX': {
         const deg = +((this.node.params?.rotation?.x ?? 0) * (180 / Math.PI)).toFixed(1);
         return `X: ${deg}°`;

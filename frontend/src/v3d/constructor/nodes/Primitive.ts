@@ -8,13 +8,16 @@ import { applyHoleStyle } from '../holeMaterial';
 import { RoundedBoxBufferGeometry } from '../geometry/RoundedBoxBufferGeometry';
 import { RoundedCylinderBufferGeometry } from '../geometry/RoundedCylinderBufferGeometry';
 import { generateThreadGeometry } from '../generators/ThreadGenerator';
+import { generateKnurlGeometry } from '../generators/KnurlGenerator';
+import type { KnurlSettings } from '../generators/KnurlGenerator';
 
 /** Creates a fresh PhongMaterial per mesh — no shared global state. */
-function createMaterial(color?: string, isHole?: boolean): THREE.MeshPhongMaterial {
+function createMaterial(color?: string, isHole?: boolean, flatShading?: boolean): THREE.MeshPhongMaterial {
   const mat = new THREE.MeshPhongMaterial({
     color: color ? new THREE.Color(color) : 0x00a5a4,
     shininess: 30,
     specular: 0x444444,
+    flatShading: flatShading === true,
   });
   if (isHole) {
     applyHoleStyle(mat);
@@ -66,7 +69,8 @@ export class Primitive extends ModelNode {
     const geometry = this.createGeometry();
     const material = createMaterial(
       this.params?.color as string | undefined,
-      this.params?.isHole as boolean | undefined
+      this.params?.isHole as boolean | undefined,
+      this.type === 'knurl'
     );
     const mesh = new THREE.Mesh(geometry, material);
     this.applyParamsToMesh(mesh);
@@ -98,6 +102,8 @@ export class Primitive extends ModelNode {
         const turns = g.turns ?? 5;
         return (pitch * turns) / 2;
       }
+      case 'knurl':
+        return (g.height ?? 10) / 2;
       default:
         return h / 2;
     }
@@ -160,6 +166,17 @@ export class Primitive extends ModelNode {
           profile: (p.threadProfile as 'trapezoid') ?? 'trapezoid',
           segmentsPerTurn: seg,
           leftHand: p.leftHand === true,
+        });
+      case 'knurl':
+        return generateKnurlGeometry({
+          outerDiameter: p.outerDiameter ?? 10,
+          innerDiameter: p.innerDiameter ?? 9,
+          height: p.height ?? 10,
+          notchCount: p.notchCount ?? 24,
+          pattern: (p.knurlPattern as KnurlSettings['pattern']) ?? 'straight',
+          angle: p.knurlAngle ?? 30,
+          segmentsPerNotch: p.segmentsPerNotch ?? 6,
+          heightSegments: p.heightSegments ?? 24,
         });
       default:
         return new THREE.BoxGeometry(1, 1, 1);

@@ -975,7 +975,6 @@ export class ConstructorSceneService {
       // Vertical offset: pure translation
       case 'offsetY':
         p.y = (p.y ?? 0) + dy;
-        this.showYZeroIndicatorIfNeeded(node);
         break;
 
       // Axis-constrained rotation: dx = absolute angle, applied in world space via quaternion
@@ -1043,6 +1042,7 @@ export class ConstructorSceneService {
       }
     }
 
+    this.showYZeroIndicatorIfNeeded(node);
     this.options.onNodeParamsChanged?.(node);
   }
 
@@ -1114,7 +1114,6 @@ export class ConstructorSceneService {
     if (direction === 'up' || direction === 'down') {
       p.y = (p.y ?? 0) + step * (direction === 'up' ? 1 : -1);
       p.y = Math.round(p.y / step) * step;
-      this.showYZeroIndicatorIfNeeded(node);
     } else {
       // Camera-relative direction, but snapped to the dominant world axis
       const camDir = new THREE.Vector3();
@@ -1132,13 +1131,19 @@ export class ConstructorSceneService {
         case 'left':     moveDir = camRight.clone().negate(); break;
       }
 
-      // Pick the dominant axis (X or Z) and move only along it
+      // Snap the left (min.x) / front (min.z) face to grid rather than the
+      // center — odd-sized objects keep their visible face on the grid.
+      const objForBox = this.selectedObject3D;
+      const bbox = objForBox ? new THREE.Box3().setFromObject(objForBox) : null;
+      const offMinX = bbox && objForBox ? bbox.min.x - objForBox.position.x : 0;
+      const offMinZ = bbox && objForBox ? bbox.min.z - objForBox.position.z : 0;
+
       if (Math.abs(moveDir.x) >= Math.abs(moveDir.z)) {
         p.x = (p.x ?? 0) + Math.sign(moveDir.x) * step;
-        p.x = Math.round(p.x / step) * step;
+        p.x = Math.round((p.x + offMinX) / step) * step - offMinX;
       } else {
         p.z = (p.z ?? 0) + Math.sign(moveDir.z) * step;
-        p.z = Math.round(p.z / step) * step;
+        p.z = Math.round((p.z + offMinZ) / step) * step - offMinZ;
       }
     }
 
@@ -1149,6 +1154,7 @@ export class ConstructorSceneService {
       obj.position.set(p.x, (p.y ?? 0) + halfH, p.z);
     }
 
+    this.showYZeroIndicatorIfNeeded(node);
     this.options.onNodeParamsChanged?.(node);
   }
 
@@ -1244,10 +1250,18 @@ export class ConstructorSceneService {
   // ─── Private: Y=0 indicator ───────────────────────────────────
 
   private showYZeroIndicatorIfNeeded(node: ModelNode): void {
-    if (!this.scene || !node.params?.position) return;
-    const posY = node.params.position.y ?? 0;
-    // Show indicator when Y position is exactly 0 (on grid)
-    if (Math.abs(posY) < 0.001) {
+    if (!this.scene) return;
+    // Use the actual mesh bounding-box bottom — position.y semantics differ
+    // between primitives (bottom face), groups (raw origin), and imports, so
+    // relying on params.position.y would miss groups whose origin sits above
+    // the grid while their visual bottom lands on it.
+    const obj = this.modelRootGroup ? this.findObjectByNode(this.modelRootGroup, node) : null;
+    if (!obj) {
+      this.hideYZeroIndicator();
+      return;
+    }
+    const box = new THREE.Box3().setFromObject(obj);
+    if (Math.abs(box.min.y) < 0.05) {
       this.showYZeroIndicator(node);
     } else {
       this.hideYZeroIndicator();

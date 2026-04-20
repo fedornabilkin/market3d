@@ -57,7 +57,7 @@
             i.fas.fa-folder-open
           button.btn-icon(@click="clearScene" title="Очистить сцену")
             i.fas.fa-trash-alt
-      .node-list
+      .node-list(v-show="!generatorModeActive")
         NodeTree(
           v-if="rootNode"
           :node="rootNode"
@@ -82,11 +82,16 @@
     .constructor-panel.constructor-panel--settings
       template(v-if="generatorModeActive")
         .panel-header Генератор
+        .generator-tabs
+          button.generator-tab(
+            :class="{ 'is-active': generatorType === 'thread' }"
+            @click="setGeneratorType('thread')"
+          ) Резьба
+          button.generator-tab(
+            :class="{ 'is-active': generatorType === 'knurl' }"
+            @click="setGeneratorType('knurl')"
+          ) Насечки
         .settings-content
-          .field
-            label.label Тип
-            select.input.is-small(v-model="generatorType")
-              option(value="thread") Резьба
           template(v-if="generatorType === 'thread'")
             .field
               label.label Внешний диаметр (мм)
@@ -107,6 +112,44 @@
               label.checkbox
                 input(type="checkbox" v-model="threadSettings.leftHand")
                 span  Левая резьба
+          template(v-else-if="generatorType === 'knurl'")
+            .field
+              label.label Внешний диаметр (мм)
+              input.input.is-small(
+                type="number"
+                step="0.5"
+                :min="knurlSettings.innerDiameter"
+                v-model.number="knurlSettings.outerDiameter"
+              )
+            .field
+              label.label Внутренний диаметр (мм)
+              input.input.is-small(
+                type="number"
+                step="0.5"
+                min="0.5"
+                :max="knurlSettings.outerDiameter"
+                v-model.number="knurlSettings.innerDiameter"
+              )
+            .field
+              label.label Высота (мм)
+              input.input.is-small(type="number" step="0.5" min="0.5" v-model.number="knurlSettings.height")
+            .field
+              label.label Количество насечек
+              input.input.is-small(type="number" step="1" min="3" v-model.number="knurlSettings.notchCount")
+            .field
+              label.label Узор
+              select.input.is-small(v-model="knurlSettings.pattern")
+                option(value="straight") Прямые
+                option(value="diagonal" disabled) Диагональные (скоро)
+                option(value="diamond" disabled) Ромбовидные (скоро)
+                option(value="cross45" disabled) Перекрёстные 45° (скоро)
+                option(value="flatDiamond" disabled) Плоский ромб (скоро)
+            .field
+              label.label Сегментов на насечку
+              input.input.is-small(type="number" step="1" min="2" v-model.number="knurlSettings.segmentsPerNotch")
+            .field
+              label.label Шагов по высоте
+              input.input.is-small(type="number" step="4" min="4" v-model.number="knurlSettings.heightSegments")
           .field
             button.button.is-small.is-primary(@click="confirmGenerator" style="width:100%") Применить
       template(v-else-if="chamferModeActive")
@@ -570,7 +613,7 @@ const chamferModeActive = ref(false);
 const chamferRadius = ref(2);
 
 const generatorModeActive = ref(false);
-const generatorType = ref<'thread'>('thread');
+const generatorType = ref<'thread' | 'knurl'>('thread');
 const threadSettings = ref({
   outerDiameter: 10,
   innerDiameter: 8,
@@ -578,6 +621,25 @@ const threadSettings = ref({
   turns: 5,
   segmentsPerTurn: 64,
   leftHand: false,
+});
+const knurlSettings = ref<{
+  outerDiameter: number;
+  innerDiameter: number;
+  height: number;
+  notchCount: number;
+  pattern: 'straight' | 'diagonal' | 'diamond' | 'cross45' | 'flatDiamond';
+  angle: number;
+  segmentsPerNotch: number;
+  heightSegments: number;
+}>({
+  outerDiameter: 10,
+  innerDiameter: 9,
+  height: 10,
+  notchCount: 16,
+  pattern: 'straight',
+  angle: 30,
+  segmentsPerNotch: 4,
+  heightSegments: 12,
 });
 watch([chamferRadius], () => {
   if (sceneService && chamferModeActive.value) {
@@ -588,13 +650,54 @@ watch([chamferRadius], () => {
   }
 });
 watch(threadSettings, () => {
-  if (sceneService && generatorModeActive.value) {
+  if (sceneService && generatorModeActive.value && generatorType.value === 'thread') {
     const gm = sceneService.getGeneratorMode();
     const s = threadSettings.value;
     gm.settings.thread = { ...s, profile: 'trapezoid' };
     gm.updatePreview();
   }
 }, { deep: true });
+watch(knurlSettings, () => {
+  if (sceneService && generatorModeActive.value && generatorType.value === 'knurl') {
+    const gm = sceneService.getGeneratorMode();
+    gm.settings.knurl = { ...knurlSettings.value };
+    gm.updatePreview();
+  }
+}, { deep: true });
+
+watch(() => knurlSettings.value.outerDiameter, (newOuter, oldOuter) => {
+  if (typeof newOuter !== 'number' || newOuter <= 0) return;
+  if (typeof oldOuter === 'number' && oldOuter > 0 && oldOuter !== newOuter) {
+    const ratio = newOuter / oldOuter;
+    const scaled = Math.max(3, Math.round(knurlSettings.value.notchCount * ratio));
+    if (scaled !== knurlSettings.value.notchCount) {
+      knurlSettings.value.notchCount = scaled;
+    }
+  }
+  if (newOuter < knurlSettings.value.innerDiameter) {
+    knurlSettings.value.innerDiameter = newOuter;
+  }
+});
+
+watch(() => knurlSettings.value.innerDiameter, (newInner) => {
+  if (typeof newInner !== 'number' || newInner <= 0) return;
+  if (newInner > knurlSettings.value.outerDiameter) {
+    knurlSettings.value.outerDiameter = newInner;
+  }
+});
+
+function setGeneratorType(type: 'thread' | 'knurl') {
+  generatorType.value = type;
+  if (!sceneService || !generatorModeActive.value) return;
+  const gm = sceneService.getGeneratorMode();
+  gm.settings.type = type;
+  if (type === 'thread') {
+    gm.settings.thread = { ...threadSettings.value, profile: 'trapezoid' };
+  } else {
+    gm.settings.knurl = { ...knurlSettings.value };
+  }
+  gm.updatePreview();
+}
 
 const selectedGroupOperation = ref('union');
 const selectedPosition = ref({ x: 0, y: 0, z: 0 });
@@ -722,6 +825,22 @@ const GEOMETRY_FIELDS = {
     { key: 'innerRadius', label: 'Внутр. радиус' },
     { key: 'outerRadius', label: 'Внешн. радиус' },
     { key: 'segments', label: 'Сегменты' },
+  ],
+  thread: [
+    { key: 'outerDiameter', label: 'Внеш. Ø' },
+    { key: 'innerDiameter', label: 'Внутр. Ø' },
+    { key: 'pitch', label: 'Шаг' },
+    { key: 'turns', label: 'Витки' },
+    { key: 'segments', label: 'Сегм/виток' },
+  ],
+  knurl: [
+    { key: 'outerDiameter', label: 'Внеш. Ø' },
+    { key: 'innerDiameter', label: 'Внутр. Ø' },
+    { key: 'height', label: 'Высота' },
+    { key: 'notchCount', label: 'Насечек' },
+    { key: 'knurlAngle', label: 'Угол' },
+    { key: 'segmentsPerNotch', label: 'Сегм/нас.' },
+    { key: 'heightSegments', label: 'Сегм/выс.' },
   ],
 };
 
@@ -1179,8 +1298,8 @@ function toggleGeneratorMode() {
   if (generatorModeActive.value) {
     const gm = sceneService.getGeneratorMode();
     gm.settings.type = generatorType.value;
-    const s = threadSettings.value;
-    gm.settings.thread = { ...s, profile: 'trapezoid' };
+    gm.settings.thread = { ...threadSettings.value, profile: 'trapezoid' };
+    gm.settings.knurl = { ...knurlSettings.value };
     gm.updatePreview();
     // Deactivate other exclusive modes
     if (chamferModeActive.value) {
@@ -1910,16 +2029,33 @@ onMounted(() => {
     const r = modelApp.value!.getModelManager().getTree();
     if (!(r instanceof GroupNode)) return;
 
-    const ts = sceneService!.getGeneratorMode().settings.thread;
-    const prim = new Primitive('thread', {
-      outerDiameter: ts.outerDiameter,
-      innerDiameter: ts.innerDiameter,
-      pitch: ts.pitch,
-      turns: ts.turns,
-      threadProfile: ts.profile,
-      segments: ts.segmentsPerTurn,
-      leftHand: ts.leftHand === true,
-    }, { position: { x: 0, y: 0, z: 0 } });
+    const gm = sceneService!.getGeneratorMode();
+    let prim: Primitive;
+
+    if (gm.settings.type === 'thread') {
+      const ts = gm.settings.thread;
+      prim = new Primitive('thread', {
+        outerDiameter: ts.outerDiameter,
+        innerDiameter: ts.innerDiameter,
+        pitch: ts.pitch,
+        turns: ts.turns,
+        threadProfile: ts.profile,
+        segments: ts.segmentsPerTurn,
+        leftHand: ts.leftHand === true,
+      }, { position: { x: 0, y: 0, z: 0 } });
+    } else {
+      const ks = gm.settings.knurl;
+      prim = new Primitive('knurl', {
+        outerDiameter: ks.outerDiameter,
+        innerDiameter: ks.innerDiameter,
+        height: ks.height,
+        notchCount: ks.notchCount,
+        knurlPattern: ks.pattern,
+        knurlAngle: ks.angle,
+        segmentsPerNotch: ks.segmentsPerNotch,
+        heightSegments: ks.heightSegments,
+      }, { position: { x: 0, y: 0, z: 0 } });
+    }
     prim.name = name;
 
     withHistory(() => {
@@ -2105,6 +2241,39 @@ onBeforeUnmount(() => {
 .shape-svg {
   width: 1.2rem;
   height: 1.2rem;
+}
+
+/* ─── Generator tabs ──────────────────────────────────────────── */
+.generator-tabs {
+  display: flex;
+  gap: 0;
+  margin-bottom: 0.75rem;
+  border: 1px solid #d0d0d0;
+  border-radius: 6px;
+  overflow: hidden;
+}
+.generator-tab {
+  flex: 1;
+  padding: 0.4rem 0;
+  font-size: 0.82rem;
+  font-weight: 500;
+  border: none;
+  background: #f5f5f5;
+  color: #666;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.generator-tab:not(:last-child) {
+  border-right: 1px solid #d0d0d0;
+}
+.generator-tab:hover:not(.is-active) {
+  background: #e8e8e8;
+  color: #333;
+}
+.generator-tab.is-active {
+  background: #4a7cff;
+  color: #fff;
+  font-weight: 600;
 }
 
 /* ─── Settings panel ──────────────────────────────────────────── */
