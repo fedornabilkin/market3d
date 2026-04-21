@@ -1,4 +1,6 @@
 <script setup>
+import OffsetField from '@/components/forms/OffsetField.vue'
+
 const props = defineProps(['options', 'unit'])
 </script>
 
@@ -75,26 +77,20 @@ const props = defineProps(['options', 'unit'])
 
       .field.is-horizontal
         .field-body
-          .field.has-addons
-            p.control(:title="$t('form.icon.offsetX')")
-              .button.is-static.is-small
-                span
-                  i.fa.fa-arrow-right
-            .control
-              input.input.is-small(type='number' v-model.number='props.options.keychain.offsetX')
-            p.control
-              a.button.is-static.is-small {{unit}}
+          OffsetField(
+            axis='x'
+            :title="$t('form.icon.offsetX')"
+            :modelValue='props.options.keychain.offsetX'
+            @update:modelValue='props.options.keychain.offsetX = $event'
+          )
 
       .field.is-horizontal
         .field-body
-          .field.has-addons
-            p.control(:title="$t('form.icon.offsetY')")
-              .button.is-static.is-small
-                span
-                  i.fa.fa-arrow-up
-            .control
-              input.input.is-small(type='number' v-model.number='props.options.keychain.offsetY')
-            p.control
-              a.button.is-static.is-small {{unit}}
+          OffsetField(
+            axis='y'
+            :title="$t('form.icon.offsetY')"
+            :modelValue='props.options.keychain.offsetY'
+            @update:modelValue='props.options.keychain.offsetY = $event'
+          )
 </template>
 

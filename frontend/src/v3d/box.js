@@ -2,7 +2,6 @@ import {
   AmbientLight,
   Color,
   DirectionalLight,
-  GridHelper,
   PerspectiveCamera,
   Scene,
   WebGLRenderer
@@ -16,6 +15,7 @@ export class Box {
   scene = undefined
   camera = undefined
   renderer = undefined
+  controls = undefined
   grid = undefined
 
   sceneGraphRoot = undefined
@@ -23,6 +23,7 @@ export class Box {
   animation = undefined
 
   debug = false
+  gridSizeMm = 200
 
   constructor(config = {}) {
     Object.assign(this, config)
@@ -70,6 +71,52 @@ export class Box {
     this.sceneGraphRoot = new THREE.Object3D()
     this.scene.add(this.sceneGraphRoot)
     this.collectionNodes = {}
+  }
+
+  /**
+   * Смещает sceneGraphRoot так, чтобы минимальный угол AABB модели
+   * оказался в мировом (0, 0) — у нулевой отметки сетки, — и наводит
+   * камеру так, чтобы модель целиком помещалась в кадр.
+   */
+  placeAndFocusModel({ margin = 1.4 } = {}) {
+    if (!this.sceneGraphRoot) return
+    this.sceneGraphRoot.position.set(0, 0, 0)
+    this.sceneGraphRoot.rotation.set(0, 0, 0)
+    this.sceneGraphRoot.updateMatrixWorld(true)
+
+    let bbox = new THREE.Box3().setFromObject(this.sceneGraphRoot)
+    if (!isFinite(bbox.min.x) || bbox.isEmpty()) return
+
+    this.sceneGraphRoot.position.set(-bbox.min.x, -bbox.min.y, 0)
+    this.sceneGraphRoot.updateMatrixWorld(true)
+    bbox = new THREE.Box3().setFromObject(this.sceneGraphRoot)
+
+    if (!this.camera) return
+
+    const size = new THREE.Vector3()
+    bbox.getSize(size)
+    const center = new THREE.Vector3()
+    bbox.getCenter(center)
+
+    const fovV = (this.camera.fov || 50) * Math.PI / 180
+    const aspect = this.camera.aspect || 1
+    const fovH = 2 * Math.atan(Math.tan(fovV / 2) * aspect)
+
+    const distV = (size.y * margin) / (2 * Math.tan(fovV / 2))
+    const distH = (size.x * margin) / (2 * Math.tan(fovH / 2))
+    const distance = Math.max(distV, distH, 60)
+
+    this.camera.position.set(center.x, center.y, bbox.max.z + distance)
+    this.camera.updateProjectionMatrix()
+    if (this.controls) {
+      this.controls.target.set(center.x, center.y, center.z)
+      this.controls.update()
+    }
+  }
+
+  /** @deprecated оставлено как alias — использует placeAndFocusModel. */
+  alignModelToGridOrigin() {
+    this.placeAndFocusModel()
   }
 
   /**
@@ -296,7 +343,8 @@ export class Box {
    */
   createCamera(width, height) {
     this.camera = new PerspectiveCamera(50, width / height, 1, 10000)
-    this.camera.position.set(0, 0, 150)
+    const half = this.gridSizeMm / 2
+    this.camera.position.set(half, half, 300)
     return this.camera
   }
 
@@ -340,8 +388,10 @@ export class Box {
    */
   createControl() {
     const controls = new OrbitControls(this.camera, this.renderer.domElement)
-    controls.target.set(0, 0, 0)
+    const half = this.gridSizeMm / 2
+    controls.target.set(half, half, 0)
     controls.update()
+    this.controls = controls
     return controls
   }
 
@@ -362,19 +412,97 @@ export class Box {
   }
 
   /**
-   * Создает сетку для сцены
-   * @returns {THREE.GridHelper} Созданная сетка
+   * Создает сетку для сцены: 200×200 мм, тонкие линии через 1 мм,
+   * толстые через 10 мм, числовые метки по десяткам.
+   * Плоскость сетки — X-Y (Z к камере).
+   * @returns {THREE.Group} Созданная сетка
    */
   createGrid() {
-    this.grid = new GridHelper(1000, 100, 0x000000, 0x000000)
-    this.grid.material.opacity = 0.2
-    this.grid.material.transparent = true
-    // Grid is a backdrop — render it before everything and don't let it write
-    // depth, so any opaque geometry (like the name-tag backing) occludes it.
-    this.grid.material.depthWrite = false
-    this.grid.renderOrder = -1
-    this.grid.rotation.x = Math.PI / 2
+    const sizeMm = this.gridSizeMm
+    const half = sizeMm / 2
+
+    const thinPositions = []
+    const boldPositions = []
+
+    // Вертикальные линии (меняется X), строятся вокруг локального (0,0).
+    for (let i = -half; i <= half; i++) {
+      const target = i % 10 === 0 ? boldPositions : thinPositions
+      target.push(i, -half, 0, i, half, 0)
+    }
+    // Горизонтальные линии (меняется Y).
+    for (let i = -half; i <= half; i++) {
+      const target = i % 10 === 0 ? boldPositions : thinPositions
+      target.push(-half, i, 0, half, i, 0)
+    }
+
+    const thinGeo = new THREE.BufferGeometry()
+    thinGeo.setAttribute('position', new THREE.Float32BufferAttribute(thinPositions, 3))
+    const thinMat = new THREE.LineBasicMaterial({
+      color: 0x000000,
+      transparent: true,
+      opacity: 0.08,
+      depthWrite: false,
+    })
+    const thinLines = new THREE.LineSegments(thinGeo, thinMat)
+
+    const boldGeo = new THREE.BufferGeometry()
+    boldGeo.setAttribute('position', new THREE.Float32BufferAttribute(boldPositions, 3))
+    const boldMat = new THREE.LineBasicMaterial({
+      color: 0x000000,
+      transparent: true,
+      opacity: 0.35,
+      depthWrite: false,
+    })
+    const boldLines = new THREE.LineSegments(boldGeo, boldMat)
+
+    const group = new THREE.Group()
+    group.add(thinLines)
+    group.add(boldLines)
+
+    // Метки по краям каждые 10 мм. Значения соответствуют финальным
+    // мировым координатам после смещения группы.
+    for (let i = -half; i <= half; i += 10) {
+      const label = String(i + half)
+      group.add(this._makeGridLabel(label, i, -half - 6))
+      group.add(this._makeGridLabel(label, -half - 9, i))
+    }
+
+    // Смещаем так, чтобы левый нижний угол оказался в мировом (0,0).
+    group.position.set(half, half, 0)
+    group.renderOrder = -1
+    this.grid = group
     return this.grid
+  }
+
+  /**
+   * Создаёт спрайт-надпись для меток сетки.
+   * @private
+   */
+  _makeGridLabel(text, x, y) {
+    const canvas = document.createElement('canvas')
+    canvas.width = 256
+    canvas.height = 128
+    const ctx = canvas.getContext('2d')
+    ctx.clearRect(0, 0, canvas.width, canvas.height)
+    ctx.font = 'bold 96px sans-serif'
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillStyle = '#222222'
+    ctx.fillText(text, canvas.width / 2, canvas.height / 2)
+
+    const texture = new THREE.CanvasTexture(canvas)
+    texture.minFilter = THREE.LinearFilter
+    const material = new THREE.SpriteMaterial({
+      map: texture,
+      transparent: true,
+      depthTest: false,
+      depthWrite: false,
+    })
+    const sprite = new THREE.Sprite(material)
+    sprite.position.set(x, y, 0.01)
+    sprite.scale.set(16, 8, 1)
+    sprite.renderOrder = -1
+    return sprite
   }
 
   /**

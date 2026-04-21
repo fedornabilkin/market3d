@@ -161,6 +161,8 @@ export default {
           }
         }
 
+        box.placeAndFocusModel();
+
         this.progressGenerating = 100;
         this.$emit('exportReady', this.options);
       } catch (error) {

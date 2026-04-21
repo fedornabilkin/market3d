@@ -161,7 +161,10 @@ export class V3DFacade {
         this.box.addNode(key, mesh);
       }
     }
-    
+
+    // Ставим модель к нулевому углу сетки и наводим камеру на неё.
+    this.box.placeAndFocusModel();
+
     return meshes;
   }
 

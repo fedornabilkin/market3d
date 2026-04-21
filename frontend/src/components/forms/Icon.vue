@@ -1,4 +1,6 @@
 <script setup>
+import { watch } from 'vue'
+import OffsetField from '@/components/forms/OffsetField.vue'
 
 const props = defineProps(['options', 'unit'])
 
@@ -37,6 +39,18 @@ const selected = (name) => {
 if (!props.options.icon.isNoneName()) {
   selected(props.options.icon.name)
 }
+
+// При активации чекбокса объект-лоадер только сейчас появляется в DOM,
+// поэтому заново прогоняем selected() — иначе icon.src остаётся пустым
+// (setup() отрабатывал до монтирования <object>) и в сцене нет иконки.
+watch(
+  () => props.options.icon.active,
+  (isActive) => {
+    if (isActive && !props.options.icon.isNoneName()) {
+      selected(props.options.icon.name)
+    }
+  },
+)
 
 const icons = [
   'wifi',
@@ -149,27 +163,21 @@ const icons = [
     .column
       .field.is-horizontal
         .field-body
-          .field.has-addons
-            p.control(:title="$t('form.icon.offsetX')")
-              .button.is-static.is-small
-                span
-                  i.fa.fa-arrow-right
-            .control
-              input.input.is-small(type='number' v-model.number='props.options.icon.offsetX')
-            p.control
-              a.button.is-static.is-small {{unit}}
+          OffsetField(
+            axis='x'
+            :title="$t('form.icon.offsetX')"
+            :modelValue='props.options.icon.offsetX'
+            @update:modelValue='props.options.icon.offsetX = $event'
+          )
 
       .field.is-horizontal
         .field-body
-          .field.has-addons
-            p.control(:title="$t('form.icon.offsetY')")
-              .button.is-static.is-small
-                span
-                  i.fa.fa-arrow-up
-            .control
-              input.input.is-small(type='number' v-model.number='props.options.icon.offsetY')
-            p.control
-              a.button.is-static.is-small {{unit}}
+          OffsetField(
+            axis='y'
+            :title="$t('form.icon.offsetY')"
+            :modelValue='props.options.icon.offsetY'
+            @update:modelValue='props.options.icon.offsetY = $event'
+          )
 
   .tag.is-light
     | {{$t('form.icon.title')}} Fontawesome&nbsp;

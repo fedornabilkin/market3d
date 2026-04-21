@@ -108,15 +108,45 @@ watch(
           label.label {{$t('form.magnet.shape')}}
         .field-body
           .field
-            .control.has-icons-left
-              .select.is-small
-                select(v-model='props.options.magnet.shape')
-                  option(value='round') {{$t('form.magnet.round')}}
-                  option(value='square') {{$t('form.magnet.square')}}
-                span.icon.is-small.is-left
-                  i.fa.fa-shapes
+            .control
+              .buttons.has-addons.mb-0.pick-buttons
+                button.button.is-small(
+                  type='button'
+                  :class="{ 'is-link is-selected': props.options.magnet.shape === 'round' }"
+                  :title="$t('form.magnet.round')"
+                  :aria-label="$t('form.magnet.round')"
+                  @click="props.options.magnet.shape = 'round'"
+                )
+                  span.icon.is-small
+                    svg(viewBox='0 0 10 10' width='14' height='14' aria-hidden='true')
+                      circle(cx='5' cy='5' r='3.8' fill='currentColor')
+                button.button.is-small(
+                  type='button'
+                  :class="{ 'is-link is-selected': props.options.magnet.shape === 'square' }"
+                  :title="$t('form.magnet.square')"
+                  :aria-label="$t('form.magnet.square')"
+                  @click="props.options.magnet.shape = 'square'"
+                )
+                  span.icon.is-small
+                    svg(viewBox='0 0 10 10' width='14' height='14' aria-hidden='true')
+                      rect(x='1.5' y='1.5' width='7' height='7' fill='currentColor')
 </template>
 
 <style scoped>
-
+.pick-buttons .button {
+  transition: transform 0.12s ease, box-shadow 0.12s ease, background 0.12s ease;
+}
+.pick-buttons .button.is-selected {
+  background-color: #2b6cb0;
+  border-color: #1e4e8c;
+  color: #fff;
+  font-weight: 700;
+  box-shadow: 0 0 0 2px rgba(43, 108, 176, 0.35), inset 0 -2px 0 rgba(0, 0, 0, 0.25);
+  transform: translateY(-1px);
+  z-index: 2;
+}
+.pick-buttons .button:not(.is-selected):hover {
+  background-color: #edf2f7;
+  color: #1a202c;
+}
 </style>

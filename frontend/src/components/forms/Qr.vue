@@ -94,12 +94,16 @@ const setActiveTab = (idx) => {
         .field-body
           .field
             .control
-              .select.is-small
-                select(v-model='props.options.code.errorCorrectionLevel')
-                  option(value='L') {{$t('form.qr.correction.l')}}
-                  option(value='M') {{$t('form.qr.correction.m')}}
-                  option(value='Q') {{$t('form.qr.correction.q')}}
-                  option(value='H') {{$t('form.qr.correction.h')}}
+              .buttons.has-addons.mb-0.qr-pick-buttons
+                button.button.is-small(
+                  v-for="lvl in ['L','M','Q','H']"
+                  :key="lvl"
+                  type='button'
+                  :class="{ 'is-link is-selected': props.options.code.errorCorrectionLevel === lvl }"
+                  :title="$t(`form.qr.correction.${lvl.toLowerCase()}`)"
+                  :aria-label="$t(`form.qr.correction.${lvl.toLowerCase()}`)"
+                  @click="props.options.code.errorCorrectionLevel = lvl"
+                ) {{ { L: '7%', M: '15%', Q: '25%', H: '30%' }[lvl] }}
               p.help {{$t('form.qr.correction.label')}}
 
       .field.is-horizontal
@@ -130,13 +134,39 @@ const setActiveTab = (idx) => {
         .field-label.is-small
           label.label {{$t('form.qr.blockShape.title')}}
         .field-body
-          .field.has-addons
+          .field
             .control
-              .select.is-small
-                select(v-model='props.options.code.block.shape')
-                  option(value='classic') {{$t('form.qr.blockShape.classic')}}
-                  option(value='rotation') {{$t('form.qr.blockShape.rhombus')}}
-                  option(value='round') {{$t('form.qr.blockShape.round')}}
+              .buttons.has-addons.mb-0.qr-pick-buttons
+                button.button.is-small(
+                  type='button'
+                  :class="{ 'is-link is-selected': props.options.code.block.shape === 'classic' }"
+                  :title="$t('form.qr.blockShape.classic')"
+                  :aria-label="$t('form.qr.blockShape.classic')"
+                  @click="props.options.code.block.shape = 'classic'"
+                )
+                  span.icon.is-small
+                    svg(viewBox='0 0 10 10' width='14' height='14' aria-hidden='true')
+                      rect(x='1.5' y='1.5' width='7' height='7' fill='currentColor')
+                button.button.is-small(
+                  type='button'
+                  :class="{ 'is-link is-selected': props.options.code.block.shape === 'rotation' }"
+                  :title="$t('form.qr.blockShape.rhombus')"
+                  :aria-label="$t('form.qr.blockShape.rhombus')"
+                  @click="props.options.code.block.shape = 'rotation'"
+                )
+                  span.icon.is-small
+                    svg(viewBox='0 0 10 10' width='14' height='14' aria-hidden='true')
+                      polygon(points='5,1 9,5 5,9 1,5' fill='currentColor')
+                button.button.is-small(
+                  type='button'
+                  :class="{ 'is-link is-selected': props.options.code.block.shape === 'round' }"
+                  :title="$t('form.qr.blockShape.round')"
+                  :aria-label="$t('form.qr.blockShape.round')"
+                  @click="props.options.code.block.shape = 'round'"
+                )
+                  span.icon.is-small
+                    svg(viewBox='0 0 10 10' width='14' height='14' aria-hidden='true')
+                      circle(cx='5' cy='5' r='3.8' fill='currentColor')
 
       // Skyscraper Mode
       .field.is-horizontal(v-if='!props.options.code.invert')
@@ -176,4 +206,23 @@ const setActiveTab = (idx) => {
       img(:src="props.options.code.preview.src")
 
 </template>
+
+<style scoped>
+.qr-pick-buttons .button {
+  transition: transform 0.12s ease, box-shadow 0.12s ease, background 0.12s ease;
+}
+.qr-pick-buttons .button.is-selected {
+  background-color: #2b6cb0;
+  border-color: #1e4e8c;
+  color: #fff;
+  font-weight: 700;
+  box-shadow: 0 0 0 2px rgba(43, 108, 176, 0.35), inset 0 -2px 0 rgba(0, 0, 0, 0.25);
+  transform: translateY(-1px);
+  z-index: 2;
+}
+.qr-pick-buttons .button:not(.is-selected):hover {
+  background-color: #edf2f7;
+  color: #1a202c;
+}
+</style>
 
