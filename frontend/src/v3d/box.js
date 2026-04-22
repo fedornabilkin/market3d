@@ -459,12 +459,52 @@ export class Box {
     group.add(thinLines)
     group.add(boldLines)
 
+    // Насечки с внешней стороны: 1 мм — 1, 5 мм — 2, 10 мм (цифра) — 3.5.
+    const tickShort = []
+    const tickMid = []
+    const tickLong = []
+    const LEN_SHORT = 1
+    const LEN_MID = 2
+    const LEN_LONG = 3.5
+
+    for (let i = -half; i <= half; i++) {
+      let arr, len
+      if (i % 10 === 0) { arr = tickLong; len = LEN_LONG }
+      else if (i % 5 === 0) { arr = tickMid; len = LEN_MID }
+      else { arr = tickShort; len = LEN_SHORT }
+      // Нижний край: насечка вниз от y = -half.
+      arr.push(i, -half, 0, i, -half - len, 0)
+      // Левый край: насечка влево от x = -half.
+      arr.push(-half, i, 0, -half - len, i, 0)
+    }
+
+    const tickMat = new THREE.LineBasicMaterial({
+      color: 0x000000,
+      transparent: true,
+      opacity: 0.6,
+      depthWrite: false,
+    })
+    const tickMatStrong = new THREE.LineBasicMaterial({
+      color: 0x000000,
+      transparent: true,
+      opacity: 0.85,
+      depthWrite: false,
+    })
+    const makeTicks = (positions, material) => {
+      const geo = new THREE.BufferGeometry()
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
+      return new THREE.LineSegments(geo, material)
+    }
+    group.add(makeTicks(tickShort, tickMat))
+    group.add(makeTicks(tickMid, tickMat))
+    group.add(makeTicks(tickLong, tickMatStrong))
+
     // Метки по краям каждые 10 мм. Значения соответствуют финальным
     // мировым координатам после смещения группы.
     for (let i = -half; i <= half; i += 10) {
       const label = String(i + half)
-      group.add(this._makeGridLabel(label, i, -half - 6))
-      group.add(this._makeGridLabel(label, -half - 9, i))
+      group.add(this._makeGridLabel(label, i, -half - LEN_LONG - 4))
+      group.add(this._makeGridLabel(label, -half - LEN_LONG - 6, i))
     }
 
     // Смещаем так, чтобы левый нижний угол оказался в мировом (0,0).

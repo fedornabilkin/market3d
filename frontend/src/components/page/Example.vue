@@ -1,5 +1,6 @@
 <script setup>
 import CardExample from "@/components/example/CardExample.vue";
+import AnimationScene from "@/components/example/AnimationScene.vue";
 import Breadcrumbs from "@/components/registry/Breadcrumbs.vue";
 import { useSeoHeadI18n } from '@/composables/useSeoHead';
 
@@ -70,20 +71,22 @@ const items = {
   .container.is-fluid
     Breadcrumbs
     .box
-      h1.title.is-2 {{ $t('seo.example.h1') }}
-      p.subtitle.is-4 {{ $t('seo.example.subtitle') }}
-
-      .columns
+      .columns.is-vcentered
         .column.is-half
+          h1.title.is-2 {{ $t('seo.example.h1') }}
+          p.subtitle.is-4 {{ $t('seo.example.subtitle') }}
+
           article.message
             .message-body
               | Современный тренд: QR-код на 3d принтере. Квадратная или прямоугольная карточка с вашим QR-кодом. Закодировать можно любую информацию и добавить подпись по желанию.
-          p Создайте свою 3D-модель QR-кода с помощью нашего онлайн-генератора STL. Просто введите информацию и настройте основные параметры, и мы создадим для вас уникальную 3D-модель QR-кода. Загрузите STL-файл и распечатайте его на 3D-принтере.
+          p.mb-4 Создайте свою 3D-модель QR-кода с помощью нашего онлайн-генератора STL. Просто введите информацию и настройте основные параметры, и мы создадим для вас уникальную 3D-модель QR-кода. Загрузите STL-файл и распечатайте его на 3D-принтере.
 
-      router-link.button.is-primary.is-large(:to="{ name: 'GeneratorQR' }")
-        span.icon
-          i.fa.fa-cube
-        span {{ $t('g.goToGenerator') }}
+          router-link.button.is-primary.is-large(:to="{ name: 'GeneratorQR' }")
+            span.icon
+              i.fa.fa-cube
+            span {{ $t('g.goToGenerator') }}
+        .column.is-half
+          AnimationScene
 
     .columns
       .column.is-one-third

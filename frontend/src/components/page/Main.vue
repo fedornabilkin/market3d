@@ -80,27 +80,78 @@
           i.fa.fa-cubes
         span 3D Конструктор
 
-  .examples-section(ref="examplesRef")
-    h2.title.is-3 Примеры моделей
-    el-carousel(
-      ref="carouselRef"
-      :interval="4000"
-      :autoplay="true"
-      :loop="true"
-      :pause-on-hover="true"
-      arrow="always"
-      height="500px"
-    )
-      el-carousel-item(v-for="slide in slides" :key="slide.id")
-        .slide-content
-          .slide-image
-            img(:src="slide.imageSrc" :alt="slide.imageAlt")
-          .slide-description
-            p {{ slide.description }}
-          .slide-settings(v-if="slide.settingsJson && false")
-            details
-              summary Настройки модели (JSON)
-              pre {{ JSON.stringify(slide.settingsJson, null, 2) }}
+  .animation-section.box(ref="examplesRef")
+    .columns.is-vcentered
+      .column.is-half
+        h2.title.is-3 Как это работает
+        p.subtitle.is-5 Настраиваете параметры в форме — конструктор собирает 3D-модель на ваших глазах.
+        p Сцена справа последовательно собирает и разбирает пять типов моделей, которые можно получить в генераторах, и финальный бейдж — из конструктора.
+      .column.is-half
+        AnimationScene
+
+  .features-section
+    h2.title.is-3.has-text-centered Что можно собрать
+    .columns.is-multiline
+      .column.is-one-third
+        .card.feature-card
+          .card-header.has-background-primary
+            p.card-header-title.has-text-white
+              span.icon.mr-2
+                i.fa.fa-qrcode
+              | Генератор QR-кода
+          .card-content
+            p Трёхмерный QR-код со ссылкой, контактом, Wi-Fi или любой другой информацией. Добавьте подпись, иконку, рамку и петельку — получите карточку, брелок или сувенир.
+            router-link.button.is-primary.is-small.mt-3(:to="{ name: 'GeneratorQR' }") Открыть генератор
+      .column.is-one-third
+        .card.feature-card
+          .card-header.has-background-warning
+            p.card-header-title
+              span.icon.mr-2
+                i.fa.fa-car
+              | Генератор ГРЗ
+          .card-content
+            p Миниатюрный номерной знак российского образца. Настраиваете буквы, цифры, код региона, рамку и крепление — подходит на ключи, багаж или витрину.
+            router-link.button.is-warning.is-small.mt-3(:to="{ name: 'GeneratorGRZ' }") Открыть генератор
+      .column.is-one-third
+        .card.feature-card
+          .card-header.has-background-danger
+            p.card-header-title.has-text-white
+              span.icon.mr-2
+                i.fa.fa-braille
+              | Генератор шрифта Брайля
+          .card-content
+            p Табличка с надписью шрифтом Брайля: русский и английский алфавиты, 6- и 8-точечный режим, дублирующий обычный текст, скругления и петелька.
+            router-link.button.is-danger.is-small.mt-3(:to="{ name: 'GeneratorBraille' }") Открыть генератор
+      .column.is-one-third
+        .card.feature-card
+          .card-header.has-background-link
+            p.card-header-title.has-text-white
+              span.icon.mr-2
+                i.fa.fa-bullseye
+              | Генератор подставок
+          .card-content
+            p Подставка под кружку с концентрическими кольцами, иконкой по центру и прямым или круговым текстом вдоль края. Круг или прямоугольник — на выбор.
+            router-link.button.is-link.is-small.mt-3(:to="{ name: 'GeneratorCoaster' }") Открыть генератор
+      .column.is-one-third
+        .card.feature-card
+          .card-header.has-background-success
+            p.card-header-title.has-text-white
+              span.icon.mr-2
+                i.fa.fa-signature
+              | Генератор надписей-брелоков
+          .card-content
+            p Объёмные буквы с подложкой, фаской, случайной высотой и петелькой в любом углу. Четыре встроенных шрифта или загрузка собственного.
+            router-link.button.is-success.is-small.mt-3(:to="{ name: 'GeneratorNameTag' }") Открыть генератор
+      .column.is-one-third
+        .card.feature-card
+          .card-header.has-background-info
+            p.card-header-title.has-text-white
+              span.icon.mr-2
+                i.fa.fa-cubes
+              | 3D-конструктор
+          .card-content
+            p Визуальный редактор с нуля: примитивы, импорт STL, фаска, зеркало, булевы операции на экспорт, сетка с привязкой, история действий и несколько сцен.
+            router-link.button.is-info.is-small.mt-3(:to="{ name: 'Constructor' }") Открыть конструктор
 
 </template>
 
@@ -121,6 +172,7 @@ const MAIN_STEPS = [
 ];
 import PaymentMethodsButton from "@/components/monetisation/PaymentMethodsButton.vue";
 import SponsorList from "@/components/monetisation/SponsorList.vue";
+import AnimationScene from "@/components/example/AnimationScene.vue";
 import { useTourStore } from '@/store/tour';
 import { useSeoHeadI18n } from '@/composables/useSeoHead';
 
@@ -129,10 +181,10 @@ export default {
   components: {
     SponsorList,
     PaymentMethodsButton,
+    AnimationScene,
   },
   setup() {
     useSeoHeadI18n('seo.main');
-    const carouselRef = ref(null);
     const heroButtonsRef = ref(null);
     const examplesRef = ref(null);
     const router = useRouter();
@@ -195,75 +247,7 @@ export default {
       }
     });
 
-    const slides = [
-      {
-        id: 'qr1',
-        imageSrc: '/example/base-qr-text-frame.png',
-        imageAlt: '3d модель qr-кода с подписью',
-        description: 'QR-код в котором закодирован адрес сайта. Подпись добавлена на случай, если нет возможности отсканировать qr-код.',
-        settingsJson: {
-          base: { width: 22, height: 22, cornerRadius: 8 },
-          code: { active: true, errorCorrectionLevel: 'H' },
-          text: { active: true, message: 'vsqr.ru', height: 8 },
-          border: { active: true }
-        }
-      },
-      {
-        id: 'key1',
-        imageSrc: '/example/base-text-key-frame.png',
-        imageAlt: 'Брелок 3д для ключей с надписью',
-        description: 'Брелок для ключей с надписью. Можно добавить свое имя, крутую надпись или номер телефона. Отверстие слева.',
-        settingsJson: {
-          base: { width: 22, height: 22, cornerRadius: 8 },
-          text: { active: true, message: 'Ваш текст', height: 8 },
-          keychain: { active: true, placement: 'topLeft' },
-          border: { active: true }
-        }
-      },
-      {
-        id: 'key2',
-        imageSrc: '/example/base-icon-key-frame.png',
-        imageAlt: 'Брелок 3д для ключей с иконкой',
-        description: 'Брелок для ключей с иконкой. Размер иконки обычно 85-90% от базового размера. Отверстие сверху слева и рамка толщиной в 1 мм.',
-        settingsJson: {
-          base: { width: 22, height: 22, cornerRadius: 8 },
-          icon: { active: true, name: 'globe', ratio: 85 },
-          keychain: { active: true, placement: 'topLeft' },
-          border: { active: true }
-        }
-      },
-      {
-        id: 'key3',
-        imageSrc: '/example/base-icon-text-key-frame.png',
-        imageAlt: 'Брелок с иконкой и текстом 3д',
-        description: 'Брелок с иконкой и текстом. Размер иконки обычно 18-20% от базового размера. Ваш текст или слоган. Отверстие слева и рамка.',
-        settingsJson: {
-          base: { width: 22, height: 22, cornerRadius: 8 },
-          icon: { active: true, name: 'globe', ratio: 18 },
-          text: { active: true, message: 'Ваш текст', height: 8 },
-          keychain: { active: true, placement: 'topLeft' },
-          border: { active: true }
-        }
-      },
-      {
-        id: 'key4',
-        imageSrc: '/example/base-text-key.jpg',
-        imageAlt: '3д бирка для гардероба с петелькой и текстом',
-        description: 'Бирка в гардероб с надписью. Увеличить диаметр и толщину петельки, разместить сверху. Добавить длину петельке или высоту базовой фигуре',
-        settingsJson: {}
-      },
-      {
-        id: 'box1',
-        imageSrc: '/example/base-border-box.jpg',
-        imageAlt: 'Ящик для мелочей 3д',
-        description: 'Небольшой простой ящик для мелочей. База и рамка высотой в 30 мм. Толщина базы не менее 2 мм для прочности',
-        settingsJson: {}
-      }
-    ];
-
     return {
-      slides,
-      carouselRef,
       heroButtonsRef,
       examplesRef,
       tourOpen,
@@ -307,84 +291,35 @@ export default {
   margin-bottom: 1rem;
 }
 
-.examples-section {
+.animation-section {
   margin-bottom: 3rem;
 }
 
-.examples-section .title {
-  text-align: center;
+.features-section {
+  margin-bottom: 3rem;
+}
+
+.features-section > .title {
   margin-bottom: 2rem;
 }
 
-.slide-content {
+.feature-card {
+  height: 100%;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  padding: 2rem;
-  height: 100%;
 }
 
-.slide-image {
+.feature-card .card-content {
   flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin-bottom: 1rem;
 }
 
-.slide-image img {
-  max-width: 100%;
-  max-height: 400px;
-  object-fit: contain;
-}
-
-.slide-description {
-  text-align: center;
-  margin-bottom: 1rem;
-  max-width: 600px;
-}
-
-.slide-description p {
-  font-size: 1.1rem;
-  line-height: 1.6;
-}
-
-.slide-settings {
-  width: 100%;
-  max-width: 600px;
-}
-
-.slide-settings details {
-  cursor: pointer;
-  margin-top: 1rem;
-}
-
-.slide-settings summary {
-  padding: 0.5rem;
-  background-color: #f5f5f5;
-  border-radius: 4px;
-}
-
-.slide-settings pre {
-  background-color: #f9f9f9;
-  padding: 1rem;
-  border-radius: 4px;
-  overflow-x: auto;
-  font-size: 0.9rem;
-  margin-top: 0.5rem;
+.feature-card .card-header-title {
+  font-weight: 600;
 }
 
 @media screen and (max-width: 768px) {
   .hero-section {
     padding: 2rem 0;
-  }
-
-  .slide-content {
-    padding: 1rem;
-  }
-
-  .slide-image img {
-    max-height: 250px;
   }
 }
 </style>
