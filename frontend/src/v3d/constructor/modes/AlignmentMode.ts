@@ -167,13 +167,16 @@ export class AlignmentMode {
   // ─── Internals ───────────────────────────────────────────────────────────
 
   private ensureMaterials(): void {
+    // Z-up: «горизонтальный» маркер лежит плоско в XY (нормаль +Z) — стандартная
+    // CircleGeometry уже в этой ориентации, дополнительной ротации не нужно.
     if (!this.circleHorizontal) {
       this.circleHorizontal = new THREE.CircleGeometry(AlignmentMode.BASE_SIZE, 16);
-      this.circleHorizontal.rotateX(-Math.PI / 2);
     }
+    // «Вертикальный» маркер стоит в плоскости XZ (нормаль +Y) — поворачиваем
+    // вокруг X на -π/2.
     if (!this.circleVertical) {
       this.circleVertical = new THREE.CircleGeometry(AlignmentMode.BASE_SIZE, 16);
-      this.circleVertical.rotateY(-Math.PI / 2);
+      this.circleVertical.rotateX(-Math.PI / 2);
     }
     if (!this.dotMaterial) {
       this.dotMaterial = new THREE.MeshBasicMaterial({
@@ -231,40 +234,42 @@ export class AlignmentMode {
       const cy = (min.y + max.y) / 2;
       const cz = (min.z + max.z) / 2;
 
-      const nearZ = camPos && camPos.z > cz ? max.z : min.z;
-      const farZ  = nearZ === max.z ? min.z : max.z;
-      const signZ = nearZ === max.z ? 1 : -1;
+      // Z-up: «нижняя грань» — Z=min.z. Горизонтальные маркеры (X, Y)
+      // лежат на ней; вертикальные (Z) — стоят перпендикулярно.
+      const nearY = camPos && camPos.y > cy ? max.y : min.y;
+      const farY  = nearY === max.y ? min.y : max.y;
+      const signY = nearY === max.y ? 1 : -1;
 
       const nearX = camPos && camPos.x > cx ? max.x : min.x;
       const farX  = nearX === max.x ? min.x : max.x;
       const signX = nearX === max.x ? 1 : -1;
 
-      // X markers
+      // X markers — на нижней грани (Z=min.z), смещены по Y от ближнего края.
       for (const [mx, mode] of [[min.x, 'minX'], [cx, 'centerX'], [max.x, 'maxX']] as [number, AlignMode][]) {
-        allPoints.push({ x: mx, y: min.y, z: nearZ + d * signZ, objectId: id, vertical: false, alignMode: mode });
+        allPoints.push({ x: mx, y: nearY + d * signY, z: min.z, objectId: id, vertical: false, alignMode: mode });
         leaderDefs.push({
-          from: new THREE.Vector3(mx, min.y, nearZ + d * signZ),
-          to: new THREE.Vector3(mx, min.y, farZ),
+          from: new THREE.Vector3(mx, nearY + d * signY, min.z),
+          to: new THREE.Vector3(mx, farY, min.z),
         });
       }
 
-      // Z markers
-      for (const [mz, mode] of [[min.z, 'minZ'], [cz, 'centerZ'], [max.z, 'maxZ']] as [number, AlignMode][]) {
-        allPoints.push({ x: nearX + d * signX, y: min.y, z: mz, objectId: id, vertical: false, alignMode: mode });
-        leaderDefs.push({
-          from: new THREE.Vector3(nearX + d * signX, min.y, mz),
-          to: new THREE.Vector3(farX, min.y, mz),
-        });
-      }
-
-      // Y markers
-      const flipV = signX < 0;
-      const farZoff = farZ - d * signZ;
+      // Y markers — на нижней грани, смещены по X от ближнего края.
       for (const [my, mode] of [[min.y, 'minY'], [cy, 'centerY'], [max.y, 'maxY']] as [number, AlignMode][]) {
-        allPoints.push({ x: nearX, y: my, z: farZoff, objectId: id, vertical: true, flipVertical: flipV, alignMode: mode });
+        allPoints.push({ x: nearX + d * signX, y: my, z: min.z, objectId: id, vertical: false, alignMode: mode });
         leaderDefs.push({
-          from: new THREE.Vector3(nearX, my, farZoff),
-          to: new THREE.Vector3(nearX, my, nearZ),
+          from: new THREE.Vector3(nearX + d * signX, my, min.z),
+          to: new THREE.Vector3(farX, my, min.z),
+        });
+      }
+
+      // Z markers (вертикальные) — стоят у ближнего по X угла, смещены по Y.
+      const flipV = signX < 0;
+      const farYoff = farY - d * signY;
+      for (const [mz, mode] of [[min.z, 'minZ'], [cz, 'centerZ'], [max.z, 'maxZ']] as [number, AlignMode][]) {
+        allPoints.push({ x: nearX, y: farYoff, z: mz, objectId: id, vertical: true, flipVertical: flipV, alignMode: mode });
+        leaderDefs.push({
+          from: new THREE.Vector3(nearX, farYoff, mz),
+          to: new THREE.Vector3(nearX, nearY, mz),
         });
       }
     }
@@ -295,7 +300,8 @@ export class AlignmentMode {
       dot.position.set(p.x, p.y, p.z);
       dot.userData = { alignMode: p.alignMode };
       if (p.vertical && p.flipVertical) {
-        dot.rotation.y = Math.PI;
+        // Z-up: вертикальный маркер лежит в XZ (нормаль +Y), флип — поворот вокруг Z.
+        dot.rotation.z = Math.PI;
       }
       dot.renderOrder = 4;
       this.scene.add(dot);

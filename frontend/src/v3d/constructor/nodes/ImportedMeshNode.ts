@@ -100,7 +100,8 @@ export class ImportedMeshNode extends ModelNode {
   private applyParamsToMesh(mesh: THREE.Mesh): void {
     const { position, scale, rotation } = this.params;
     if (position) {
-      mesh.position.set(position.x, (position.y ?? 0) + this.getHalfHeight(), position.z);
+      // Z-up: params.position.z — нижняя грань; halfHeight по Z поднимает центр.
+      mesh.position.set(position.x, position.y, (position.z ?? 0) + this.getHalfHeight());
     }
     if (scale) {
       mesh.scale.set(scale.x, scale.y, scale.z);

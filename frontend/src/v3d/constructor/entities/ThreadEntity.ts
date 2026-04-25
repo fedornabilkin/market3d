@@ -21,7 +21,7 @@ export class ThreadEntity extends Entity<ThreadParams> {
   readonly type = 'thread' as const;
 
   createGeometry(): THREE.BufferGeometry {
-    return generateThreadGeometry({
+    const geo = generateThreadGeometry({
       outerDiameter: this.params.outerDiameter,
       innerDiameter: this.params.innerDiameter,
       pitch: this.params.pitch,
@@ -30,6 +30,9 @@ export class ThreadEntity extends Entity<ThreadParams> {
       segmentsPerTurn: this.params.segmentsPerTurn ?? 64,
       leftHand: this.params.leftHand === true,
     });
+    // ThreadGenerator строит спираль вдоль Y — переориентируем в Z-up.
+    geo.rotateX(Math.PI / 2);
+    return geo;
   }
 
   getHalfHeight(): number {

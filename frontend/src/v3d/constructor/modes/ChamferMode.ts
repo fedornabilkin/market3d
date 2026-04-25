@@ -223,24 +223,26 @@ export class ChamferMode {
     const sampleCount = 48;
     const result: BBoxEdge[] = [];
 
+    // Z-up: после CylinderEntity.createGeometry geo.rotateX(π/2) ось цилиндра
+    // в локальных координатах = Z. Обод лежит в XY-плоскости при z=±h/2.
     for (const rim of [
-      { isTop: false, radius: rBot, y: -h / 2 },
-      { isTop: true, radius: rTop, y: h / 2 },
+      { isTop: false, radius: rBot, z: -h / 2 },
+      { isTop: true, radius: rTop, z: h / 2 },
     ]) {
       const localChain: THREE.Vector3[] = [];
       const worldChain: THREE.Vector3[] = [];
       for (let i = 0; i < sampleCount; i++) {
         const a = (i / sampleCount) * Math.PI * 2;
-        const lv = new THREE.Vector3(Math.cos(a) * rim.radius, rim.y, Math.sin(a) * rim.radius);
+        const lv = new THREE.Vector3(Math.cos(a) * rim.radius, Math.sin(a) * rim.radius, rim.z);
         localChain.push(lv);
         worldChain.push(lv.clone().applyMatrix4(wm));
       }
-      const localCenter = new THREE.Vector3(0, rim.y, 0);
+      const localCenter = new THREE.Vector3(0, 0, rim.z);
       const worldCenter = localCenter.clone().applyMatrix4(wm);
 
       result.push({
         kind: 'circular',
-        axis: 'y',
+        axis: 'z',
         start: worldCenter.clone(),
         end: worldCenter.clone(),
         mid: worldCenter,
@@ -263,14 +265,14 @@ export class ChamferMode {
     let closest: BBoxEdge | null = null;
     let minDist = Infinity;
 
-    // For circular edges we need the hit point in mesh-local space so radial
-    // distance is measured against the unrotated cylinder axis (Y).
+    // Z-up: ось цилиндра в локальных координатах = Z. Радиальное расстояние
+    // меряется в XY-плоскости, осевое — по Z.
     const invMatrix = new THREE.Matrix4().copy(mesh.matrixWorld).invert();
     const localHit = hitPoint.clone().applyMatrix4(invMatrix);
 
     for (const edge of edges) {
       const d = edge.kind === 'circular' && edge.radius != null
-        ? this.distanceToCircle(localHit, edge.localMid.y, edge.radius)
+        ? this.distanceToCircle(localHit, edge.localMid.z, edge.radius)
         : this.distanceToSegment(hitPoint, edge.start, edge.end);
       if (d < minDist) {
         minDist = d;
@@ -281,11 +283,11 @@ export class ChamferMode {
     return closest;
   }
 
-  private distanceToCircle(localHit: THREE.Vector3, circleY: number, radius: number): number {
-    const radial = Math.hypot(localHit.x, localHit.z);
+  private distanceToCircle(localHit: THREE.Vector3, circleZ: number, radius: number): number {
+    const radial = Math.hypot(localHit.x, localHit.y);
     const dr = radial - radius;
-    const dy = localHit.y - circleY;
-    return Math.hypot(dr, dy);
+    const dz = localHit.z - circleZ;
+    return Math.hypot(dr, dz);
   }
 
   private findFirstMesh(obj: THREE.Object3D): THREE.Mesh | null {
@@ -473,13 +475,13 @@ export class ChamferMode {
     const major = Math.max(0.01, edge.radius - r);
 
     const geo = new THREE.TorusGeometry(major, r, 12, 48);
-    // Default torus lies in XY; rotate into XZ so axis = Y (cylinder axis).
-    geo.rotateX(Math.PI / 2);
+    // Z-up: ось цилиндра = Z (после CylinderEntity rotateX). Стандартный
+    // TorusGeometry уже лежит в XY (нормаль +Z), что и нужно — без ротации.
 
     const previewMesh = new THREE.Mesh(geo, this.previewMaterial!);
-    // Shift along Y so the torus sits flush with the rim face.
+    // Shift along Z so the torus sits flush with the rim face.
     const sign = edge.isTopRim ? -1 : +1;
-    previewMesh.position.y = edge.localMid.y + sign * r;
+    previewMesh.position.z = edge.localMid.z + sign * r;
 
     const container = new THREE.Group();
     container.applyMatrix4(mesh.matrixWorld);

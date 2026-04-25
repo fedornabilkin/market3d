@@ -482,102 +482,104 @@ export class ModificationGizmo {
 
     const { min, max } = this.box;
     const midX = (min.x + max.x) / 2;
-    const midZ = (min.z + max.z) / 2;
+    const midY = (min.y + max.y) / 2;
 
-    // Compute world-per-pixel at the height handle position for dynamic offsets
+    // Compute world-per-pixel at the height handle position for dynamic offsets.
+    // Z-up: «верх» — это max.z.
     let wpp = 0.35;
     if (this.camera instanceof THREE.PerspectiveCamera) {
       const cam = this.camera as THREE.PerspectiveCamera;
       const fovRad = (cam.fov * Math.PI) / 180;
-      const refPos = new THREE.Vector3(midX, max.y, midZ);
+      const refPos = new THREE.Vector3(midX, midY, max.z);
       const d = refPos.distanceTo(cam.position);
       wpp = (2 * d * Math.tan(fovRad / 2)) / this.containerHeight;
     }
 
     // Dynamic offsets in world units based on screen pixels
-    const offsetYWorld = wpp * OFFSET_Y_SCREEN_PX;
+    const offsetVerticalWorld = wpp * OFFSET_Y_SCREEN_PX;
 
     const handleIndexByType: Record<HandleType, number> = {} as Record<HandleType, number>;
     this.handles.forEach((h, i) => {
       handleIndexByType[h.userData.type as HandleType] = i;
     });
 
-    // Edge midpoints at bottom face of the object
-    const botY = min.y;
-    this.handles[handleIndexByType.edgeWidthLeft].position.set(min.x, botY, midZ);
-    this.handles[handleIndexByType.edgeWidthRight].position.set(max.x, botY, midZ);
-    this.handles[handleIndexByType.edgeLengthFront].position.set(midX, botY, max.z);
-    this.handles[handleIndexByType.edgeLengthBack].position.set(midX, botY, min.z);
+    // Edge midpoints на нижней грани (Z=min.z в Z-up).
+    const botZ = min.z;
+    this.handles[handleIndexByType.edgeWidthLeft].position.set(min.x, midY, botZ);
+    this.handles[handleIndexByType.edgeWidthRight].position.set(max.x, midY, botZ);
+    this.handles[handleIndexByType.edgeLengthFront].position.set(midX, max.y, botZ);
+    this.handles[handleIndexByType.edgeLengthBack].position.set(midX, min.y, botZ);
 
-    // Corners at bottom face
-    this.handles[handleIndexByType.cornerBL].position.set(min.x, botY, min.z);
-    this.handles[handleIndexByType.cornerBR].position.set(max.x, botY, min.z);
-    this.handles[handleIndexByType.cornerTL].position.set(min.x, botY, max.z);
-    this.handles[handleIndexByType.cornerTR].position.set(max.x, botY, max.z);
+    // Углы нижней грани (Z=min.z).
+    this.handles[handleIndexByType.cornerBL].position.set(min.x, min.y, botZ);
+    this.handles[handleIndexByType.cornerBR].position.set(max.x, min.y, botZ);
+    this.handles[handleIndexByType.cornerTL].position.set(min.x, max.y, botZ);
+    this.handles[handleIndexByType.cornerTR].position.set(max.x, max.y, botZ);
 
+    // Height handle: над верхней гранью (Z=max.z).
+    this.handles[handleIndexByType.height].position.set(midX, midY, max.z + offsetVerticalWorld);
 
-    // Height handle: above top center
-    this.handles[handleIndexByType.height].position.set(midX, max.y + offsetYWorld, midZ);
+    // OffsetY (тип имени сохранён для совместимости; семантически — vertical Z): выше height handle.
+    this.handles[handleIndexByType.offsetY].position.set(midX, midY, max.z + offsetVerticalWorld * 2);
 
-    // OffsetY: above height handle
-    this.handles[handleIndexByType.offsetY].position.set(midX, max.y + offsetYWorld * 2, midZ);
-
-    // Three rotation handles — oriented with arcs facing the object center
+    // Three rotation handles — oriented with arcs facing the object center.
     const rotOff = wpp * ROTATE_ARROW_OFFSET_PX;
-    // Orient rotation handle so arc bow faces toward the object (away from grid)
+    // Orient rotation handle so arc bow faces toward the object (away from grid).
+    // Z-up: «земля» — плоскость Z=0, dir вычисляется как сдвиг от ground point до handle.
     const orientArc = (handle: HandleMesh, rotAxis: THREE.Vector3) => {
-      const gridPoint = new THREE.Vector3(handle.position.x, 0, handle.position.z);
-      const dir = handle.position.clone().sub(gridPoint); // away from grid → arc bows toward object
-      // Project direction onto plane perpendicular to rotation axis
+      const groundPoint = new THREE.Vector3(handle.position.x, handle.position.y, 0);
+      const dir = handle.position.clone().sub(groundPoint); // вверх от земли → arc bows toward object
+      // Project направление на плоскость, перпендикулярную rotation axis
       dir.sub(rotAxis.clone().multiplyScalar(dir.dot(rotAxis)));
       if (dir.lengthSq() < 0.001) return;
       dir.normalize();
-      // local Z = rotAxis (rotation plane normal), local X = dir (arc center), local Y = Z × X
       const localY = new THREE.Vector3().crossVectors(rotAxis, dir).normalize();
       const m = new THREE.Matrix4().makeBasis(dir, localY, rotAxis);
       handle.quaternion.setFromRotationMatrix(m);
     };
 
-    // rotateX — at the far edge from camera along X, above top, centered
-    const hRX = this.handles[handleIndexByType.rotateX];
     const camX = this.camera!.position.x;
+    const camY = this.camera!.position.y;
+
+    // rotateX — поворот вокруг X. Кладём на дальний X-край, midY, чуть выше top.
+    const hRX = this.handles[handleIndexByType.rotateX];
     const farX = camX > midX ? min.x : max.x;
-    hRX.position.set(farX, max.y + rotOff, midZ);
+    hRX.position.set(farX, midY, max.z + rotOff);
     orientArc(hRX, new THREE.Vector3(1, 0, 0));
 
-    // rotateZ — at the far edge from camera, above top, centered
-    const hRZ = this.handles[handleIndexByType.rotateZ];
-    const camZ = this.camera!.position.z;
-    const farZ = camZ > midZ ? min.z : max.z;
-    hRZ.position.set(midX, max.y + rotOff, farZ);
-    orientArc(hRZ, new THREE.Vector3(0, 0, 1));
-
-    // rotateY — at bottom, at the nearest edge from camera
+    // rotateY — поворот вокруг Y. Кладём на дальний Y-край, midX, чуть выше top.
     const hRY = this.handles[handleIndexByType.rotateY];
+    const farY = camY > midY ? min.y : max.y;
+    hRY.position.set(midX, farY, max.z + rotOff);
+    orientArc(hRY, new THREE.Vector3(0, 1, 0));
+
+    // rotateZ — yaw вокруг вертикальной оси Z. Кладём у нижней грани (min.z),
+    // на ближайшем углу к камере (XY-план). Дугу разворачиваем горизонтально.
+    const hRZ = this.handles[handleIndexByType.rotateZ];
     const nearX = camX > midX ? max.x : min.x;
-    const nearZ = camZ > midZ ? max.z : min.z;
-    // Pick the nearest edge (X or Z) based on which camera axis is more dominant
+    const nearY = camY > midY ? max.y : min.y;
     const dxCam = Math.abs(camX - midX);
-    const dzCam = Math.abs(camZ - midZ);
-    if (dxCam > dzCam) {
-      hRY.position.set(nearX + rotOff * Math.sign(camX - midX), min.y, midZ);
+    const dyCam = Math.abs(camY - midY);
+    if (dxCam > dyCam) {
+      hRZ.position.set(nearX + rotOff * Math.sign(camX - midX), midY, min.z);
     } else {
-      hRY.position.set(midX, min.y, nearZ + rotOff * Math.sign(camZ - midZ));
+      hRZ.position.set(midX, nearY + rotOff * Math.sign(camY - midY), min.z);
     }
     {
-      // For Y rotation the handle lies at min.y — direction from gridPoint is purely vertical
-      // and collapses to zero after projection. Use horizontal direction from center instead.
+      // Для Z-rotation handle лежит в плоскости Z=min.z — direction чисто
+      // вертикальный после проецирования вырождается. Используем горизонтальный
+      // вектор от центра bbox к ручке.
       const dir = new THREE.Vector3(
-        hRY.position.x - midX,
+        hRZ.position.x - midX,
+        hRZ.position.y - midY,
         0,
-        hRY.position.z - midZ,
       );
       if (dir.lengthSq() > 0.001) {
         dir.normalize();
-        const rotAxis = new THREE.Vector3(0, 1, 0);
+        const rotAxis = new THREE.Vector3(0, 0, 1);
         const localY = new THREE.Vector3().crossVectors(rotAxis, dir).normalize();
         const m = new THREE.Matrix4().makeBasis(dir, localY, rotAxis);
-        hRY.quaternion.setFromRotationMatrix(m);
+        hRZ.quaternion.setFromRotationMatrix(m);
       }
     }
 

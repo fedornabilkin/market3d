@@ -394,7 +394,11 @@ export function bakeGroupRotation(
   if (!mapping) return null;
 
   const { dx, dy, dz } = mapping;
-  const isIdentity = dx.axis === 0 && dy.axis === 1 && dz.axis === 2;
+  // Identity = оси совпадают И знаки положительные (иначе 180° X/Y/Z тоже
+  // попадал бы под isIdentity, поскольку оси сохраняются, но знаки переворачиваются).
+  const isIdentity =
+    dx.axis === 0 && dy.axis === 1 && dz.axis === 2 &&
+    dx.sign > 0 && dy.sign > 0 && dz.sign > 0;
 
   if (isIdentity) {
     // Just return copies, no changes needed
@@ -473,23 +477,29 @@ export function bakeRotation(
   const newScale = permuteScales(transform.scale, dx, dy, dz);
   const s = transform.scale;
 
-  const dims = [geom.width ?? 1, geom.height ?? 1, geom.depth ?? 1];
+  // Z-up: BoxEntity создаёт BoxGeometry(width, depth, height), т.е.
+  // user-facing «height» — это Z-dim, «depth» — Y-dim, «width» — X-dim.
+  // Поэтому dims-массив маппится на оси (X, Y, Z) = (width, depth, height).
+  const dims = [geom.width ?? 1, geom.depth ?? 1, geom.height ?? 1];
   const newDims = [0, 0, 0];
   newDims[dx.axis] = dims[0];
   newDims[dy.axis] = dims[1];
   newDims[dz.axis] = dims[2];
 
+  // halfHeight — половина Z-dim (вертикаль в Z-up).
   const oldHalfH = (geom.height ?? 1) / 2;
-  const newHalfH = newDims[1] / 2;
+  const newHalfH = newDims[2] / 2;
 
   result.geom.width = newDims[0];
-  result.geom.height = newDims[1];
-  result.geom.depth = newDims[2];
+  result.geom.depth = newDims[1];
+  result.geom.height = newDims[2];
 
+  // Position сдвигаем по Z, чтобы нижняя грань осталась на месте после
+  // изменения вертикального размера (height swap при 90°-вращении).
   result.transform.position = {
     x: transform.position.x,
-    y: transform.position.y + oldHalfH * (s.y ?? 1) - newHalfH * newScale.y,
-    z: transform.position.z,
+    y: transform.position.y,
+    z: transform.position.z + oldHalfH * (s.z ?? 1) - newHalfH * newScale.z,
   };
 
   result.transform.scale = newScale;

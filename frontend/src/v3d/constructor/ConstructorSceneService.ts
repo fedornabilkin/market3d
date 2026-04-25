@@ -25,7 +25,7 @@ import { bakeRotation, remapAxisForRotatedGroup } from './primitiveTransforms';
 
 /**
  * halfHeight offset used by a node's applyParamsToMesh. Primitive и ImportedMeshNode
- * рендерятся как mesh.position.y = params.position.y + halfHeight; GroupNode — без оффсета.
+ * рендерятся как mesh.position.z = params.position.z + halfHeight (Z-up); GroupNode — без оффсета.
  */
 function getNodeHalfHeight(node: ModelNode | null | undefined): number {
   if (node instanceof Primitive) return node.getHalfHeight();
@@ -315,17 +315,26 @@ export class ConstructorSceneService {
     const width = containerEl.clientWidth || window.innerWidth;
     const height = containerEl.clientHeight || window.innerHeight;
 
+    // Z-up конвенция (как у FreeCAD/SolidWorks/Fusion). Все Object3D с этого
+    // момента считают +Z вертикалью; OrbitControls и lookAt() работают
+    // относительно этого. Грид и геометрия примитивов соответственно
+    // ориентированы в XY-плоскости.
+    THREE.Object3D.DEFAULT_UP = new THREE.Vector3(0, 0, 1);
+
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(this.backgroundColor as Parameters<THREE.Color['set']>[0]);
 
-    // Grid
+    // Grid (лежит в XY, Z=0)
     this.gridMode.init(this.scene);
 
     // Camera — target the grid center so orbit feels natural even though world
     // origin now sits at the grid's left-front corner.
     const gridCenter = this.gridMode.getCenter();
     this.camera = new THREE.PerspectiveCamera(50, width / height, 0.1, 5000);
-    this.camera.position.set(gridCenter.x, 160, gridCenter.z + 300);
+    this.camera.up.set(0, 0, 1);
+    // Камера смотрит вдоль +Y (фронтальный вид CAD): располагаем её в -Y от
+    // сцены, слегка приподнятую по Z, без бокового сдвига.
+    this.camera.position.set(gridCenter.x, gridCenter.y - 300, gridCenter.z + 100);
 
     // Renderer
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
@@ -333,10 +342,10 @@ export class ConstructorSceneService {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     containerEl.appendChild(this.renderer.domElement);
 
-    // Lights
+    // Lights — направленный свет сверху (по +Z) и немного сбоку.
     this.scene.add(new THREE.AmbientLight(0xffffff, 0.6));
     const dir = new THREE.DirectionalLight(0xffffff, 0.8);
-    dir.position.set(5, 10, 5);
+    dir.position.set(5, 5, 10);
     this.scene.add(dir);
 
     // Controls — right-click rotates, left-click is used for selection/drag
@@ -822,10 +831,10 @@ export class ConstructorSceneService {
     mesh.geometry = prim.createGeometry();
     oldGeo.dispose();
 
-    // Re-apply Y offset: position.y in params means "bottom on grid"
+    // Z-up: params.position.z — нижняя грань; halfHeight по Z даёт центр меша.
     const halfH = prim.getHalfHeight();
     const p = prim.params.position ?? { x: 0, y: 0, z: 0 };
-    mesh.position.set(p.x, (p.y ?? 0) + halfH, p.z);
+    mesh.position.set(p.x, p.y, (p.z ?? 0) + halfH);
 
     // Update edge lines
     ConstructorSceneService.addEdgeLines(mesh);
@@ -918,7 +927,7 @@ export class ConstructorSceneService {
 
           // Sync 3D object position for subsequent growDim calls (corners call twice)
           const halfH = getNodeHalfHeight(node);
-          obj.position.set(p.x, p.y + halfH, p.z);
+          obj.position.set(p.x, p.y, (p.z ?? 0) + halfH);
           obj.updateMatrixWorld(true);
           objBox = new THREE.Box3().setFromObject(obj);
         } else {
@@ -929,46 +938,47 @@ export class ConstructorSceneService {
     };
 
     switch (handleType) {
-      // Edge handles: grow one dimension, shift position so the opposite face stays put
+      // Edge handles: grow one dimension, shift position so the opposite face stays put.
+      // Z-up: «depth» — горизонтальная глубина по оси Y (раньше была Z).
       case 'edgeWidthRight': growDim(dx, 'width',  'x', 'x', +1); break;
       case 'edgeWidthLeft':  growDim(-dx, 'width',  'x', 'x', -1); break;
-      case 'edgeLengthFront':growDim(dx, 'depth',  'z', 'z', +1); break;
-      case 'edgeLengthBack': growDim(-dx, 'depth',  'z', 'z', -1); break;
+      case 'edgeLengthFront':growDim(dx, 'depth',  'y', 'y', +1); break;
+      case 'edgeLengthBack': growDim(-dx, 'depth',  'y', 'y', -1); break;
 
-      // Corner handles: dx = X-axis delta (width), dy = Z-axis delta (depth)
+      // Corner handles: dx = X-axis delta (width), dy = Y-axis delta (depth).
       case 'cornerTR': {
         growDim(dx, 'width', 'x', 'x', +1);
-        growDim(dy, 'depth', 'z', 'z', +1);
+        growDim(dy, 'depth', 'y', 'y', +1);
         break;
       }
       case 'cornerTL': {
         growDim(-dx, 'width', 'x', 'x', -1);
-        growDim(dy, 'depth', 'z', 'z', +1);
+        growDim(dy, 'depth', 'y', 'y', +1);
         break;
       }
       case 'cornerBR': {
         growDim(dx, 'width', 'x', 'x', +1);
-        growDim(-dy, 'depth', 'z', 'z', -1);
+        growDim(-dy, 'depth', 'y', 'y', -1);
         break;
       }
       case 'cornerBL': {
         growDim(-dx, 'width', 'x', 'x', -1);
-        growDim(-dy, 'depth', 'z', 'z', -1);
+        growDim(-dy, 'depth', 'y', 'y', -1);
         break;
       }
 
-      // Height: grow upward, bottom face stays fixed
+      // Height: grow upward, bottom face stays fixed. Z-up: вертикаль = Z.
       case 'height': {
         const hObj = this.selectedObject3D;
-        // Запоминаем bbox.min.y до изменения
+        // Запоминаем bbox.min.z (bottom face) до изменения.
         let bottomBefore: number | null = null;
         if (hObj) {
           const bBefore = new THREE.Box3().setFromObject(hObj);
-          bottomBefore = bBefore.min.y;
+          bottomBefore = bBefore.min.z;
         }
 
         {
-          const heightAxis = remapAxis('y');
+          const heightAxis = remapAxis('z');
           const currentH = objBoxSize ? objBoxSize[heightAxis] : 0;
           if (currentH > 0.01) {
             const oldScaleH = s[heightAxis] ?? 1;
@@ -979,7 +989,7 @@ export class ConstructorSceneService {
           }
         }
 
-        // Компенсируем позицию, чтобы bbox.min.y остался на месте
+        // Компенсируем позицию, чтобы bbox.min.z остался на месте.
         if (hObj && bottomBefore !== null) {
           // Удаляем устаревшие edge-line дочерние объекты — их bbox от предыдущей
           // геометрии раздувает setFromObject и ломает вычисление drift.
@@ -990,25 +1000,26 @@ export class ConstructorSceneService {
             hObj.remove(c);
           });
 
-          // Применяем промежуточные значения к mesh для вычисления нового bbox
+          // Применяем промежуточные значения к mesh для вычисления нового bbox.
           {
             const halfH = getNodeHalfHeight(node);
-            hObj.position.set(p.x, (p.y ?? 0) + halfH, p.z);
+            hObj.position.set(p.x, p.y, (p.z ?? 0) + halfH);
             if (params.scale) hObj.scale.set(params.scale.x, params.scale.y, params.scale.z);
           }
           hObj.updateMatrixWorld(true);
           const bAfter = new THREE.Box3().setFromObject(hObj);
-          const drift = bAfter.min.y - bottomBefore;
+          const drift = bAfter.min.z - bottomBefore;
           if (Math.abs(drift) > 0.0001) {
-            p.y -= drift;
+            p.z -= drift;
           }
         }
         break;
       }
 
-      // Vertical offset: pure translation
+      // Vertical offset: pure translation along Z (Z-up).
+      // Тип ручки 'offsetY' исторически — переименование оставлено на UI-фазу.
       case 'offsetY':
-        p.y = (p.y ?? 0) + dy;
+        p.z = (p.z ?? 0) + dy;
         break;
 
       // Axis-constrained rotation: dx = absolute angle, applied in world space via quaternion
@@ -1036,9 +1047,9 @@ export class ConstructorSceneService {
         break;
     }
 
-    // Snap позиции только для вертикального смещения (offsetY)
+    // Snap позиции только для вертикального смещения (Z-up: ось Z).
     if (this.snapStep > 0 && handleType === 'offsetY') {
-      p.y = Math.round(p.y / this.snapStep) * this.snapStep;
+      p.z = Math.round(p.z / this.snapStep) * this.snapStep;
     }
 
     // Update mesh visuals
@@ -1047,7 +1058,7 @@ export class ConstructorSceneService {
     if (obj) {
       const halfH = getNodeHalfHeight(node);
       if (params.position) {
-        obj.position.set(params.position.x, (params.position.y ?? 0) + halfH, params.position.z);
+        obj.position.set(params.position.x, params.position.y, (params.position.z ?? 0) + halfH);
       }
       if (params.scale) obj.scale.set(params.scale.x, params.scale.y, params.scale.z);
       if (params.rotation) {
@@ -1065,11 +1076,25 @@ export class ConstructorSceneService {
 
           // Позиция = pivot_мировой − повёрнутый_offset
           obj.position.copy(pivotWorld).sub(rotatedOffset);
+          obj.updateMatrixWorld(true);
+
+          // Z-up: после поворота вокруг горизонтальной оси новая bbox.min.z
+          // отличается от исходной (геометрия «расходится» в Z). Удерживаем
+          // нижнюю грань на исходном Z (например, на сетке), чтобы объект
+          // визуально не уезжал вверх/вниз при наклонах.
+          const startBottomZ = this.handleDragState.startBottomZ;
+          if (startBottomZ !== undefined) {
+            const newBox = new THREE.Box3().setFromObject(obj);
+            const drift = newBox.min.z - startBottomZ;
+            if (Math.abs(drift) > 0.0001) {
+              obj.position.z -= drift;
+            }
+          }
 
           params.position = params.position || { x: 0, y: 0, z: 0 };
           params.position.x = obj.position.x;
-          params.position.y = obj.position.y - halfH;
-          params.position.z = obj.position.z;
+          params.position.y = obj.position.y;
+          params.position.z = obj.position.z - halfH;
         } else {
           obj.rotation.set(params.rotation.x, params.rotation.y, params.rotation.z);
         }
@@ -1130,8 +1155,8 @@ export class ConstructorSceneService {
 
   /**
    * Moves the selected node by the snap step relative to camera orientation.
-   * direction: 'left' | 'right' | 'forward' | 'backward' for horizontal XZ plane,
-   *            'up' | 'down' for vertical Y axis.
+   * direction: 'left' | 'right' | 'forward' | 'backward' — горизонтальная XY-плоскость (Z-up),
+   *            'up' | 'down' — вертикаль по Z.
    */
   moveSelectedByKey(
     direction: 'left' | 'right' | 'forward' | 'backward' | 'up' | 'down',
@@ -1146,16 +1171,16 @@ export class ConstructorSceneService {
     const p = node.params.position;
 
     if (direction === 'up' || direction === 'down') {
-      p.y = (p.y ?? 0) + step * (direction === 'up' ? 1 : -1);
-      p.y = Math.round(p.y / step) * step;
+      p.z = (p.z ?? 0) + step * (direction === 'up' ? 1 : -1);
+      p.z = Math.round(p.z / step) * step;
     } else {
-      // Camera-relative direction, but snapped to the dominant world axis
+      // Camera-relative направление, snapped к доминантной оси в XY-плоскости.
       const camDir = new THREE.Vector3();
       this.camera!.getWorldDirection(camDir);
-      camDir.y = 0;
+      camDir.z = 0;
       camDir.normalize();
       const camRight = new THREE.Vector3();
-      camRight.crossVectors(camDir, new THREE.Vector3(0, 1, 0)).normalize();
+      camRight.crossVectors(camDir, new THREE.Vector3(0, 0, 1)).normalize();
 
       let moveDir: THREE.Vector3;
       switch (direction) {
@@ -1165,19 +1190,19 @@ export class ConstructorSceneService {
         case 'left':     moveDir = camRight.clone().negate(); break;
       }
 
-      // Snap the left (min.x) / front (min.z) face to grid rather than the
-      // center — odd-sized objects keep their visible face on the grid.
+      // Snap left/front face to grid вместо центра — odd-sized объекты держат
+      // видимую грань на сетке.
       const objForBox = this.selectedObject3D;
       const bbox = objForBox ? new THREE.Box3().setFromObject(objForBox) : null;
       const offMinX = bbox && objForBox ? bbox.min.x - objForBox.position.x : 0;
-      const offMinZ = bbox && objForBox ? bbox.min.z - objForBox.position.z : 0;
+      const offMinY = bbox && objForBox ? bbox.min.y - objForBox.position.y : 0;
 
-      if (Math.abs(moveDir.x) >= Math.abs(moveDir.z)) {
+      if (Math.abs(moveDir.x) >= Math.abs(moveDir.y)) {
         p.x = (p.x ?? 0) + Math.sign(moveDir.x) * step;
         p.x = Math.round((p.x + offMinX) / step) * step - offMinX;
       } else {
-        p.z = (p.z ?? 0) + Math.sign(moveDir.z) * step;
-        p.z = Math.round((p.z + offMinZ) / step) * step - offMinZ;
+        p.y = (p.y ?? 0) + Math.sign(moveDir.y) * step;
+        p.y = Math.round((p.y + offMinY) / step) * step - offMinY;
       }
     }
 
@@ -1185,7 +1210,7 @@ export class ConstructorSceneService {
     const obj = this.selectedObject3D;
     if (obj) {
       const halfH = getNodeHalfHeight(node);
-      obj.position.set(p.x, (p.y ?? 0) + halfH, p.z);
+      obj.position.set(p.x, p.y, (p.z ?? 0) + halfH);
     }
 
     this.showYZeroIndicatorIfNeeded(node);
@@ -1217,15 +1242,15 @@ export class ConstructorSceneService {
       this.selectedObject3D.getWorldPosition(objectPos);
     }
 
-    // Точка на уровне нижней грани объекта (для constraint plane)
-    let botY = 0;
+    // Z-up: точка на уровне нижней грани объекта (Z=min.z).
+    let botZ = 0;
     if (this.selectedObject3D) {
       const box = new THREE.Box3().setFromObject(this.selectedObject3D);
-      botY = box.min.y;
+      botZ = box.min.z;
     }
-    const projOrigin = new THREE.Vector3(objectPos.x, botY, objectPos.z);
+    const projOrigin = new THREE.Vector3(objectPos.x, objectPos.y, botZ);
 
-    // Оси проекции — мировые, ручки работают в визуальном пространстве
+    // Оси проекции — мировые. В Z-up: depth (front-back) = Y, height = Z.
     let worldAxis: THREE.Vector3;
     let isVertical = false;
     let isCorner = false;
@@ -1239,21 +1264,24 @@ export class ConstructorSceneService {
         break;
       case 'edgeLengthFront':
       case 'edgeLengthBack':
-        worldAxis = new THREE.Vector3(0, 0, 1);
+        worldAxis = new THREE.Vector3(0, 1, 0);
         break;
       case 'height':
       case 'offsetY':
-        worldAxis = new THREE.Vector3(0, 1, 0);
+        // Тип имени 'offsetY' исторический — семантика «вертикаль», т.е. Z в Z-up.
+        worldAxis = new THREE.Vector3(0, 0, 1);
         isVertical = true;
         break;
       case 'cornerBL':
       case 'cornerBR':
       case 'cornerTL':
       case 'cornerTR':
-        worldAxis = new THREE.Vector3(1, 0, 1).normalize();
+        // Угловая ручка тянет в XY-плоскости. localAxisX — ось X, поле
+        // localAxisZ переиспользуется под вторую горизонтальную ось (Y).
+        worldAxis = new THREE.Vector3(1, 1, 0).normalize();
         isCorner = true;
         localAxisX = new THREE.Vector3(1, 0, 0);
-        localAxisZ = new THREE.Vector3(0, 0, 1);
+        localAxisZ = new THREE.Vector3(0, 1, 0);
         break;
       default:
         worldAxis = new THREE.Vector3(1, 0, 0);
@@ -1262,18 +1290,18 @@ export class ConstructorSceneService {
 
     let plane: THREE.Plane;
     if (isVertical) {
-      // Вертикальные: плоскость лицом к камере
+      // Вертикальные: плоскость лицом к камере (drag отслеживает Z-перемещение).
       const camDir = new THREE.Vector3();
       this.camera!.getWorldDirection(camDir);
       const normal = camDir.clone().negate().normalize();
       if (normal.lengthSq() < 0.001) {
-        normal.set(0, 0, 1);
+        normal.set(0, 1, 0);
       }
       plane = new THREE.Plane().setFromNormalAndCoplanarPoint(normal, objectPos);
     } else {
-      // Рёбра и углы: горизонтальная плоскость Y=0
+      // Рёбра и углы: горизонтальная плоскость Z=botZ (нижняя грань объекта).
       plane = new THREE.Plane().setFromNormalAndCoplanarPoint(
-        new THREE.Vector3(0, 1, 0),
+        new THREE.Vector3(0, 0, 1),
         projOrigin,
       );
     }
@@ -1285,17 +1313,15 @@ export class ConstructorSceneService {
 
   private showYZeroIndicatorIfNeeded(node: ModelNode): void {
     if (!this.scene) return;
-    // Use the actual mesh bounding-box bottom — position.y semantics differ
-    // between primitives (bottom face), groups (raw origin), and imports, so
-    // relying on params.position.y would miss groups whose origin sits above
-    // the grid while their visual bottom lands on it.
+    // Z-up: проверяем нижнюю грань bbox по Z (раньше — по Y).
+    // Имя метода/индикатора оставлено как «YZero» — это ярлык «нулевая высота».
     const obj = this.modelRootGroup ? this.findObjectByNode(this.modelRootGroup, node) : null;
     if (!obj) {
       this.hideYZeroIndicator();
       return;
     }
     const box = new THREE.Box3().setFromObject(obj);
-    if (Math.abs(box.min.y) < 0.05) {
+    if (Math.abs(box.min.z) < 0.05) {
       this.showYZeroIndicator(node);
     } else {
       this.hideYZeroIndicator();
@@ -1311,24 +1337,24 @@ export class ConstructorSceneService {
     if (obj) {
       box.setFromObject(obj);
     } else {
-      // Fallback: small area around position
+      // Fallback: small area around position. Z-up: footprint в XY на Z=0.
       const pos = node.params?.position ?? { x: 0, y: 0, z: 0 };
-      box.min.set(pos.x - 5, 0, pos.z - 5);
-      box.max.set(pos.x + 5, 0, pos.z + 5);
+      box.min.set(pos.x - 5, pos.y - 5, 0);
+      box.max.set(pos.x + 5, pos.y + 5, 0);
     }
 
     const sizeX = box.max.x - box.min.x;
-    const sizeZ = box.max.z - box.min.z;
+    const sizeY = box.max.y - box.min.y;
     const centerX = (box.min.x + box.max.x) / 2;
-    const centerZ = (box.min.z + box.max.z) / 2;
+    const centerY = (box.min.y + box.max.y) / 2;
 
-    // Dispose old indicator geometry to recreate with correct size
+    // Z-up: индикатор лежит плоско в XY-плоскости — PlaneGeometry уже там.
     if (this.yZeroIndicator) {
       this.yZeroIndicator.geometry.dispose();
-      const geo = new THREE.PlaneGeometry(sizeX, sizeZ);
+      const geo = new THREE.PlaneGeometry(sizeX, sizeY);
       this.yZeroIndicator.geometry = geo;
     } else {
-      const geo = new THREE.PlaneGeometry(sizeX, sizeZ);
+      const geo = new THREE.PlaneGeometry(sizeX, sizeY);
       const mat = new THREE.MeshBasicMaterial({
         color: 0x00ff88,
         side: THREE.DoubleSide,
@@ -1337,11 +1363,10 @@ export class ConstructorSceneService {
         depthTest: false,
       });
       this.yZeroIndicator = new THREE.Mesh(geo, mat);
-      this.yZeroIndicator.rotation.x = -Math.PI / 2;
       this.yZeroIndicator.renderOrder = 2;
     }
 
-    this.yZeroIndicator.position.set(centerX, 0.01, centerZ);
+    this.yZeroIndicator.position.set(centerX, centerY, 0.01);
     if (this.yZeroIndicator.parent !== this.scene) {
       this.scene.add(this.yZeroIndicator);
     }

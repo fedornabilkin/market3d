@@ -28,7 +28,8 @@ export class ImportedMeshEntity extends Entity<ImportedMeshParams> {
       this.params.geometry.computeBoundingBox();
     }
     const bb = this.params.geometry.boundingBox!;
-    return (bb.max.y - bb.min.y) / 2;
+    // Z-up: высота меряется по Z-extent геометрии.
+    return (bb.max.z - bb.min.z) / 2;
   }
 
   /** Прямой доступ к закодированному исходнику — нужен сериализатору. */

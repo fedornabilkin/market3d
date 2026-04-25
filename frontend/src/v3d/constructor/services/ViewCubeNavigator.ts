@@ -19,13 +19,16 @@ export class ViewCubeNavigator {
   constructor() {
     this.scene = new THREE.Scene();
 
+    // Z-up: мини-камера смотрит вдоль +Y, up=+Z. Позиция (0,0,3) была бы
+    // вырожденной (вектор камера→цель параллелен up).
     this.camera = new THREE.PerspectiveCamera(50, 1, 0.1, 100);
-    this.camera.position.set(0, 0, 3);
+    this.camera.up.set(0, 0, 1);
+    this.camera.position.set(0, -3, 0);
     this.camera.lookAt(0, 0, 0);
 
     this.scene.add(new THREE.AmbientLight(0xffffff, 0.7));
     const dirLight = new THREE.DirectionalLight(0xffffff, 0.5);
-    dirLight.position.set(2, 3, 4);
+    dirLight.position.set(2, 4, 3);
     this.scene.add(dirLight);
 
     this.cubeGroup = new THREE.Group();

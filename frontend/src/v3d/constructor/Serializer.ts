@@ -17,6 +17,17 @@ import { STLLoader } from 'three/examples/jsm/loaders/STLLoader';
  * Handles name, color, and all geometry/transform params.
  */
 export class Serializer {
+  /**
+   * Сериализует корень дерева с пометкой coordsConvention='zup'. Используется
+   * в save-флоу — этот флаг затем читается migrateLegacyYupToZupIfNeeded
+   * при следующей загрузке, чтобы не делать swap координат повторно.
+   */
+  toRootJSON(root: ModelNode): ModelTreeJSON {
+    const json = this.toJSON(root);
+    (json as ModelTreeJSON & { coordsConvention?: string }).coordsConvention = 'zup';
+    return json;
+  }
+
   toJSON(root: ModelNode): ModelTreeJSON {
     if (root instanceof ImportedMeshNode) {
       const json: ImportedMeshNodeJSON = {
@@ -90,6 +101,42 @@ export class Serializer {
       return node;
     }
     throw new Error('Unknown JSON node kind');
+  }
+
+  /**
+   * Один раз мигрирует legacy Y-up сохранёнку в Z-up: рекурсивно меняет
+   * местами координаты Y↔Z в position и rotation у каждой ноды. Помечает
+   * корневой объект `coordsConvention: 'zup'`, чтобы повторная загрузка не
+   * мигрировала ещё раз. Мутирует JSON in-place.
+   *
+   * Вызывать в loadFromLocalStorage / loadFromFile ДО Serializer.fromJSON,
+   * на верхнеуровневом JSON-объекте.
+   */
+  static migrateLegacyYupToZupIfNeeded(rootJson: ModelTreeJSON): void {
+    const root = rootJson as ModelTreeJSON & { coordsConvention?: string };
+    if (root.coordsConvention === 'zup') return;
+
+    const swapYZ = (v?: { x: number; y: number; z: number }): void => {
+      if (!v) return;
+      const tmp = v.y;
+      v.y = v.z;
+      v.z = tmp;
+    };
+
+    const visit = (node: ModelTreeJSON): void => {
+      const np = (node as { nodeParams?: NodeParams }).nodeParams;
+      if (np) {
+        swapYZ(np.position);
+        swapYZ(np.rotation as { x: number; y: number; z: number } | undefined);
+      }
+      if ((node as { kind: string }).kind === 'group') {
+        const children = (node as { children?: ModelTreeJSON[] }).children;
+        if (children) for (const c of children) visit(c);
+      }
+    };
+
+    visit(rootJson);
+    root.coordsConvention = 'zup';
   }
 
   private cloneNodeParams(p: NodeParams): NodeParams {

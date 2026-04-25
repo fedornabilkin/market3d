@@ -9,7 +9,7 @@ export class GridService {
   private mmGridLabelTexture: THREE.Texture | null = null;
   private mmGridLabelSprite: THREE.Sprite | null = null;
 
-  /** Dashed-rectangle + filled-area projection of the selected object onto the Y=0 plane. */
+  /** Dashed-rectangle + filled-area projection of the selected object onto the Z=0 plane. */
   private projectionGroup: THREE.Group | null = null;
 
   /** Soft shadows for non-selected objects. */
@@ -48,19 +48,20 @@ export class GridService {
     const baseColor = new THREE.Color(0xbfe8e8); // #00a5a4 lightened 75%
     const boldColor = new THREE.Color(0x80d2d2); // #00a5a4 lightened 50%
 
-    // Lines parallel to Z axis (varying X)
+    // Z-up: сетка в XY-плоскости (Z=0).
+    // Линии вдоль оси Y (varying X).
     for (let i = -halfWidth; i <= halfWidth; i++) {
       const index = Math.round(i + halfWidth);
       const color = index % 10 === 0 ? boldColor : baseColor;
-      positions.push(i, 0, -halfLength, i, 0, halfLength);
+      positions.push(i, -halfLength, 0, i, halfLength, 0);
       colors.push(color.r, color.g, color.b, color.r, color.g, color.b);
     }
 
-    // Lines parallel to X axis (varying Z)
+    // Линии вдоль оси X (varying Y).
     for (let i = -halfLength; i <= halfLength; i++) {
       const index = Math.round(i + halfLength);
       const color = index % 10 === 0 ? boldColor : baseColor;
-      positions.push(-halfWidth, 0, i, halfWidth, 0, i);
+      positions.push(-halfWidth, i, 0, halfWidth, i, 0);
       colors.push(color.r, color.g, color.b, color.r, color.g, color.b);
     }
 
@@ -94,18 +95,19 @@ export class GridService {
     this.mmGridLabelTexture = texture;
     const spriteMaterial = new THREE.SpriteMaterial({ map: texture, depthTest: true });
     const sprite = new THREE.Sprite(spriteMaterial);
-    sprite.position.set(halfWidth, 0.01, halfLength);
+    // Лейбл «мм» — в дальнем углу плиты (Z=0, поднят на 0.01 чтобы не клипилось).
+    sprite.position.set(halfWidth, halfLength, 0.01);
     sprite.scale.set(20, 5, 1);
     this.mmGridLabelSprite = sprite;
     group.add(sprite);
 
-    // Axis arrows at left-front corner (-halfWidth, 0, halfLength)
-    const axisOrigin = new THREE.Vector3(-halfWidth, 0.02, halfLength);
+    // Axis arrows в нижне-левом углу плиты (-halfWidth, -halfLength, 0).
+    const axisOrigin = new THREE.Vector3(-halfWidth, -halfLength, 0.02);
     const axisLen = Math.min(halfWidth, halfLength) * 0.15;
     const headLen = axisLen * 0.25;
     const headW = axisLen * 0.12;
 
-    // X axis (red) — pointing right
+    // X axis (red) — вправо
     const xArrow = new THREE.ArrowHelper(
       new THREE.Vector3(1, 0, 0), axisOrigin, axisLen, 0xff4444, headLen, headW,
     );
@@ -113,15 +115,7 @@ export class GridService {
     xArrow.updateMatrix();
     group.add(xArrow);
 
-    // Z axis (blue) — pointing back (into scene, -Z from front corner)
-    const zArrow = new THREE.ArrowHelper(
-      new THREE.Vector3(0, 0, -1), axisOrigin, axisLen, 0x4488ff, headLen, headW,
-    );
-    zArrow.matrixAutoUpdate = false;
-    zArrow.updateMatrix();
-    group.add(zArrow);
-
-    // Y axis (green) — pointing up
+    // Y axis (green) — от наблюдателя в глубину (по +Y в Z-up)
     const yArrow = new THREE.ArrowHelper(
       new THREE.Vector3(0, 1, 0), axisOrigin, axisLen, 0x44cc44, headLen, headW,
     );
@@ -129,22 +123,30 @@ export class GridService {
     yArrow.updateMatrix();
     group.add(yArrow);
 
-    // Axis labels
+    // Z axis (blue) — вверх
+    const zArrow = new THREE.ArrowHelper(
+      new THREE.Vector3(0, 0, 1), axisOrigin, axisLen, 0x4488ff, headLen, headW,
+    );
+    zArrow.matrixAutoUpdate = false;
+    zArrow.updateMatrix();
+    group.add(zArrow);
+
+    // Axis labels рядом с концами стрелок.
     this.addAxisLabel(group, 'X', 0xff4444,
-      new THREE.Vector3(axisOrigin.x + axisLen + 2, 0.02, axisOrigin.z));
-    this.addAxisLabel(group, 'Z', 0x4488ff,
-      new THREE.Vector3(axisOrigin.x, 0.02, axisOrigin.z - axisLen - 2));
+      new THREE.Vector3(axisOrigin.x + axisLen + 2, axisOrigin.y, 0.02));
     this.addAxisLabel(group, 'Y', 0x44cc44,
-      new THREE.Vector3(axisOrigin.x, axisLen + 2, axisOrigin.z));
+      new THREE.Vector3(axisOrigin.x, axisOrigin.y + axisLen + 2, 0.02));
+    this.addAxisLabel(group, 'Z', 0x4488ff,
+      new THREE.Vector3(axisOrigin.x, axisOrigin.y, axisLen + 2));
 
-    // Brand label at left-front corner
+    // Brand label у нижнего-левого угла плиты, лежит в XY.
     this.addBrandLabel(group, 'VSQR.RU',
-      new THREE.Vector3(-halfWidth + axisLen + 6, 0.01, halfLength));
+      new THREE.Vector3(-halfWidth + axisLen + 6, -halfLength, 0.01));
 
-    // Shift the grid so its left-front corner coincides with world origin:
-    // X ∈ [0, gridWidthMm], Z ∈ [-gridLengthMm, 0]. Internally the grid is still
-    // built symmetric around its own local (0,0,0); the offset is applied on the group.
-    group.position.set(halfWidth, 0, -halfLength);
+    // Сдвигаем плиту так, чтобы нижне-левый угол был в (0,0,0):
+    // X ∈ [0, gridWidthMm], Y ∈ [0, gridLengthMm]. Внутри плита построена
+    // симметрично вокруг локального (0,0,0); смещение применяется к group.
+    group.position.set(halfWidth, halfLength, 0);
 
     group.visible = this.gridVisible;
     this.mmGridGroup = group;
@@ -194,8 +196,8 @@ export class GridService {
     const width = depth * aspect;
     const geo = new THREE.PlaneGeometry(width, depth);
     const mesh = new THREE.Mesh(geo, mat);
-    mesh.rotation.x = -Math.PI / 2;
-    mesh.position.set(position.x + width / 2, position.y, position.z - depth / 2);
+    // Z-up: Plane уже в XY-плоскости, дополнительной ротации не нужно.
+    mesh.position.set(position.x + width / 2, position.y + depth / 2, position.z);
     mesh.matrixAutoUpdate = false;
     mesh.updateMatrix();
     parent.add(mesh);
@@ -213,7 +215,8 @@ export class GridService {
    * Call once per frame before updateProjection.
    */
   updateShadows(allObjects: THREE.Object3D[], selectedObj: THREE.Object3D | null): void {
-    const gridY = 0.005;
+    // Z-up: тень рисуется чуть выше Z=0 плоскости.
+    const gridZ = 0.005;
     let idx = 0;
 
     for (const obj of allObjects) {
@@ -223,13 +226,13 @@ export class GridService {
       if (box.isEmpty()) continue;
 
       const { min, max } = box;
-      // Only show shadow if object is raised above the grid
-      if (min.y < 0.01) continue;
+      // Show shadow только если объект приподнят над плитой.
+      if (min.z < 0.01) continue;
 
       const cx = (min.x + max.x) / 2;
-      const cz = (min.z + max.z) / 2;
+      const cy = (min.y + max.y) / 2;
       const w = max.x - min.x;
-      const d = max.z - min.z;
+      const d = max.y - min.y;
       if (w < 0.001 || d < 0.001) continue;
 
       let shadow: THREE.Mesh;
@@ -245,13 +248,13 @@ export class GridService {
           depthTest: false,
         });
         shadow = new THREE.Mesh(geo, mat);
-        shadow.rotation.x = -Math.PI / 2;
+        // PlaneGeometry в Z-up уже лежит горизонтально — ротация не нужна.
         shadow.renderOrder = 0;
         this.scene.add(shadow);
         this.shadowPool.push(shadow);
       }
 
-      shadow.position.set(cx, gridY, cz);
+      shadow.position.set(cx, cy, gridZ);
       shadow.scale.set(w, d, 1);
       shadow.visible = true;
       idx++;
@@ -265,9 +268,8 @@ export class GridService {
   }
 
   /**
-   * Updates the dashed footprint + translucent fill drawn on the Y=0 plane
-   * beneath the given object's bounding box. Pass `null` to hide the projection.
-   * Call once per animation frame.
+   * Z-up: рисует пунктирный footprint + полупрозрачную заливку на плоскости
+   * Z=0 под bbox объекта. `null` прячет проекцию. Вызывать раз в кадр.
    */
   updateProjection(obj: THREE.Object3D | null): void {
     if (!obj) {
@@ -278,25 +280,25 @@ export class GridService {
     const box = new THREE.Box3().setFromObject(obj);
     const { min, max } = box;
 
-    // Slightly above 0 to avoid z-fighting with the grid lines
-    const gy = 0.02;
+    // Чуть выше Z=0 чтобы не клипиться с линиями сетки.
+    const gz = 0.02;
 
     const sizeX = max.x - min.x;
-    const sizeZ = max.z - min.z;
+    const sizeY = max.y - min.y;
     const centerX = (min.x + max.x) / 2;
-    const centerZ = (min.z + max.z) / 2;
+    const centerY = (min.y + max.y) / 2;
 
-    const c0 = new THREE.Vector3(min.x, gy, min.z);
-    const c1 = new THREE.Vector3(max.x, gy, min.z);
-    const c2 = new THREE.Vector3(max.x, gy, max.z);
-    const c3 = new THREE.Vector3(min.x, gy, max.z);
+    const c0 = new THREE.Vector3(min.x, min.y, gz);
+    const c1 = new THREE.Vector3(max.x, min.y, gz);
+    const c2 = new THREE.Vector3(max.x, max.y, gz);
+    const c3 = new THREE.Vector3(min.x, max.y, gz);
     const rectPoints = [c0, c1, c2, c3, c0];
 
     if (!this.projectionGroup) {
       this.projectionGroup = new THREE.Group();
       this.projectionGroup.renderOrder = 2;
 
-      // Filled area
+      // Filled area — Z-up: PlaneGeometry уже горизонтальная.
       const fillGeo = new THREE.PlaneGeometry(1, 1);
       const fillMat = new THREE.MeshBasicMaterial({
         color: 0x888888,
@@ -306,7 +308,6 @@ export class GridService {
         depthTest: false,
       });
       const fillMesh = new THREE.Mesh(fillGeo, fillMat);
-      fillMesh.rotation.x = -Math.PI / 2;
       fillMesh.name = 'projFill';
       this.projectionGroup.add(fillMesh);
 
@@ -337,8 +338,8 @@ export class GridService {
 
     const fillMesh = this.projectionGroup.getObjectByName('projFill') as THREE.Mesh | undefined;
     if (fillMesh) {
-      fillMesh.position.set(centerX, gy + 0.001, centerZ);
-      fillMesh.scale.set(sizeX, sizeZ, 1);
+      fillMesh.position.set(centerX, centerY, gz + 0.001);
+      fillMesh.scale.set(sizeX, sizeY, 1);
     }
 
     this.projectionGroup.visible = true;

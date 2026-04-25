@@ -18,11 +18,15 @@ export class BoxEntity extends Entity<BoxParams> {
   createGeometry(): THREE.BufferGeometry {
     const { width, height, depth } = this.params;
     const bevelR = Number(this.params.bevelRadius) || 0;
+    // Z-up: «height» — вертикальная грань (по Z), «depth» — горизонтальная глубина
+    // (по Y). three.js BoxGeometry(W, H, D) кладёт W→X, H→Y, D→Z, поэтому
+    // меняем местами height↔depth в аргументах: пользовательский height
+    // ложится на ось Z, depth — на Y.
     if (bevelR > 0) {
       const bevelSeg = Math.max(1, Math.round(Number(this.params.bevelSegments) || 3));
-      return new RoundedBoxBufferGeometry(width, height, depth, bevelSeg, bevelR);
+      return new RoundedBoxBufferGeometry(width, depth, height, bevelSeg, bevelR);
     }
-    return new THREE.BoxGeometry(width, height, depth);
+    return new THREE.BoxGeometry(width, depth, height);
   }
 
   getHalfHeight(): number {

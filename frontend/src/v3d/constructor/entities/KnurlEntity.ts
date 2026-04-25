@@ -21,7 +21,7 @@ export class KnurlEntity extends Entity<KnurlParams> {
   readonly type = 'knurl' as const;
 
   createGeometry(): THREE.BufferGeometry {
-    return generateKnurlGeometry({
+    const geo = generateKnurlGeometry({
       outerDiameter: this.params.outerDiameter,
       innerDiameter: this.params.innerDiameter,
       height: this.params.height,
@@ -31,6 +31,9 @@ export class KnurlEntity extends Entity<KnurlParams> {
       segmentsPerNotch: this.params.segmentsPerNotch ?? 6,
       heightSegments: this.params.heightSegments ?? 24,
     });
+    // KnurlGenerator строит цилиндр-сетку вдоль Y — переориентируем в Z-up.
+    geo.rotateX(Math.PI / 2);
+    return geo;
   }
 
   getHalfHeight(): number {

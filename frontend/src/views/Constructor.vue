@@ -928,7 +928,10 @@ function _flushSave() {
   try {
     const serializer = modelApp.value!.getSerializer();
     const root = modelApp.value!.getModelManager().getTree();
-    localStorage.setItem(STORAGE_KEYS[activeSceneIndex.value], JSON.stringify(serializer.toJSON(root)));
+    // toRootJSON помечает корень флагом coordsConvention='zup', чтобы при
+    // следующей загрузке Serializer.migrateLegacyYupToZupIfNeeded не делал
+    // миграцию повторно.
+    localStorage.setItem(STORAGE_KEYS[activeSceneIndex.value], JSON.stringify(serializer.toRootJSON(root)));
   } catch (e) {
     console.warn('[Constructor] Failed to save scene:', e);
   }
@@ -960,6 +963,10 @@ function loadFromLocalStorage() {
     if (!saved) return;
     const json = JSON.parse(saved);
     const serializer = modelApp.value!.getSerializer();
+    // Z-up: legacy сохранёнки в Y-up конвенции мигрируем единоразово,
+    // меняя местами Y↔Z в position и rotation. Помечаются coordsConvention='zup',
+    // чтобы повторная загрузка миграцию не повторяла.
+    Serializer.migrateLegacyYupToZupIfNeeded(json);
     const newRoot = serializer.fromJSON(json);
     modelApp.value!.getModelManager().setTree(newRoot);
     setSelection([]);
@@ -974,7 +981,7 @@ function saveSceneToFile() {
   try {
     const serializer = modelApp.value!.getSerializer();
     const root = modelApp.value!.getModelManager().getTree();
-    const json = JSON.stringify(serializer.toJSON(root), null, 2);
+    const json = JSON.stringify(serializer.toRootJSON(root), null, 2);
     const blob = new Blob([json], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -999,6 +1006,7 @@ function loadSceneFromFile() {
       try {
         const json = JSON.parse(reader.result as string);
         const serializer = modelApp.value!.getSerializer();
+        Serializer.migrateLegacyYupToZupIfNeeded(json);
         const newRoot = serializer.fromJSON(json);
         withHistory(() => {
           modelApp.value!.getModelManager().setTree(newRoot);
@@ -1029,6 +1037,7 @@ function switchScene(index: number) {
     try {
       const json = JSON.parse(saved);
       const serializer = modelApp.value!.getSerializer();
+      Serializer.migrateLegacyYupToZupIfNeeded(json);
       const newRoot = serializer.fromJSON(json);
       modelApp.value!.getModelManager().setTree(newRoot);
     } catch (e) {
@@ -1361,26 +1370,42 @@ function buildLinearChamfer(
   const lm = (edge.localMid as THREE.Vector3).clone();
 
   if (node instanceof Primitive) {
-    lm.y += node.getHalfHeight();
+    // Z-up: getHalfHeight даёт половину Z-extent примитива.
+    lm.z += node.getHalfHeight();
   }
 
-  const dx: number = edge.perpDirX; // +1 or −1
-  const dz: number = edge.perpDirZ;
+  // Z-up: длинная ось chamfer-local = Z. Поля perpDirX/perpDirZ были
+  // откалиброваны под старую Y-up конвенцию (chamfer-Y = edge axis), где
+  // perpDirX → +Y или +X (в зависимости от оси ребра), а perpDirZ → +Z или -Y.
+  // После замены вращений chamfer-group мапинги chamfer-axes → mesh-axes
+  // изменились, поэтому пересчитываем dx/dy под edge.axis.
+  let dx: number; // знак вдоль chamfer-local X
+  let dy: number; // знак вдоль chamfer-local Y
+  if (edge.axis === 'x') {
+    // chamfer-X → mesh -Z, chamfer-Y → mesh +Y. perpDirX (OLD: +Y) → dy. perpDirZ (OLD: +Z) → -dx.
+    dy = edge.perpDirX;
+    dx = -edge.perpDirZ;
+  } else {
+    // 'y' и 'z': chamfer-X → mesh +X в обоих случаях. perpDirX → dx без изменений.
+    // perpDirZ (OLD: +Z для 'y' или -Y для 'z') → -dy в обоих случаях.
+    dx = edge.perpDirX;
+    dy = -edge.perpDirZ;
+  }
   const h = edgeLen + 0.2;
 
   const chamferGroup = new GroupNode();
   chamferGroup.operation = 'union';
   chamferGroup.name = 'Скругление';
 
-  // Box: r × h × r, shifted half-r toward the center in X and Z
+  // Box r×r×h, длинной осью по Z, сдвинут на half-r в X и Y к центру.
   const box = new Primitive('box', { width: r, height: h, depth: r });
-  box.params = { position: { x: dx * r / 2, y: -h / 2, z: dz * r / 2 } };
+  box.params = { position: { x: dx * r / 2, y: dy * r / 2, z: -h / 2 } };
 
-  // Cylinder at the inner corner of the box (full r offset from edge)
+  // Cylinder во внутреннем углу box (полный r-сдвиг от ребра в X и Y).
   const cyl = new Primitive('cylinder', {
     radiusTop: r, radiusBottom: r, height: h, segments: 32,
   });
-  cyl.params = { position: { x: dx * r, y: -h / 2, z: dz * r }, isHole: true };
+  cyl.params = { position: { x: dx * r, y: dy * r, z: -h / 2 }, isHole: true };
 
   chamferGroup.children.push(box, cyl);
 
@@ -1389,11 +1414,16 @@ function buildLinearChamfer(
     isHole: true,
   };
 
+  // Поворот chamfer-group, чтобы его длинная ось (chamfer-local Z) совпала с
+  // mesh-local направлением ребра.
   if (edge.axis === 'x') {
-    chamferGroup.params.rotation = { x: 0, y: 0, z: Math.PI / 2 };
-  } else if (edge.axis === 'z') {
-    chamferGroup.params.rotation = { x: Math.PI / 2, y: 0, z: 0 };
+    // Z → X: поворот вокруг Y на π/2 (z → x, x → -z).
+    chamferGroup.params.rotation = { x: 0, y: Math.PI / 2, z: 0 };
+  } else if (edge.axis === 'y') {
+    // Z → Y: поворот вокруг X на -π/2 (z → y, y → -z).
+    chamferGroup.params.rotation = { x: -Math.PI / 2, y: 0, z: 0 };
   }
+  // axis === 'z' — длинная ось chamfer уже совпадает с edge axis, без ротации.
 
   return chamferGroup;
 }
@@ -1421,7 +1451,8 @@ function buildCircularChamfer(
   const isTopRim = edge.isTopRim === true;
   const lm = (edge.localMid as THREE.Vector3).clone();
   if (node instanceof Primitive) {
-    lm.y += node.getHalfHeight();
+    // Z-up: getHalfHeight даёт половину Z-extent примитива.
+    lm.z += node.getHalfHeight();
   }
 
   const eps = 0.05;
@@ -1435,19 +1466,18 @@ function buildCircularChamfer(
   });
   outerCyl.params = { position: { x: 0, y: 0, z: 0 } };
 
-  // Inner cylinder carving out the annulus hollow; slightly taller/wider than
-  // the outer slab so CSG doesn't hit coplanar faces.
+  // Z-up: вертикаль = Z. Inner cylinder сдвигаем по Z (раньше — по Y),
+  // чтобы избежать коплоскостных граней с outerCyl.
   const innerCyl = new Primitive('cylinder', {
     radiusTop: R - fillet,
     radiusBottom: R - fillet,
     height: fillet + eps,
     segments: 64,
   });
-  innerCyl.params = { position: { x: 0, y: -eps / 2, z: 0 }, isHole: true };
+  innerCyl.params = { position: { x: 0, y: 0, z: -eps / 2 }, isHole: true };
 
-  // Fillet torus — major radius (R−r), minor radius r, rotated so its axis is Y.
-  // Primitive torus halfHeight = tube, so position.y=0 places its center at y=r
-  // which is exactly the inside corner of the annulus.
+  // Z-up: TorusGeometry уже лежит в XY (плоскость перпендикулярна цилиндру),
+  // дополнительной ротации не нужно.
   const torus = new Primitive('torus', {
     radius: R - fillet,
     tube: fillet,
@@ -1455,7 +1485,6 @@ function buildCircularChamfer(
   });
   torus.params = {
     position: { x: 0, y: 0, z: 0 },
-    rotation: { x: Math.PI / 2, y: 0, z: 0 },
     isHole: true,
   };
 

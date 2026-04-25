@@ -21,7 +21,7 @@ const HEAD_RATIO = 0.18;
 const MIN_HEAD = 1.5;
 /** Offset from object's bounding box edge. */
 const OFFSET = 8;
-const GRID_Y = 0.02;
+const GRID_Z = 0.02;
 
 /**
  * One mirror-axis widget: ◁─────▷
@@ -211,29 +211,32 @@ export class MirrorGizmo {
     const spanY = Math.max(this.boxSize.y * SPAN_RATIO, MIN_SPAN);
     const spanZ = Math.max(this.boxSize.z * SPAN_RATIO, MIN_SPAN);
 
-    // X (red): on the grid, in front of object, arrows along world X
+    // Z-up: горизонтальные оси (X, Y) лежат плоско на сетке (Z=GRID_Z),
+    // вертикальная ось Z стоит вертикально у переднего-левого угла объекта.
+
+    // X (red): на сетке, перед объектом, стрелки вдоль world X.
     const xWidget = this.widgets.find((w) =>
       ((w as unknown as MirrorHandleMesh).userData as { axis: string }).axis === 'x'
     )!;
     layoutWidget(xWidget, spanX);
-    xWidget.position.set(midX, GRID_Y, max.z + OFFSET);
-    xWidget.rotation.set(-Math.PI / 2, 0, 0); // lay flat on grid, local X = world X
+    xWidget.position.set(midX, min.y - OFFSET, GRID_Z);
+    xWidget.rotation.set(0, 0, 0); // local X = world X, widget уже в XY (Z-up)
 
-    // Z (blue): on the grid, to the right of object, arrows along world Z
-    const zWidget = this.widgets.find((w) =>
-      ((w as unknown as MirrorHandleMesh).userData as { axis: string }).axis === 'z'
-    )!;
-    layoutWidget(zWidget, spanZ);
-    zWidget.position.set(max.x + OFFSET, GRID_Y, midZ);
-    zWidget.rotation.set(-Math.PI / 2, 0, Math.PI / 2); // lay flat, local X = world Z
-
-    // Y (green): left-front corner, arrows along world Y (vertical)
+    // Y (green): на сетке, справа от объекта, стрелки вдоль world Y.
     const yWidget = this.widgets.find((w) =>
       ((w as unknown as MirrorHandleMesh).userData as { axis: string }).axis === 'y'
     )!;
     layoutWidget(yWidget, spanY);
-    yWidget.position.set(min.x - OFFSET, midY, max.z + OFFSET);
-    yWidget.rotation.set(0, 0, Math.PI / 2); // local X = world Y
+    yWidget.position.set(max.x + OFFSET, midY, GRID_Z);
+    yWidget.rotation.set(0, 0, Math.PI / 2); // local X → world Y
+
+    // Z (blue): передний-левый верхний угол, стрелки вдоль world Z (вертикаль).
+    const zWidget = this.widgets.find((w) =>
+      ((w as unknown as MirrorHandleMesh).userData as { axis: string }).axis === 'z'
+    )!;
+    layoutWidget(zWidget, spanZ);
+    zWidget.position.set(min.x - OFFSET, min.y - OFFSET, midZ);
+    zWidget.rotation.set(0, -Math.PI / 2, 0); // local X → world Z (вверх)
   }
 
   updateMatrixWorld(): void {

@@ -49,23 +49,29 @@ function planeAngle(
 function rotationPlaneAxes(
   handleType: string,
 ): { normal: THREE.Vector3; tangentU: THREE.Vector3; tangentV: THREE.Vector3 } {
+  // Z-up: для каждой оси вращения tangentV — «вертикаль» (Z для rotateX/Y),
+  // tangentU — горизонтальное направление в плоскости вращения. Так атан2(u, v)
+  // измеряет угол от «верха» (или соответствующего reference) в положительную сторону.
   let normal: THREE.Vector3;
   let tangentU: THREE.Vector3;
   let tangentV: THREE.Vector3;
   switch (handleType) {
     case 'rotateX':
+      // Поворот вокруг X. Плоскость YZ. Reference — вверх (+Z).
       normal   = new THREE.Vector3(1, 0, 0);
-      tangentU = new THREE.Vector3(0, 0, 1);
-      tangentV = new THREE.Vector3(0, 1, 0);
+      tangentU = new THREE.Vector3(0, 1, 0);
+      tangentV = new THREE.Vector3(0, 0, 1);
       break;
     case 'rotateY':
+      // Поворот вокруг Y. Плоскость XZ. Reference — вверх (+Z).
       normal   = new THREE.Vector3(0, 1, 0);
-      tangentU = new THREE.Vector3(-1, 0, 0);
-      tangentV = new THREE.Vector3(0, 0, -1);
+      tangentU = new THREE.Vector3(1, 0, 0);
+      tangentV = new THREE.Vector3(0, 0, 1);
       break;
     case 'rotateZ':
+      // Yaw вокруг Z. Плоскость XY. Reference — +Y (вперёд в Z-up).
       normal   = new THREE.Vector3(0, 0, 1);
-      tangentU = new THREE.Vector3(-1, 0, 0);
+      tangentU = new THREE.Vector3(1, 0, 0);
       tangentV = new THREE.Vector3(0, 1, 0);
       break;
     default:
@@ -96,6 +102,8 @@ export interface HandleDragState {
   startRotation?: number;
   rotationTangentU?: THREE.Vector3;
   rotationTangentV?: THREE.Vector3;
+  /** Z-координата нижней грани bbox в момент старта drag — для re-anchor'a после поворота. */
+  startBottomZ?: number;
   groupPivotWorld?: THREE.Vector3;
   groupPivotLocal?: THREE.Vector3;
   startQuaternion?: THREE.Quaternion;
@@ -463,7 +471,8 @@ export class PointerEventController {
       const rawDelta = worldPoint.clone().sub(host.handleDragState.startWorldPoint);
 
       if (host.handleDragState.isVertical) {
-        host.handleDragState.totalDeltaY = rawDelta.y;
+        // Z-up: вертикальное смещение по Z.
+        host.handleDragState.totalDeltaY = rawDelta.z;
       } else if (host.handleDragState.isCorner) {
         const lx = host.handleDragState.localAxisX;
         const lz = host.handleDragState.localAxisZ;
@@ -471,8 +480,9 @@ export class PointerEventController {
           host.handleDragState.totalDeltaX = rawDelta.dot(lx);
           host.handleDragState.totalDeltaY = rawDelta.dot(lz);
         } else {
+          // Z-up fallback: вторая горизонтальная — Y.
           host.handleDragState.totalDeltaX = rawDelta.x;
-          host.handleDragState.totalDeltaY = rawDelta.z;
+          host.handleDragState.totalDeltaY = rawDelta.y;
         }
       } else {
         const axisDot = rawDelta.dot(host.handleDragState.worldAxis);
@@ -504,25 +514,25 @@ export class PointerEventController {
     }
 
     // ── Plane drag ────────────────────────────────────────────────────────
+    // Z-up: плоскость drag — XY (Z=0). Раньше была XZ (Y=0).
     if (host.isPlaneDragging && host.dragTarget && host.dragPlane) {
       const ray = host.raycaster.ray;
       const targetPoint = new THREE.Vector3();
       if (ray.intersectPlane(host.dragPlane, targetPoint)) {
         targetPoint.x -= host.dragOffset.x;
-        targetPoint.z -= host.dragOffset.y;
+        targetPoint.y -= host.dragOffset.y;
         if (host.snapStep > 0) {
-          // Snap the left (min.x) and front (min.z) face of the AABB to grid
-          // lines rather than the center — odd-sized objects keep their visible
-          // face on the grid instead of drifting by half-a-unit.
+          // Snap left (min.x) и front (min.y) грани AABB к линиям сетки —
+          // odd-sized объекты сохраняют видимую грань на сетке.
           const worldPos = new THREE.Vector3();
           host.dragTarget.getWorldPosition(worldPos);
           const bbox = new THREE.Box3().setFromObject(host.dragTarget);
           const offMinX = bbox.min.x - worldPos.x;
-          const offMinZ = bbox.min.z - worldPos.z;
+          const offMinY = bbox.min.y - worldPos.y;
           const snappedMinX = Math.round((targetPoint.x + offMinX) / host.snapStep) * host.snapStep;
-          const snappedMinZ = Math.round((targetPoint.z + offMinZ) / host.snapStep) * host.snapStep;
+          const snappedMinY = Math.round((targetPoint.y + offMinY) / host.snapStep) * host.snapStep;
           targetPoint.x = snappedMinX - offMinX;
-          targetPoint.z = snappedMinZ - offMinZ;
+          targetPoint.y = snappedMinY - offMinY;
         }
 
         // Cruise mode: snap to neighbor edges
@@ -530,26 +540,26 @@ export class PointerEventController {
           const edges = host.collectNeighborEdges(host.dragTarget);
           if (host.dragTarget.parent) host.dragTarget.parent.worldToLocal(targetPoint);
           host.dragTarget.position.x = targetPoint.x;
-          host.dragTarget.position.z = targetPoint.z;
+          host.dragTarget.position.y = targetPoint.y;
 
           const worldPos = new THREE.Vector3();
           host.dragTarget.getWorldPosition(worldPos);
-          const snap = host.applyCruiseSnap(host.dragTarget, worldPos.x, worldPos.z, edges);
+          const snap = host.applyCruiseSnap(host.dragTarget, worldPos.x, worldPos.y, edges);
 
-          const snappedWorld = new THREE.Vector3(snap.x, worldPos.y, snap.z);
+          const snappedWorld = new THREE.Vector3(snap.x, snap.z, worldPos.z);
           if (host.dragTarget.parent) host.dragTarget.parent.worldToLocal(snappedWorld);
           host.dragTarget.position.x = snappedWorld.x;
-          host.dragTarget.position.z = snappedWorld.z;
+          host.dragTarget.position.y = snappedWorld.y;
 
           if (snap.guideXs.length || snap.guideZs.length) {
-            host.showCruiseGuides(snap.guideXs, snap.guideZs, worldPos.y);
+            host.showCruiseGuides(snap.guideXs, snap.guideZs, worldPos.z);
           } else {
             host.clearCruiseGuides();
           }
         } else {
           if (host.dragTarget.parent) host.dragTarget.parent.worldToLocal(targetPoint);
           host.dragTarget.position.x = targetPoint.x;
-          host.dragTarget.position.z = targetPoint.z;
+          host.dragTarget.position.y = targetPoint.y;
         }
 
         // Update node params
@@ -557,7 +567,7 @@ export class PointerEventController {
         if (node?.params) {
           node.params.position = node.params.position || { x: 0, y: 0, z: 0 };
           node.params.position.x = host.dragTarget.position.x;
-          node.params.position.z = host.dragTarget.position.z;
+          node.params.position.y = host.dragTarget.position.y;
           host.options.onNodeParamsChanged?.(node);
         }
       }
@@ -647,6 +657,10 @@ export class PointerEventController {
           const pivot = center.clone();
           host.handleDragState.groupPivotWorld = pivot;
           host.handleDragState.groupPivotLocal = obj.worldToLocal(pivot.clone());
+          // Z-up: запоминаем нижнюю грань bbox — после поворота вокруг
+          // горизонтальной оси (X/Y) объект расширяется по Z, и без re-anchor'a
+          // его нижняя грань уехала бы вверх или вниз относительно сетки.
+          host.handleDragState.startBottomZ = box.min.z;
         }
       }
     }
@@ -662,12 +676,13 @@ export class PointerEventController {
         host.dragTarget = resolveSelectableTarget(host.pointerDownHit.object);
         const worldPos = new THREE.Vector3();
         host.dragTarget.getWorldPosition(worldPos);
+        // Z-up: drag в XY-плоскости. dragOffset хранит горизонтальный отступ.
         host.dragOffset.set(
           host.pointerDownHit.point.x - worldPos.x,
-          host.pointerDownHit.point.z - worldPos.z
+          host.pointerDownHit.point.y - worldPos.y,
         );
-        host.dragPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
-        host.dragPlane.setFromNormalAndCoplanarPoint(new THREE.Vector3(0, 1, 0), worldPos);
+        host.dragPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+        host.dragPlane.setFromNormalAndCoplanarPoint(new THREE.Vector3(0, 0, 1), worldPos);
       }
     }
 

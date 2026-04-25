@@ -13,7 +13,10 @@ export class ConeEntity extends Entity<ConeParams> {
   createGeometry(): THREE.BufferGeometry {
     const { radius, height, segments = 32 } = this.params;
     // Tiny top radius, not 0 — иначе CSG даёт вырожденные треугольники.
-    return new THREE.CylinderGeometry(0.001, radius, height, segments);
+    const geo = new THREE.CylinderGeometry(0.001, radius, height, segments);
+    // Z-up: ось конуса с Y на Z.
+    geo.rotateX(Math.PI / 2);
+    return geo;
   }
 
   getHalfHeight(): number {

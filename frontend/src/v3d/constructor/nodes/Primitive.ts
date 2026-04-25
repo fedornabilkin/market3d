@@ -103,8 +103,9 @@ export class Primitive extends ModelNode {
   private applyParamsToMesh(mesh: THREE.Mesh): void {
     const { position, scale, rotation } = this.params;
     if (position) {
-      // params.position.y = bottom face Y; add halfHeight to get Three.js center Y
-      mesh.position.set(position.x, (position.y ?? 0) + this.getHalfHeight(), position.z);
+      // Z-up: params.position.z = bottom face Z; добавляем halfHeight,
+      // чтобы получить центр меша по Z.
+      mesh.position.set(position.x, position.y, (position.z ?? 0) + this.getHalfHeight());
     }
     if (scale) {
       mesh.scale.set(scale.x, scale.y, scale.z);

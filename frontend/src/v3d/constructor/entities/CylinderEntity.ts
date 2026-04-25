@@ -18,13 +18,20 @@ export class CylinderEntity extends Entity<CylinderParams> {
   createGeometry(): THREE.BufferGeometry {
     const { radiusTop, radiusBottom, height, segments = 32 } = this.params;
     const bevelR = Number(this.params.bevelRadius) || 0;
+    let geo: THREE.BufferGeometry;
     if (bevelR > 0) {
       const bevelSeg = Math.max(1, Math.round(Number(this.params.bevelSegments) || 3));
-      return new RoundedCylinderBufferGeometry(
+      geo = new RoundedCylinderBufferGeometry(
         radiusTop, radiusBottom, height, segments, bevelR, bevelSeg,
       );
+    } else {
+      geo = new THREE.CylinderGeometry(radiusTop, radiusBottom, height, segments);
     }
-    return new THREE.CylinderGeometry(radiusTop, radiusBottom, height, segments);
+    // three.js CylinderGeometry строится вдоль Y. В Z-up сцене ось примитива
+    // должна быть Z — поворачиваем геометрию один раз, halfHeight остаётся
+    // равной height/2 (она вдоль оси цилиндра).
+    geo.rotateX(Math.PI / 2);
+    return geo;
   }
 
   getHalfHeight(): number {
