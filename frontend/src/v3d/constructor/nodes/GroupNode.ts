@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { CSG } from 'three-csg-ts';
+import * as BufferGeometryUtils from 'three/examples/jsm/utils/BufferGeometryUtils';
+import { Brush, Evaluator, ADDITION, SUBTRACTION, INTERSECTION } from 'three-bvh-csg';
 import type { CSGType } from '../types';
 import type { ModelMemento } from '../memento/ModelMemento';
 import type { GroupNodeJSON } from '../types';
@@ -10,16 +11,22 @@ import { ModelMemento as ModelMementoClass } from '../memento/ModelMemento';
 /**
  * Composite node: holds children and applies CSG operation to produce a merged mesh.
  *
- * Note: CSG (getMesh) is used for STL export only. The real-time interactive scene
- * renders each child as a separate Three.js object via buildNodeObject3D in
- * ConstructorSceneService, without applying Boolean operations.
+ * CSG использовалась три-csg-ts, но на сложных сценах (вложенные группы с
+ * множеством holes + non-uniform scale + rotation) BSP-классификация давала
+ * артефакты — subtract'ы в областях уже-пробитых полостей отрабатывали как
+ * union. Перешли на three-bvh-csg (manifold-friendly, BVH-ускорение) — он
+ * устойчив к коплоскостным и пересекающимся операциям.
+ *
+ * В рантайме CSG вызывается только для групп с operation≠union ИЛИ наличием
+ * hole-детей (см. ConstructorSceneService.buildNodeObject3D). Для обычных
+ * union-групп без holes — дети просто кладутся в THREE.Group без CSG.
+ * Экспорт в STL/OBJ всегда идёт через полный CSG (ModelExporter).
  *
  * Per-child isHole logic:
- *   - Children with params.isHole === true are always subtracted from the result,
- *     regardless of the group's own operation.
- *   - Non-hole children are combined using the group's operation (union/subtract/intersect).
- *   - A GroupNode with params.isHole === true signals to its parent that the whole
- *     group should be treated as a void.
+ *   - Children with params.isHole === true are always subtracted from the result.
+ *   - Non-hole children are combined using the group's operation.
+ *   - A GroupNode with params.isHole === true signals that the whole group
+ *     should be treated as a void by its parent.
  */
 export class GroupNode extends ModelNode {
   override children: ModelNode[] = [];
@@ -43,77 +50,42 @@ export class GroupNode extends ModelNode {
   }
 
   getMesh(): THREE.Mesh {
-    const groupColor = this.params?.color as string | undefined;
-    const defaultMaterial = new THREE.MeshPhongMaterial({
-      color: groupColor ? new THREE.Color(groupColor) : 0x00a5a4,
-      shininess: 30,
-      specular: 0x444444,
-    });
+    const defaultMaterial = this.buildDefaultMaterial();
 
     if (this.children.length === 0) {
-      const empty = new THREE.Mesh(new THREE.BufferGeometry(), defaultMaterial);
-      this.applyParamsToMesh(empty);
-      return empty;
+      return this.emptyResult(defaultMaterial);
     }
 
-    // Separate solid children from hole children
     const solidChildren = this.children.filter((c) => !c.params?.isHole);
     const holeChildren = this.children.filter((c) => !!c.params?.isHole);
 
-    // Build meshes with correct matrices
-    const makeMesh = (child: ModelNode): THREE.Mesh => {
-      const mesh = child.getMesh();
-      mesh.updateMatrix();
-      mesh.updateMatrixWorld(true);
-      return GroupNode.normalizeForCSG(mesh);
-    };
+    if (solidChildren.length === 0) {
+      return this.emptyResult(defaultMaterial);
+    }
 
     let result: THREE.Mesh;
-
-    // Phase 1: combine all solid children using the group's operation
-    if (solidChildren.length === 0) {
-      // Only holes, nothing to subtract from — return empty
-      const empty = new THREE.Mesh(new THREE.BufferGeometry(), defaultMaterial);
-      this.applyParamsToMesh(empty);
-      return empty;
-    }
-
-    const solidMeshes = solidChildren.map(makeMesh);
-
-    if (solidMeshes.length === 1 && holeChildren.length === 0) {
-      result = solidMeshes[0].clone();
-      result.material = defaultMaterial;
-      this.applyParamsToMesh(result);
-      return result;
-    }
-
     try {
-      let bsp = CSG.fromMesh(solidMeshes[0]);
+      const evaluator = new Evaluator();
+      evaluator.useGroups = false;
 
-      // Combine remaining solids
-      for (let i = 1; i < solidMeshes.length; i++) {
-        const bspNext = CSG.fromMesh(solidMeshes[i]);
-        if (this.operation === 'subtract') {
-          bsp = bsp.subtract(bspNext);
-        } else if (this.operation === 'intersect') {
-          bsp = bsp.intersect(bspNext);
-        } else {
-          bsp = bsp.union(bspNext);
-        }
+      let current: Brush = GroupNode.meshToBrush(solidChildren[0].getMesh());
+
+      // Phase 1: combine solids using the group's operation.
+      for (let i = 1; i < solidChildren.length; i++) {
+        const next = GroupNode.meshToBrush(solidChildren[i].getMesh());
+        current = evaluator.evaluate(current, next, GroupNode.bvhOp(this.operation));
       }
 
-      // Phase 2: subtract all holes from the combined solid
+      // Phase 2: subtract each hole from the combined solid.
       for (const holeChild of holeChildren) {
-        const holeMesh = makeMesh(holeChild);
-        const holeBsp = CSG.fromMesh(holeMesh);
-        bsp = bsp.subtract(holeBsp);
+        const holeBrush = GroupNode.meshToBrush(holeChild.getMesh());
+        current = evaluator.evaluate(current, holeBrush, SUBTRACTION);
       }
 
-      result = CSG.toMesh(bsp, new THREE.Matrix4());
-      result.material = defaultMaterial;
+      result = GroupNode.finalizeBrush(current, defaultMaterial);
     } catch (e) {
-      console.warn('[GroupNode] CSG operation failed, falling back to first child mesh:', e);
-      result = solidMeshes[0].clone();
+      console.warn('[GroupNode] BVH CSG operation failed:', e);
+      result = GroupNode.meshToBrush(solidChildren[0].getMesh());
       result.material = defaultMaterial;
     }
 
@@ -142,63 +114,35 @@ export class GroupNode extends ModelNode {
     onProgress?: ExportProgressCallback,
     _counter?: { done: number; total: number },
   ): Promise<THREE.Mesh> {
-    const groupColor = this.params?.color as string | undefined;
-    const defaultMaterial = new THREE.MeshPhongMaterial({
-      color: groupColor ? new THREE.Color(groupColor) : 0x00a5a4,
-      shininess: 30,
-      specular: 0x444444,
-    });
+    const defaultMaterial = this.buildDefaultMaterial();
 
     if (this.children.length === 0) {
-      const empty = new THREE.Mesh(new THREE.BufferGeometry(), defaultMaterial);
-      this.applyParamsToMesh(empty);
-      return empty;
+      return this.emptyResult(defaultMaterial);
     }
 
     const solidChildren = this.children.filter((c) => !c.params?.isHole);
     const holeChildren = this.children.filter((c) => !!c.params?.isHole);
 
-    const makeMeshAsync = async (child: ModelNode): Promise<THREE.Mesh> => {
-      const mesh = await child.getMeshAsync(onProgress, _counter);
-      mesh.updateMatrix();
-      mesh.updateMatrixWorld(true);
-      return GroupNode.normalizeForCSG(mesh);
-    };
-
-    let result: THREE.Mesh;
-
     if (solidChildren.length === 0) {
-      const empty = new THREE.Mesh(new THREE.BufferGeometry(), defaultMaterial);
-      this.applyParamsToMesh(empty);
-      return empty;
+      return this.emptyResult(defaultMaterial);
     }
 
     const solidMeshes: THREE.Mesh[] = [];
     for (const child of solidChildren) {
-      solidMeshes.push(await makeMeshAsync(child));
+      solidMeshes.push(await child.getMeshAsync(onProgress, _counter));
     }
 
-    if (solidMeshes.length === 1 && holeChildren.length === 0) {
-      result = solidMeshes[0].clone();
-      result.material = defaultMaterial;
-      this.applyParamsToMesh(result);
-      return result;
-    }
-
+    let result: THREE.Mesh;
     try {
-      let bsp = CSG.fromMesh(solidMeshes[0]);
+      const evaluator = new Evaluator();
+      evaluator.useGroups = false;
+
+      let current: Brush = GroupNode.meshToBrush(solidMeshes[0]);
 
       for (let i = 1; i < solidMeshes.length; i++) {
-        // Yield to let browser repaint
         await new Promise((r) => setTimeout(r, 0));
-        const bspNext = CSG.fromMesh(solidMeshes[i]);
-        if (this.operation === 'subtract') {
-          bsp = bsp.subtract(bspNext);
-        } else if (this.operation === 'intersect') {
-          bsp = bsp.intersect(bspNext);
-        } else {
-          bsp = bsp.union(bspNext);
-        }
+        const next = GroupNode.meshToBrush(solidMeshes[i]);
+        current = evaluator.evaluate(current, next, GroupNode.bvhOp(this.operation));
         if (_counter && onProgress) {
           _counter.done++;
           onProgress(_counter.done, _counter.total);
@@ -207,20 +151,19 @@ export class GroupNode extends ModelNode {
 
       for (const holeChild of holeChildren) {
         await new Promise((r) => setTimeout(r, 0));
-        const holeMesh = await makeMeshAsync(holeChild);
-        const holeBsp = CSG.fromMesh(holeMesh);
-        bsp = bsp.subtract(holeBsp);
+        const holeMesh = await holeChild.getMeshAsync(onProgress, _counter);
+        const holeBrush = GroupNode.meshToBrush(holeMesh);
+        current = evaluator.evaluate(current, holeBrush, SUBTRACTION);
         if (_counter && onProgress) {
           _counter.done++;
           onProgress(_counter.done, _counter.total);
         }
       }
 
-      result = CSG.toMesh(bsp, new THREE.Matrix4());
-      result.material = defaultMaterial;
+      result = GroupNode.finalizeBrush(current, defaultMaterial);
     } catch (e) {
-      console.warn('[GroupNode] CSG operation failed, falling back to first child mesh:', e);
-      result = solidMeshes[0].clone();
+      console.warn('[GroupNode] BVH CSG operation failed:', e);
+      result = GroupNode.meshToBrush(solidMeshes[0]);
       result.material = defaultMaterial;
     }
 
@@ -228,91 +171,112 @@ export class GroupNode extends ModelNode {
     return result;
   }
 
+  /** Дефолтный phong-материал для финального меша группы. */
+  private buildDefaultMaterial(): THREE.MeshPhongMaterial {
+    const groupColor = this.params?.color as string | undefined;
+    return new THREE.MeshPhongMaterial({
+      color: groupColor ? new THREE.Color(groupColor) : 0x00a5a4,
+      shininess: 30,
+      specular: 0x444444,
+    });
+  }
+
+  /** Пустой результирующий меш (для групп без детей или только с holes). */
+  private emptyResult(material: THREE.Material): THREE.Mesh {
+    const empty = new THREE.Mesh(new THREE.BufferGeometry(), material);
+    this.applyParamsToMesh(empty);
+    return empty;
+  }
+
+  private static bvhOp(op: CSGType): number {
+    if (op === 'subtract') return SUBTRACTION;
+    if (op === 'intersect') return INTERSECTION;
+    return ADDITION;
+  }
+
   /**
-   * Bakes a mesh's matrix into its geometry so it can be safely consumed by CSG.
-   * If the matrix has a negative determinant (mirror via negative scale), the
-   * triangle winding is reversed and normals are recomputed — otherwise CSG
-   * would treat the BSP as inside-out and a hole would subtract everything
-   * outside its volume instead of inside it.
+   * Готовит геометрию для three-bvh-csg: оставляет только position/normal/uv,
+   * склеивает совпадающие вершины (1e-5) — получаем индексированный манифолд.
    */
-  private static normalizeForCSG(mesh: THREE.Mesh): THREE.Mesh {
-    const det = mesh.matrix.determinant();
-    if (det >= 0) return mesh;
-
-    // mesh.geometry may be either BufferGeometry (Primitive children) or
-    // legacy Geometry (GroupNode children, since CSG.toMesh returns Geometry).
-    // Both must be handled.
-    const src = mesh.geometry as THREE.BufferGeometry | THREE.Geometry;
-    const isBuffer = (src as THREE.BufferGeometry).isBufferGeometry === true;
-
-    let fixedGeom: THREE.BufferGeometry | THREE.Geometry;
-
-    if (isBuffer) {
-      const geom = (src as THREE.BufferGeometry).clone();
-      geom.applyMatrix4(mesh.matrix);
-
-      const idx = geom.getIndex();
-      if (idx) {
-        const arr = idx.array as { [k: number]: number; length: number };
-        for (let i = 0; i < arr.length; i += 3) {
-          const t = arr[i];
-          arr[i] = arr[i + 2];
-          arr[i + 2] = t;
-        }
-        idx.needsUpdate = true;
-      } else {
-        const pos = geom.getAttribute('position') as THREE.BufferAttribute | undefined;
-        if (pos) {
-          const a = pos.array as Float32Array;
-          for (let i = 0; i < a.length; i += 9) {
-            for (let j = 0; j < 3; j++) {
-              const t = a[i + j];
-              a[i + j] = a[i + 6 + j];
-              a[i + 6 + j] = t;
-            }
-          }
-          pos.needsUpdate = true;
-        }
-      }
-      geom.computeVertexNormals();
-      fixedGeom = geom;
-    } else {
-      const geom = (src as THREE.Geometry).clone();
-      geom.applyMatrix4(mesh.matrix);
-      for (const f of geom.faces) {
-        const tA = f.a;
-        f.a = f.c;
-        f.c = tA;
-        if (f.vertexNormals && f.vertexNormals.length === 3) {
-          const tN = f.vertexNormals[0];
-          f.vertexNormals[0] = f.vertexNormals[2];
-          f.vertexNormals[2] = tN;
-        }
-      }
-      // Swap UVs to match the new winding so face attributes stay aligned.
-      const fvuvs = geom.faceVertexUvs && geom.faceVertexUvs[0];
-      if (fvuvs) {
-        for (const tri of fvuvs) {
-          if (tri && tri.length === 3) {
-            const tU = tri[0];
-            tri[0] = tri[2];
-            tri[2] = tU;
-          }
-        }
-      }
-      geom.computeFaceNormals();
-      geom.computeVertexNormals();
-      geom.elementsNeedUpdate = true;
-      geom.normalsNeedUpdate = true;
-      geom.verticesNeedUpdate = true;
-      fixedGeom = geom;
+  private static prepGeometry(geometry: THREE.BufferGeometry): THREE.BufferGeometry {
+    let g = geometry.clone();
+    for (const key of Object.keys(g.attributes)) {
+      if (!['position', 'normal', 'uv'].includes(key)) g.deleteAttribute(key);
     }
+    g = BufferGeometryUtils.mergeVertices(g, 1e-5);
+    g.computeVertexNormals();
+    return g;
+  }
 
-    const fixed = new THREE.Mesh(fixedGeom as THREE.BufferGeometry, mesh.material);
-    fixed.matrixAutoUpdate = false;
-    fixed.matrix.identity();
-    fixed.updateMatrixWorld(true);
-    return fixed;
+  /**
+   * Запекает локальный transform меша в геометрию и оборачивает в Brush с
+   * identity-трансформом. three-bvh-csg тогда оперирует только в мировом
+   * пространстве вершин — никаких подводных камней с rotation+non-uniform scale.
+   *
+   * При det(matrix)<0 (mirror через отрицательный scale) triangle winding
+   * после applyMatrix4 оказывается перевёрнутым. Флипаем индексы ДО
+   * computeVertexNormals, иначе нормали посчитаются внутрь → CSG примет меш
+   * за inside-out и subtract отработает как union.
+   */
+  private static meshToBrush(mesh: THREE.Mesh): Brush {
+    mesh.updateMatrix();
+    const geom = GroupNode.prepGeometry(mesh.geometry as THREE.BufferGeometry);
+    if (!GroupNode.isIdentityMatrix(mesh.matrix)) {
+      geom.applyMatrix4(mesh.matrix);
+      if (mesh.matrix.determinant() < 0) GroupNode.flipWinding(geom);
+      geom.computeVertexNormals();
+    }
+    const brush = new Brush(geom);
+    brush.updateMatrixWorld();
+    return brush;
+  }
+
+  /** Переворачивает порядок вершин в каждом треугольнике индексированной геометрии. */
+  private static flipWinding(geom: THREE.BufferGeometry): void {
+    const idx = geom.getIndex();
+    if (idx) {
+      const arr = idx.array as Uint16Array | Uint32Array;
+      for (let i = 0; i < arr.length; i += 3) {
+        const t = arr[i];
+        arr[i] = arr[i + 2];
+        arr[i + 2] = t;
+      }
+      idx.needsUpdate = true;
+    } else {
+      const pos = geom.getAttribute('position') as THREE.BufferAttribute | undefined;
+      if (pos) {
+        const a = pos.array as Float32Array;
+        for (let i = 0; i < a.length; i += 9) {
+          for (let j = 0; j < 3; j++) {
+            const t = a[i + j];
+            a[i + j] = a[i + 6 + j];
+            a[i + 6 + j] = t;
+          }
+        }
+        pos.needsUpdate = true;
+      }
+    }
+  }
+
+  /**
+   * Доводит результат CSG до обычного THREE.Mesh: сшивает вершины (после
+   * boolean-ов часто остаются почти совпадающие точки), перечитывает нормали.
+   */
+  private static finalizeBrush(brush: Brush, material: THREE.Material): THREE.Mesh {
+    const finalGeom = BufferGeometryUtils.mergeVertices(brush.geometry, 1e-4);
+    finalGeom.computeVertexNormals();
+    return new THREE.Mesh(finalGeom, material);
+  }
+
+  private static isIdentityMatrix(m: THREE.Matrix4): boolean {
+    const e = m.elements;
+    return (
+      e[0] === 1 && e[5] === 1 && e[10] === 1 && e[15] === 1 &&
+      e[1] === 0 && e[2] === 0 && e[3] === 0 &&
+      e[4] === 0 && e[6] === 0 && e[7] === 0 &&
+      e[8] === 0 && e[9] === 0 && e[11] === 0 &&
+      e[12] === 0 && e[13] === 0 && e[14] === 0
+    );
   }
 
   private applyParamsToMesh(mesh: THREE.Mesh): void {

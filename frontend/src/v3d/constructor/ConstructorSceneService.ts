@@ -23,6 +23,16 @@ import {
 import { applyHoleStyle, removeHoleStyle } from './holeMaterial';
 import { bakeRotation, remapAxisForRotatedGroup } from './primitiveTransforms';
 
+/**
+ * halfHeight offset used by a node's applyParamsToMesh. Primitive и ImportedMeshNode
+ * рендерятся как mesh.position.y = params.position.y + halfHeight; GroupNode — без оффсета.
+ */
+function getNodeHalfHeight(node: ModelNode | null | undefined): number {
+  if (node instanceof Primitive) return node.getHalfHeight();
+  if (node instanceof ImportedMeshNode) return node.getHalfHeight();
+  return 0;
+}
+
 /** Normalize angle to [-π, π] range. */
 function normalizeAngle(a: number): number {
   a = a % (2 * Math.PI);
@@ -79,7 +89,11 @@ export interface ConstructorSceneServiceOptions {
 function disposeObject3D(obj: THREE.Object3D): void {
   obj.traverse((child) => {
     if (child instanceof THREE.Mesh) {
-      child.geometry?.dispose();
+      // Шаренные геометрии (ImportedMeshNode) не диспозим — тот же
+      // BufferGeometry переиспользуется в следующем билде сцены; иначе
+      // каждый rebuild вызывал бы перезалив многомегабайтных аттрибутов на GPU.
+      const shared = (child.userData as { sharedGeometry?: boolean }).sharedGeometry;
+      if (!shared) child.geometry?.dispose();
       const mat = child.material;
       if (Array.isArray(mat)) mat.forEach((m) => m.dispose());
       else mat?.dispose();
@@ -619,7 +633,8 @@ export class ConstructorSceneService {
       const mesh = node.getMesh();
       node.setUuid(mesh.uuid);
       mesh.userData.node = node;
-      ConstructorSceneService.addEdgeLines(mesh);
+      // EdgesGeometry на плотной STL блокирует UI (проход по всем граням с порогом
+      // угла). Для импортированных мешей обводку не строим.
       return mesh;
     }
     if (node instanceof Primitive) {
@@ -631,12 +646,20 @@ export class ConstructorSceneService {
       return mesh;
     }
     if (node instanceof GroupNode) {
-      if (isRoot) {
-        // Root container: render each child individually so they stay independently
-        // selectable and movable on the workplane.
+      // Рантайм без CSG для простого union без hole-детей (mergeSelected двух
+      // STL и т.п.). CSG применяется только на экспорте (ModelExporter) и тем
+      // non-root группам, где visual без CSG был бы неверным: subtract/intersect
+      // или наличие hole-детей (чамфер).
+      const hasHoleChild = node.children.some((c) => !!c.params?.isHole);
+      const renderAsContainer = isRoot || (node.operation === 'union' && !hasHoleChild);
+
+      if (renderAsContainer) {
         const group = new THREE.Group();
         node.setUuid(group.uuid);
         group.userData.node = node;
+        // Маркер для PointerEventController: клик по любому потомку выделяет
+        // эту группу целиком (как было с CSG-мешом), а не отдельный child-меш.
+        if (!isRoot) group.userData.selectAsUnit = true;
         const { position, scale, rotation } = node.params;
         if (position) group.position.set(position.x, position.y, position.z);
         if (scale) group.scale.set(scale.x, scale.y, scale.z);
@@ -656,14 +679,22 @@ export class ConstructorSceneService {
             }
           });
         }
+        // Hole-группа: обводим зеброй/прозрачностью все меши внутри — CSG не
+        // применяем, но визуальный сигнал «вычитается» сохраняется.
+        if (!isRoot && node.params?.isHole) {
+          group.traverse((child) => {
+            if (child instanceof THREE.Mesh && child.material) {
+              applyHoleStyle(child.material as THREE.MeshPhongMaterial);
+            }
+          });
+        }
         return group;
       }
-      // Non-root group: apply CSG and return a single merged mesh
+      // Non-root group c CSG: subtract/intersect или есть hole-дети (чамфер).
       const mesh = node.getMesh();
       node.setUuid(mesh.uuid);
       mesh.userData.node = node;
       ConstructorSceneService.addEdgeLines(mesh);
-      // Apply zebra + transparency if group is marked as hole
       if (node.params?.isHole) {
         applyHoleStyle(mesh.material as THREE.MeshPhongMaterial);
       }
@@ -780,6 +811,9 @@ export class ConstructorSceneService {
     const lines = new THREE.LineSegments(edges, ConstructorSceneService.edgeLineMaterial);
     lines.userData.isEdgeLine = true;
     lines.raycast = () => {}; // not pickable
+    // Локальный трансформ edge-lines — identity, меняется только матрица родителя.
+    lines.matrixAutoUpdate = false;
+    lines.updateMatrix();
     mesh.add(lines);
   }
 
@@ -883,7 +917,7 @@ export class ConstructorSceneService {
           p[posAxis] -= drift;
 
           // Sync 3D object position for subsequent growDim calls (corners call twice)
-          const halfH = prim ? prim.getHalfHeight() : 0;
+          const halfH = getNodeHalfHeight(node);
           obj.position.set(p.x, p.y + halfH, p.z);
           obj.updateMatrixWorld(true);
           objBox = new THREE.Box3().setFromObject(obj);
@@ -958,7 +992,7 @@ export class ConstructorSceneService {
 
           // Применяем промежуточные значения к mesh для вычисления нового bbox
           {
-            const halfH = prim ? prim.getHalfHeight() : 0;
+            const halfH = getNodeHalfHeight(node);
             hObj.position.set(p.x, (p.y ?? 0) + halfH, p.z);
             if (params.scale) hObj.scale.set(params.scale.x, params.scale.y, params.scale.z);
           }
@@ -1011,7 +1045,7 @@ export class ConstructorSceneService {
     const obj = this.selectedObject3D;
 
     if (obj) {
-      const halfH = prim ? prim.getHalfHeight() : 0;
+      const halfH = getNodeHalfHeight(node);
       if (params.position) {
         obj.position.set(params.position.x, (params.position.y ?? 0) + halfH, params.position.z);
       }
@@ -1150,7 +1184,7 @@ export class ConstructorSceneService {
     // Update mesh
     const obj = this.selectedObject3D;
     if (obj) {
-      const halfH = node instanceof Primitive ? node.getHalfHeight() : 0;
+      const halfH = getNodeHalfHeight(node);
       obj.position.set(p.x, (p.y ?? 0) + halfH, p.z);
     }
 

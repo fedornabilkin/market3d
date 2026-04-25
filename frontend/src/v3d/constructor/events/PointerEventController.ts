@@ -12,6 +12,22 @@ import type { ChamferMode } from '../modes/ChamferMode';
 export const DRAG_THRESHOLD = 4;
 
 /**
+ * Ближайший предок с `userData.selectAsUnit` (или сам объект). Для объединённых
+ * групп, которые рендерятся без CSG — клик/драг по child-мешу должен
+ * адресоваться всей группе целиком (как было у CSG-мерджа).
+ */
+function resolveSelectableTarget(object3D: THREE.Object3D): THREE.Object3D {
+  let current: THREE.Object3D | null = object3D;
+  while (current) {
+    if ((current.userData as { selectAsUnit?: boolean }).selectAsUnit) {
+      return current;
+    }
+    current = current.parent;
+  }
+  return object3D;
+}
+
+/**
  * Compute the angle on a rotation plane defined by its normal and two
  * tangent axes. The hit point is projected onto the plane through center,
  * then atan2 of the two tangent coordinates gives the angle.
@@ -85,6 +101,10 @@ export interface HandleDragState {
   startQuaternion?: THREE.Quaternion;
   rotationWorldAxis?: THREE.Vector3;
   ringRadius?: number;
+  rotationLastSnapDeg?: number;
+  rotationLastTarget?: number;
+  rotationPrevSnapDeg?: number;
+  rotationPrevTarget?: number;
   screenCenter?: THREE.Vector2;
   startScreenAngle?: number;
   localAxisX?: THREE.Vector3;
@@ -410,8 +430,17 @@ export class PointerEventController {
             ? Math.round(rawTarget / snapStep) * snapStep
             : rawTarget;
 
+          // Сохраняем кадр ДО apply, чтобы на pointerup можно было откатить
+          // «дрифт отпускания»: если курсор уехал внутрь в последний момент,
+          // шаг снапа становится грубее и накрученный угол схлопывается в 0.
+          host.handleDragState.rotationPrevSnapDeg = host.handleDragState.rotationLastSnapDeg;
+          host.handleDragState.rotationPrevTarget = host.handleDragState.rotationLastTarget;
+
           // Pass absolute angle
           host.applyHandleDragDelta(host.handleDragState.node, host.handleDragState.handleType, snappedTarget, 0);
+
+          host.handleDragState.rotationLastSnapDeg = snapDeg;
+          host.handleDragState.rotationLastTarget = snappedTarget;
 
           // Update sector visualization
           if (host.modificationGizmo) {
@@ -630,7 +659,7 @@ export class PointerEventController {
         host.isPlaneDragging = true;
         if (host.controls) host.controls.enabled = false;
         host.options.onBeforeDrag?.();
-        host.dragTarget = host.pointerDownHit.object;
+        host.dragTarget = resolveSelectableTarget(host.pointerDownHit.object);
         const worldPos = new THREE.Vector3();
         host.dragTarget.getWorldPosition(worldPos);
         host.dragOffset.set(
@@ -738,13 +767,27 @@ export class PointerEventController {
     if (event.button !== 0) return;
 
     if (host.isHandleDragging) {
-      const wasRotation = host.handleDragState?.handleType?.startsWith('rotate');
-      const rotNode = host.handleDragState?.node ?? null;
+      const ds = host.handleDragState;
+      const wasRotation = ds?.handleType?.startsWith('rotate');
+      const rotNode = ds?.node ?? null;
       // Hide rotation sector
-      if (wasRotation && host.modificationGizmo && host.handleDragState?.handleType) {
+      if (wasRotation && host.modificationGizmo && ds?.handleType) {
         host.modificationGizmo.hideRotationSector(
-          host.handleDragState.handleType as import('../ModificationGizmo').HandleType
+          ds.handleType as import('../ModificationGizmo').HandleType
         );
+      }
+      // Откат «дрифта отпускания»: если в последний кадр snap стал крупнее
+      // (курсор увёл в зону с большим шагом), последний snappedTarget мог
+      // схлопнуть накрученный угол в 0. Применяем предпоследний target —
+      // то значение, которое пользователь видел перед отпусканием.
+      if (
+        wasRotation && rotNode && ds &&
+        ds.rotationLastSnapDeg !== undefined &&
+        ds.rotationPrevSnapDeg !== undefined &&
+        ds.rotationPrevTarget !== undefined &&
+        ds.rotationLastSnapDeg > ds.rotationPrevSnapDeg
+      ) {
+        host.applyHandleDragDelta(rotNode, ds.handleType, ds.rotationPrevTarget, 0);
       }
       host.isHandleDragging = false;
       host.handleDragState = null;
@@ -785,7 +828,8 @@ export class PointerEventController {
       if (host.pointerDownHandle) {
         host.pointerDownHandle = null;
       } else if (host.pointerDownHit && isClick) {
-        const node = (host.pointerDownHit.object.userData as { node?: ModelNode }).node;
+        const target = resolveSelectableTarget(host.pointerDownHit.object);
+        const node = (target.userData as { node?: ModelNode }).node;
         if (node && host.options.onSelectNodeFromScene) {
           host.options.onSelectNodeFromScene(node, { shift: host.pointerDownShift });
         }

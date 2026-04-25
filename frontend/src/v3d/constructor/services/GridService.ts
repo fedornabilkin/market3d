@@ -70,6 +70,8 @@ export class GridService {
 
     const material = new THREE.LineBasicMaterial({ vertexColors: true });
     const gridLines = new THREE.LineSegments(geometry, material);
+    gridLines.matrixAutoUpdate = false;
+    gridLines.updateMatrix();
 
     const group = new THREE.Group();
     group.add(gridLines);
@@ -107,18 +109,24 @@ export class GridService {
     const xArrow = new THREE.ArrowHelper(
       new THREE.Vector3(1, 0, 0), axisOrigin, axisLen, 0xff4444, headLen, headW,
     );
+    xArrow.matrixAutoUpdate = false;
+    xArrow.updateMatrix();
     group.add(xArrow);
 
     // Z axis (blue) — pointing back (into scene, -Z from front corner)
     const zArrow = new THREE.ArrowHelper(
       new THREE.Vector3(0, 0, -1), axisOrigin, axisLen, 0x4488ff, headLen, headW,
     );
+    zArrow.matrixAutoUpdate = false;
+    zArrow.updateMatrix();
     group.add(zArrow);
 
     // Y axis (green) — pointing up
     const yArrow = new THREE.ArrowHelper(
       new THREE.Vector3(0, 1, 0), axisOrigin, axisLen, 0x44cc44, headLen, headW,
     );
+    yArrow.matrixAutoUpdate = false;
+    yArrow.updateMatrix();
     group.add(yArrow);
 
     // Axis labels
@@ -188,6 +196,8 @@ export class GridService {
     const mesh = new THREE.Mesh(geo, mat);
     mesh.rotation.x = -Math.PI / 2;
     mesh.position.set(position.x + width / 2, position.y, position.z - depth / 2);
+    mesh.matrixAutoUpdate = false;
+    mesh.updateMatrix();
     parent.add(mesh);
   }
 

@@ -27,6 +27,37 @@ nav.navbar(role='navigation' aria-label='main navigation')
     a.navbar-item(href='/')
       img(src='../../assets/logo.png' alt='vsqr.ru 3d генератор stl')
   .navbar-menu
+    .navbar-start
+      .navbar-item
+        router-link.button.is-small.gen-nav-btn(:to="{ name: 'GeneratorQR' }" :title="$t('g.goToGeneratorQR')")
+          span.icon
+            i.fa.fa-qrcode
+          span.is-hidden-mobile {{ $t('g.goToGeneratorQR') }}
+      .navbar-item
+        router-link.button.is-small.gen-nav-btn(:to="{ name: 'GeneratorGRZ' }" :title="$t('g.goToGeneratorGRZ')")
+          span.icon
+            i.fa.fa-car
+          span.is-hidden-mobile {{ $t('g.goToGeneratorGRZ') }}
+      .navbar-item
+        router-link.button.is-small.gen-nav-btn(:to="{ name: 'GeneratorBraille' }" :title="$t('g.goToGeneratorBraille')")
+          span.icon
+            i.fa.fa-braille
+          span.is-hidden-mobile {{ $t('g.goToGeneratorBraille') }}
+      .navbar-item
+        router-link.button.is-small.gen-nav-btn(:to="{ name: 'GeneratorCoaster' }" :title="$t('g.goToGeneratorCoaster')")
+          span.icon
+            i.fa.fa-bullseye
+          span.is-hidden-mobile {{ $t('g.goToGeneratorCoaster') }}
+      .navbar-item
+        router-link.button.is-small.gen-nav-btn(:to="{ name: 'GeneratorNameTag' }" :title="$t('g.goToGeneratorNameTag')")
+          span.icon
+            i.fa.fa-signature
+          span.is-hidden-mobile {{ $t('g.goToGeneratorNameTag') }}
+      .navbar-item
+        router-link.button.is-small.gen-nav-btn(:to="{ name: 'Constructor' }" :title="$t('g.goToConstructor')")
+          span.icon
+            i.fa.fa-cubes
+          span.is-hidden-mobile {{ $t('g.goToConstructor') }}
     .navbar-end
       .navbar-item
         a.button.is-small.gen-discuss-btn(href="https://t.me/+dSgck2GM29syZTQ6" target="_blank")
@@ -111,5 +142,51 @@ nav.navbar(role='navigation' aria-label='main navigation')
   background: #e6f4fb !important;
   border-color: #006daa !important;
   color: #006daa !important;
+}
+.gen-nav-btn {
+  border-radius: 8px;
+  font-weight: 500;
+  transition: all 0.15s ease;
+}
+.gen-nav-btn.router-link-active {
+  background: #00a5a4;
+  border-color: #00a5a4;
+  color: #fff;
+}
+.gen-nav-btn.router-link-active:hover {
+  background: #008a89;
+  border-color: #008a89;
+  color: #fff;
+}
+
+/* Bulma по умолчанию прячет .navbar-menu ниже desktop-breakpoint (<1024px).
+ * Принудительно показываем меню на мобильном с переносом строк, чтобы все
+ * кнопки навигации оставались видимыми (без burger-toggle). */
+@media (max-width: 1023px) {
+  :deep(.navbar) {
+    flex-wrap: wrap;
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+  :deep(.navbar-menu) {
+    display: flex !important;
+    flex-wrap: wrap;
+    align-items: center;
+    width: 100%;
+    box-sizing: border-box;
+    box-shadow: none;
+    padding: 0.25rem 0.5rem;
+    background: transparent;
+  }
+  :deep(.navbar-start),
+  :deep(.navbar-end) {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    margin: 0;
+  }
+  :deep(.navbar-item) {
+    padding: 0.2rem 0.25rem;
+  }
 }
 </style>

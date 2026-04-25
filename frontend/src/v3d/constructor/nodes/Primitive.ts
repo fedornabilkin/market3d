@@ -5,11 +5,7 @@ import type { PrimitiveNodeJSON } from '../types';
 import { ModelNode } from './ModelNode';
 import { ModelMemento as ModelMementoClass } from '../memento/ModelMemento';
 import { applyHoleStyle } from '../holeMaterial';
-import { RoundedBoxBufferGeometry } from '../geometry/RoundedBoxBufferGeometry';
-import { RoundedCylinderBufferGeometry } from '../geometry/RoundedCylinderBufferGeometry';
-import { generateThreadGeometry } from '../generators/ThreadGenerator';
-import { generateKnurlGeometry } from '../generators/KnurlGenerator';
-import type { KnurlSettings } from '../generators/KnurlGenerator';
+import { createEntity } from '../entities/EntityFactory';
 
 /** Creates a fresh PhongMaterial per mesh — no shared global state. */
 function createMaterial(color?: string, isHole?: boolean, flatShading?: boolean): THREE.MeshPhongMaterial {
@@ -78,35 +74,21 @@ export class Primitive extends ModelNode {
   }
 
   /**
+   * Возвращает свежую Entity по текущим type + geometryParams. Логика
+   * конкретных типов живёт в классах Entity (см. entities/), здесь — только
+   * делегирование. Entity пересоздаётся на каждый вызов, т.к. callers
+   * мутируют `geometryParams` напрямую (handle drag, form update и т.п.).
+   */
+  private buildEntity() {
+    return createEntity(this.type, this.geometryParams as Record<string, unknown>);
+  }
+
+  /**
    * Half-height from center to the bottom face.
    * Used to convert between "bottom-on-grid" position semantics and Three.js center semantics.
    */
   getHalfHeight(): number {
-    const g = this.geometryParams;
-    const h = g.height ?? 1;
-    const r = g.radius ?? 0.5;
-    switch (this.type) {
-      case 'box':
-      case 'cylinder':
-      case 'cone':
-      case 'plane':
-        return h / 2;
-      case 'sphere':
-        return r;
-      case 'torus':
-        return g.tube ?? 0.2;
-      case 'ring':
-        return g.outerRadius ?? r;
-      case 'thread': {
-        const pitch = g.pitch ?? 2;
-        const turns = g.turns ?? 5;
-        return (pitch * turns) / 2;
-      }
-      case 'knurl':
-        return (g.height ?? 10) / 2;
-      default:
-        return h / 2;
-    }
+    return this.buildEntity().getHalfHeight();
   }
 
   /**
@@ -115,72 +97,7 @@ export class Primitive extends ModelNode {
    * handle-drag without rebuilding the entire scene tree.
    */
   createGeometry(): THREE.BufferGeometry {
-    const p = this.geometryParams;
-    const w = p.width ?? 1;
-    const h = p.height ?? 1;
-    const d = p.depth ?? 1;
-    const r = p.radius ?? 0.5;
-    const seg = p.segments ?? 32;
-    const wSeg = p.widthSegments ?? 16;
-    const hSeg = p.heightSegments ?? 16;
-    const bevelR = Number(p.bevelRadius) || 0;
-    const bevelSeg = Math.max(1, Math.round(Number(p.bevelSegments) || 3));
-
-    // Three.js 0.118 uses *BufferGeometry variants for BufferGeometry subclasses
-    switch (this.type) {
-      case 'box':
-        if (bevelR > 0) {
-          return new RoundedBoxBufferGeometry(w, h, d, bevelSeg, bevelR);
-        }
-        return new THREE.BoxGeometry(w, h, d);
-      case 'sphere':
-        return new THREE.SphereGeometry(r, wSeg, hSeg);
-      case 'cylinder': {
-        const rTop = p.radiusTop ?? r;
-        const rBottom = p.radiusBottom ?? r;
-        if (bevelR > 0) {
-          return new RoundedCylinderBufferGeometry(rTop, rBottom, h, seg, bevelR, bevelSeg);
-        }
-        return new THREE.CylinderGeometry(rTop, rBottom, h, seg);
-      }
-      case 'cone':
-        // Use tiny non-zero top radius to avoid degenerate triangles that break CSG
-        return new THREE.CylinderGeometry(0.001, r, h, seg);
-      case 'torus': {
-        const tube = p.tube ?? 0.2;
-        return new THREE.TorusGeometry(r, tube, 16, seg);
-      }
-      case 'plane':
-        return new THREE.PlaneGeometry(w, h, 1, 1);
-      case 'ring': {
-        const inner = p.innerRadius ?? r * 0.5;
-        const outer = p.outerRadius ?? r;
-        return new THREE.RingGeometry(inner, outer, seg);
-      }
-      case 'thread':
-        return generateThreadGeometry({
-          outerDiameter: p.outerDiameter ?? 10,
-          innerDiameter: p.innerDiameter ?? 8,
-          pitch: p.pitch ?? 2,
-          turns: p.turns ?? 5,
-          profile: (p.threadProfile as 'trapezoid') ?? 'trapezoid',
-          segmentsPerTurn: seg,
-          leftHand: p.leftHand === true,
-        });
-      case 'knurl':
-        return generateKnurlGeometry({
-          outerDiameter: p.outerDiameter ?? 10,
-          innerDiameter: p.innerDiameter ?? 9,
-          height: p.height ?? 10,
-          notchCount: p.notchCount ?? 24,
-          pattern: (p.knurlPattern as KnurlSettings['pattern']) ?? 'straight',
-          angle: p.knurlAngle ?? 30,
-          segmentsPerNotch: p.segmentsPerNotch ?? 6,
-          heightSegments: p.heightSegments ?? 24,
-        });
-      default:
-        return new THREE.BoxGeometry(1, 1, 1);
-    }
+    return this.buildEntity().createGeometry();
   }
 
   private applyParamsToMesh(mesh: THREE.Mesh): void {

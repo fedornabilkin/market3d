@@ -51,12 +51,16 @@ export class ViewCubeNavigator {
     );
 
     const cube = new THREE.Mesh(geo, materials);
+    cube.matrixAutoUpdate = false;
+    cube.updateMatrix();
     this.cubeGroup.add(cube);
 
     // Wireframe edges
     const edges = new THREE.EdgesGeometry(geo, 1);
     const lineMat = new THREE.LineBasicMaterial({ color: 0xffffff, linewidth: 1 });
     const wireframe = new THREE.LineSegments(edges, lineMat);
+    wireframe.matrixAutoUpdate = false;
+    wireframe.updateMatrix();
     this.cubeGroup.add(wireframe);
 
     // Face labels
@@ -89,6 +93,8 @@ export class ViewCubeNavigator {
       sprite.position.copy(pos);
       sprite.scale.setScalar(0.3);
       sprite.renderOrder = 10;
+      sprite.matrixAutoUpdate = false;
+      sprite.updateMatrix();
       this.cubeGroup.add(sprite);
     });
   }
@@ -103,6 +109,8 @@ export class ViewCubeNavigator {
       AXIS_HEAD_LEN,
       AXIS_HEAD_W
     );
+    xArrow.matrixAutoUpdate = false;
+    xArrow.updateMatrix();
     this.cubeGroup.add(xArrow);
 
     // Y — green
@@ -114,6 +122,8 @@ export class ViewCubeNavigator {
       AXIS_HEAD_LEN,
       AXIS_HEAD_W
     );
+    yArrow.matrixAutoUpdate = false;
+    yArrow.updateMatrix();
     this.cubeGroup.add(yArrow);
 
     // Z — blue
@@ -125,6 +135,8 @@ export class ViewCubeNavigator {
       AXIS_HEAD_LEN,
       AXIS_HEAD_W
     );
+    zArrow.matrixAutoUpdate = false;
+    zArrow.updateMatrix();
     this.cubeGroup.add(zArrow);
   }
 

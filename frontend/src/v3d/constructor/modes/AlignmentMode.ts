@@ -280,6 +280,9 @@ export class AlignmentMode {
       const geo = new THREE.BufferGeometry().setFromPoints([ld.from, ld.to]);
       const line = new THREE.Line(geo, this.leaderMaterial!);
       line.renderOrder = 3;
+      // Позиции вершин уже в мировых координатах, локальный трансформ identity.
+      line.matrixAutoUpdate = false;
+      line.updateMatrix();
       this.scene.add(line);
       this.leaderLines.push(line);
     }

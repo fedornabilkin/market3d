@@ -1,6 +1,7 @@
 <script setup>
 import Base from '@/components/forms/Base.vue'
 import Keychain from '@/components/forms/Keychain.vue'
+import OffsetField from '@/components/forms/OffsetField.vue'
 
 const props = defineProps(['options', 'unit'])
 </script>
@@ -35,8 +36,8 @@ Base(:options='options' :unit='unit')
         .field-body
           .control
             label.checkbox
-              input(type='checkbox' v-model='options.showPlainText')
-              span.is-size-7 &nbsp;{{ $t('form.braille.showPlainText') }}
+              input(type='checkbox' v-model='options.dotRounded')
+              span.is-size-7 &nbsp;{{ $t('form.braille.dotRounded') }}
 
     .column
       .field.is-horizontal
@@ -99,24 +100,52 @@ Base(:options='options' :unit='unit')
             .control
               input.gen-color-input(type='color' v-model='options.dotColor')
 
-  .box(v-if="options.showPlainText")
-    .columns.is-multiline
-      .column
-        .field.is-horizontal
-          .field-label.is-small
-            label.label {{ $t('form.braille.plainTextSize') }}
-          .field-body
-            .field.has-addons
-              .control
-                input.input.is-small(type='number' v-model.number='options.plainTextSize' min='1' max='20' step='0.5')
-              p.control
-                a.button.is-static.is-small {{ unit }}
-      .column
-        .field.is-horizontal
-          .field-body
-            .field
-              .control
-                input.gen-color-input(type='color' v-model='options.plainTextColor')
+.field.is-horizontal.form-bg-diff.form-bg--text
+  .field-label.is-small
+    label.label {{ $t('form.braille.plainText') }}
+  .field-body
+    .control
+      label.checkbox
+        .field
+          input(type='checkbox' v-model='options.showPlainText')
+          span.is-size-7
+            i.fa.fa-font &nbsp;
+            | {{ $t('form.braille.showPlainText') }}
+
+.box.form-bg-diff.form-bg--text(v-if='options.showPlainText')
+  .columns.is-multiline
+    .column
+      .field.is-horizontal
+        .field-label.is-small
+          label.label {{ $t('form.braille.plainTextSize') }}
+        .field-body
+          .field.has-addons
+            .control
+              input.input.is-small(type='number' v-model.number='options.plainTextSize' min='1' max='20' step='0.5')
+            p.control
+              a.button.is-static.is-small {{ unit }}
+      .field.is-horizontal
+        .field-body
+          .field
+            .control
+              input.gen-color-input(type='color' v-model='options.plainTextColor')
+    .column
+      .field.is-horizontal
+        .field-body
+          OffsetField(
+            axis='x'
+            :title="$t('form.icon.offsetX')"
+            :modelValue='options.plainTextOffsetX'
+            @update:modelValue='options.plainTextOffsetX = $event'
+          )
+      .field.is-horizontal
+        .field-body
+          OffsetField(
+            axis='y'
+            :title="$t('form.icon.offsetY')"
+            :modelValue='options.plainTextOffsetY'
+            @update:modelValue='options.plainTextOffsetY = $event'
+          )
 
 Keychain(:options='options' :unit='unit')
 </template>

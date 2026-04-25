@@ -19,6 +19,7 @@ export default class BrailleGenerator extends BaseGenerator {
       dotMode: 6,          // 6 или 8 точек
       dotDiameter: 1.5,
       dotHeight: 1,
+      dotRounded: false,   // купол сверху (тактильная форма Брайля)
       dotSpacingX: 2.5,    // расстояние между центрами точек по X (в ячейке)
       dotSpacingY: 2.5,    // расстояние между центрами точек по Y (в ячейке)
       cellSpacing: 6,      // расстояние между центрами ячеек по X
@@ -27,6 +28,8 @@ export default class BrailleGenerator extends BaseGenerator {
       showPlainText: false,
       plainTextSize: 4,
       plainTextColor: '#000000',
+      plainTextOffsetX: 0,
+      plainTextOffsetY: 0,
       padding: 4,
       keychain: {active: false, placement: 'left', holeDiameter: 6, borderWidth: 3, height: 3, mirror: false, color: null, offsetX: 0, offsetY: 0},
       ...options,
@@ -95,6 +98,10 @@ export default class BrailleGenerator extends BaseGenerator {
     const dotColor = parseHexColor(this.options.dotColor, 0x000000)
     const material = new THREE.MeshPhongMaterial({color: dotColor})
 
+    // Геометрия точки общая для всех ячеек: позиция отличается, форма — нет.
+    // Низ в z=0, верх в z=dotH — позиционируется через mesh.position.z = baseZ.
+    const dotGeo = this._createDotGeometry(dotR, dotH, this.options.dotRounded)
+
     const cellW = sX
     const cellH = sY * (rows - 1)
 
@@ -147,10 +154,8 @@ export default class BrailleGenerator extends BaseGenerator {
           const x = cursorX + col * sX
           const y = lineY + (rows - 1 - row) * sY - cellH / 2
 
-          const geo = new THREE.CylinderGeometry(dotR, dotR, dotH, 16)
-          const dot = new THREE.Mesh(geo, material)
-          dot.rotation.x = -Math.PI / 2
-          dot.position.set(x, y, baseZ + dotH / 2)
+          const dot = new THREE.Mesh(dotGeo, material)
+          dot.position.set(x, y, baseZ)
           dot.updateMatrix()
           group.add(dot)
         }
@@ -193,8 +198,10 @@ export default class BrailleGenerator extends BaseGenerator {
     const size = this.getBoundingBoxSize(mesh)
     const x = -size.x / 2
     const y = -totalBrailleHeight / 2 - fontSize - 1
+    const offX = this.options.plainTextOffsetX || 0
+    const offY = this.options.plainTextOffsetY || 0
 
-    mesh.position.set(x, y, baseZ)
+    mesh.position.set(x + offX, y + offY, baseZ)
     mesh.updateMatrix()
     group.add(mesh)
 
@@ -215,6 +222,50 @@ export default class BrailleGenerator extends BaseGenerator {
   }
 
   // ─── Вспомогательные ────────────────────────────────────
+
+  /**
+   * Геометрия одной точки Брайля. Низ в z=0, верх в z=dotH.
+   *
+   * Если `rounded === true` И полусфера вмещается (dotH > dotR) — рисуем
+   * как тактильную точку: цилиндр радиуса dotR высотой (dotH - dotR) +
+   * полусфера радиуса dotR. Реализовано через LatheGeometry (революция
+   * 2D-профиля вокруг оси Y) — замкнутый манифолдный меш одним куском, без CSG.
+   *
+   * Иначе — обычный плоский цилиндр. Безопасный fallback покрывает случай,
+   * когда чекбокс включён, но высота слишком мала для полусферы радиуса dotR.
+   */
+  _createDotGeometry(dotR, dotH, rounded = false) {
+    const useRounded = rounded && dotH > dotR
+    let geo
+    if (useRounded) {
+      const profile = [
+        new THREE.Vector2(0, 0),
+        new THREE.Vector2(dotR, 0),
+      ]
+      const cylTopY = dotH - dotR
+      if (cylTopY > 1e-4) {
+        profile.push(new THREE.Vector2(dotR, cylTopY))
+      }
+      const domeSegments = 8
+      for (let i = 1; i <= domeSegments; i++) {
+        const angle = (i / domeSegments) * Math.PI / 2
+        profile.push(new THREE.Vector2(
+          dotR * Math.cos(angle),
+          cylTopY + dotR * Math.sin(angle),
+        ))
+      }
+      geo = new THREE.LatheGeometry(profile, 16)
+    } else {
+      // CylinderGeometry центрирован вокруг y=0 — сдвигаем низ в y=0
+      // чтобы общий контракт «z=0 на плите, z=dotH сверху» работал универсально.
+      geo = new THREE.CylinderGeometry(dotR, dotR, dotH, 16)
+      geo.translate(0, dotH / 2, 0)
+    }
+    // Ось вращения LatheGeometry/CylinderGeometry — Y. Поворачиваем геометрию
+    // так, чтобы ось стала +Z, а профиль y∈[0,dotH] лёг в z∈[0,dotH].
+    geo.rotateX(Math.PI / 2)
+    return geo
+  }
 
   _getDotsForChar(char) {
     const upperChar = char.toUpperCase()

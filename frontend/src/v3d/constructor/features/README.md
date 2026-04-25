@@ -1,0 +1,120 @@
+# features/ — Параметрический Feature Graph
+
+Реализация Шагов 1.1–1.4 из [`plan/cad/phase-1-feature-tree.md`](../../../../../plan/cad/phase-1-feature-tree.md).
+
+## Паттерны
+
+### Composite (`Feature`/`LeafFeature`/`CompositeFeature`)
+
+```
+Feature                  Component (абстракт + общий интерфейс)
+├── LeafFeature          Leaf      (без входов: примитивы, импорт)
+│   ├── BoxFeature
+│   ├── SphereFeature
+│   ├── CylinderFeature
+│   ├── ConeFeature
+│   ├── TorusFeature
+│   ├── RingFeature
+│   ├── PlaneFeature
+│   ├── ThreadFeature
+│   ├── KnurlFeature
+│   └── ImportedMeshFeature
+└── CompositeFeature     Composite (со входами: ссылки на другие фичи по id)
+    ├── TransformFeature      ровно 1 вход — position/rotation/scale поверх
+    ├── BooleanFeature        n входов — union/subtract/intersect через three-bvh-csg
+    └── GroupFeature          n входов — логический контейнер без CSG (TinkerCAD-стайл)
+```
+
+Композит не «владеет» детьми напрямую — хранит только массив `inputs: FeatureId[]`. Сами фичи живут в `FeatureGraph` по id, граф следит за DAG-инвариантами (отсутствие циклов, валидность ссылок).
+
+### Visitor (`FeatureVisitor<R>`)
+
+Все операции над фичей, кроме базового CRUD над params/inputs, реализуются как посетители:
+
+| Visitor | Назначение |
+|---|---|
+| `EvaluateVisitor` | Считает `FeatureOutput` (BufferGeometry + transform + flags) из текущих params + resolved входов |
+| `SerializeVisitor` | Превращает фичу в `FeatureJSON` |
+| `ValidateVisitor` | Структурная валидация (количество входов, диапазоны) |
+
+Каждая концерт-фича маршрутизирует `accept(visitor)` в `visitor.visitX(this)`. Дефолтная реализация всех `visitX` методов в `FeatureVisitor` — `visitFeature(f)` (catch-all). Конкретный посетитель переопределяет только то, что ему интересно. Так Feature остаются data-only и не растут под каждую новую операцию.
+
+## Граф
+
+`FeatureGraph` — главный держатель state'а:
+
+- **CRUD**: `add`, `remove`, `updateParams`, `updateInputs`. Все с проверкой инвариантов (циклы, существование ссылок).
+- **Queries**: `collectDependents(rootIds)` (транзитивные потомки), `topologicalOrder(subset)`.
+- **Recompute**: `recompute(changedIds)` — считает аффекетных в порядке топосорта, ловит ошибки эвалюации, кэширует outputs. Возвращает `{updated, failed}`.
+
+Outputs хранятся в `cachedOutputs` графа (не в самих фичах) — это упрощает feature-классы.
+
+## Документ
+
+`FeatureDocument` оборачивает граф, держит `rootIds` (что попадает в финальный рендер) и метаданные. Эмитит события подписчикам (`feature-added`, `feature-removed`, `feature-updated`, `recompute-done`) — так UI/рендер-слой узнаёт, что нужно обновить three.js-сцену.
+
+Реактивность намеренно через event-bus, **не** через Vue/Pinia `reactive()` — иначе proxy ломает GPU-кэши BufferGeometry.
+
+`toJSON` / `fromJSON` сериализуют граф (с топосортом для гарантии порядка). Версия документа — `version: 2` (legacy `kind: 'group'/'primitive'/...` — `version: 1` без поля).
+
+## Реестр
+
+`FeatureRegistry` — map `type → constructor` для десериализации. Штатные типы регистрируются через `createDefaultRegistry()`. При добавлении нового типа фичи — регистрация ещё в одном месте (плюс новый visitor-метод).
+
+## Поток данных
+
+```
+                ┌─ User edit (UI form)
+                ▼
+   FeatureDocument.updateParams(id, patch)
+        ▼
+   FeatureGraph.updateParams → feature.setParams (paramsVersion++)
+        ▼
+   FeatureGraph.recompute([id])
+   │   1. collectDependents — кого пересчитывать
+   │   2. topologicalOrder — в каком порядке
+   │   3. для каждого: feature.accept(EvaluateVisitor) → FeatureOutput
+   │   4. кэшируем
+        ▼
+   emit('recompute-done', updatedIds)
+        ▼
+   ConstructorSceneService → обновляет three.js Mesh/Group
+```
+
+## CSG (`csg/booleanCsg.ts`)
+
+Чистая утилита поверх `three-bvh-csg`: запекает входные матрицы в геометрии (флипает winding для negative-det), evaluator цепочкой union/subtract/intersect, на выходе `mergeVertices(1e-4) + computeVertexNormals`. Используется `EvaluateVisitor.visitBoolean`. Логика та же, что была в `nodes/GroupNode` — просто вынесена в переиспользуемый модуль.
+
+## Что НЕ сделано (следующие шаги Phase 1)
+
+- **Шаг 1.5** — Render-слой (`ConstructorSceneService` подписывается на `FeatureDocument`).
+- **Шаг 1.6** — Миграция `version: 1 → 2` в `Serializer`.
+- **Шаг 1.7** — UI: `FeatureTree.vue` + schema-driven `FeatureParamsForm.vue`.
+- **Шаг 1.8** — `SnapshotCommand` на feature-graph (минимальная правка).
+- **Шаг 1.9** — `BinaryStorage` (IndexedDB) для STL у `ImportedMeshFeature`.
+- **Шаг 1.10** — Cleanup мёртвых `nodes/`-классов после полной миграции.
+
+## Тесты
+
+```bash
+cd frontend
+npx vitest run src/v3d/constructor/features
+```
+
+20 тестов покрывают:
+- DAG: add, remove, get, отказ при дубликатах, отказ при попытке удалить с зависимостями, обнаружение циклов.
+- Запросы: `collectDependents`, `topologicalOrder`.
+- Recompute: примитивы, transform, boolean, group, каскад при `updateParams`, propagation ошибок.
+- Документ: события, сериализация (round-trip), валидация.
+
+`booleanCsg` мокается в тестах через `vi.mock` — `three-bvh-csg`/`three-mesh-bvh` имеют circular CJS, ломающую vitest в node. Реальная CSG-логика верифицируется в браузере (на этапе интеграции с UI).
+
+## Как добавить новый тип фичи
+
+1. **Тип в `types.ts`** — добавить тег в `FeatureType` union.
+2. **Класс фичи** в `primitives/` или `composite/` — extends `LeafFeature` или `CompositeFeature`, реализует `accept(v)` через `v.visitNewType(this)`.
+3. **Метод в `FeatureVisitor`** — добавить `visitNewType(f: NewFeature): R { return this.visitFeature(f); }`.
+4. **Эвалюация в `EvaluateVisitor`** — переопределить `visitNewType`.
+5. **Валидация в `ValidateVisitor`** (если нужно) — переопределить `visitNewType`.
+6. **Реестр в `FeatureRegistry.createDefaultRegistry()`** — `register('new-type', json => new NewFeature(...))`.
+7. **Тест** — добавить покрытие в `FeatureGraph.test.ts` или отдельный файл.

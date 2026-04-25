@@ -918,13 +918,35 @@ function redo() {
 
 // ─── localStorage ──────────────────────────────────────────────────────────
 
-function _saveToLocalStorage() {
+// Дебаунс + перенос фактической записи на setTimeout(0): JSON.stringify дерева
+// с большими base64-строками STL и последующий localStorage.setItem — это
+// сотни миллисекунд синхронной работы, которую нельзя было делать прямо в
+// flow импорта/драга (оттуда и подвисания «страница не отвечает»).
+let _saveTimer: ReturnType<typeof setTimeout> | null = null;
+
+function _flushSave() {
   try {
     const serializer = modelApp.value!.getSerializer();
     const root = modelApp.value!.getModelManager().getTree();
     localStorage.setItem(STORAGE_KEYS[activeSceneIndex.value], JSON.stringify(serializer.toJSON(root)));
   } catch (e) {
     console.warn('[Constructor] Failed to save scene:', e);
+  }
+}
+
+function _saveToLocalStorage() {
+  if (_saveTimer !== null) clearTimeout(_saveTimer);
+  _saveTimer = setTimeout(() => {
+    _saveTimer = null;
+    _flushSave();
+  }, 300);
+}
+
+function _flushPendingSave() {
+  if (_saveTimer !== null) {
+    clearTimeout(_saveTimer);
+    _saveTimer = null;
+    _flushSave();
   }
 }
 
@@ -1936,7 +1958,10 @@ function handleImportSTL(event: Event) {
       r.children.push(node);
     });
 
-    if (sceneService) sceneService.rebuildSceneFromTree();
+    // appendNodeToScene вместо rebuildSceneFromTree: иначе каждый уже
+    // импортированный меш пересобирается с нуля (dispose + getMesh), что на
+    // плотных STL надолго блокирует UI.
+    if (sceneService) sceneService.appendNodeToScene(node);
     onSelectNode(node);
   };
   reader.readAsArrayBuffer(file);
@@ -2102,14 +2127,17 @@ onMounted(() => {
   loadFromLocalStorage();
 
   window.addEventListener('keydown', handleKeydown);
+  window.addEventListener('beforeunload', _flushPendingSave);
 });
 
 onBeforeUnmount(() => {
+  _flushPendingSave();
   if (sceneService) {
     sceneService.unmount();
     sceneService = null;
   }
   window.removeEventListener('keydown', handleKeydown);
+  window.removeEventListener('beforeunload', _flushPendingSave);
 });
 </script>
 

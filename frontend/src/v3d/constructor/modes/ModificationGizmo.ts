@@ -120,6 +120,14 @@ function createProtractorHandle(type: HandleType): HandleMesh {
 function buildRingGroup(color: number): THREE.Group {
   const g = new THREE.Group();
 
+  // Статичные дети ring-группы — локальный трансформ не меняется после создания.
+  // Снимаем auto-update: пропускаем compose матрицы на каждом кадре.
+  const addStatic = (obj: THREE.Object3D) => {
+    obj.matrixAutoUpdate = false;
+    obj.updateMatrix();
+    g.add(obj);
+  };
+
   const tickMat = new THREE.LineBasicMaterial({ color: 0x888888, depthTest: false });
   const majorMat = new THREE.LineBasicMaterial({ color, depthTest: false });
 
@@ -129,7 +137,7 @@ function buildRingGroup(color: number): THREE.Group {
     color, side: THREE.DoubleSide, transparent: true, opacity: 0.40,
     depthTest: false, depthWrite: false,
   });
-  g.add(new THREE.Mesh(centerRingGeo, centerRingMat));
+  addStatic(new THREE.Mesh(centerRingGeo, centerRingMat));
 
   // Center ticks every 22.5° (16 parts)
   for (let deg = 0; deg < 360; deg += 22.5) {
@@ -138,7 +146,7 @@ function buildRingGroup(color: number): THREE.Group {
       new THREE.Vector3(Math.cos(rad) * 0.44, Math.sin(rad) * 0.44, 0),
       new THREE.Vector3(Math.cos(rad) * 0.50, Math.sin(rad) * 0.50, 0),
     ];
-    g.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), majorMat));
+    addStatic(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), majorMat));
   }
 
   // ── Inner ring: 5° ticks, thicker band ─────────────────────────────
@@ -147,7 +155,7 @@ function buildRingGroup(color: number): THREE.Group {
     color, side: THREE.DoubleSide, transparent: true, opacity: 0.35,
     depthTest: false, depthWrite: false,
   });
-  g.add(new THREE.Mesh(innerRingGeo, innerRingMat));
+  addStatic(new THREE.Mesh(innerRingGeo, innerRingMat));
 
   // Inner ticks every 5°, major every 15°
   for (let deg = 0; deg < 360; deg += 5) {
@@ -158,7 +166,7 @@ function buildRingGroup(color: number): THREE.Group {
       new THREE.Vector3(Math.cos(rad) * inner, Math.sin(rad) * inner, 0),
       new THREE.Vector3(Math.cos(rad) * 0.68, Math.sin(rad) * 0.68, 0),
     ];
-    g.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), isMajor ? majorMat : tickMat));
+    addStatic(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), isMajor ? majorMat : tickMat));
   }
 
   // ── Outer ring: 1° ticks, thinner band ─────────────────────────────
@@ -167,7 +175,7 @@ function buildRingGroup(color: number): THREE.Group {
     color, side: THREE.DoubleSide, transparent: true, opacity: 0.25,
     depthTest: false, depthWrite: false,
   });
-  g.add(new THREE.Mesh(outerRingGeo, outerRingMat));
+  addStatic(new THREE.Mesh(outerRingGeo, outerRingMat));
 
   // Outer ticks every 1°, major every 10°
   for (let deg = 0; deg < 360; deg += 1) {
@@ -178,7 +186,7 @@ function buildRingGroup(color: number): THREE.Group {
       new THREE.Vector3(Math.cos(rad) * inner, Math.sin(rad) * inner, 0),
       new THREE.Vector3(Math.cos(rad) * 0.88, Math.sin(rad) * 0.88, 0),
     ];
-    g.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), isMajor ? majorMat : tickMat));
+    addStatic(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), isMajor ? majorMat : tickMat));
   }
 
   // Degree labels at every 30° (between the two rings)
@@ -188,7 +196,7 @@ function buildRingGroup(color: number): THREE.Group {
     const sprite = makeTextSprite(String(deg), color);
     sprite.position.set(Math.cos(rad) * labelR, Math.sin(rad) * labelR, 0);
     sprite.scale.set(0.08, 0.08, 1);
-    g.add(sprite);
+    addStatic(sprite);
   }
 
   // Pointer line (current rotation axis) — points down (toward 0°)
@@ -217,6 +225,9 @@ function buildRingGroup(color: number): THREE.Group {
   const sectorMesh = new THREE.Mesh(new THREE.BufferGeometry(), sectorMat);
   sectorMesh.name = 'rotationSector';
   sectorMesh.visible = false;
+  // Позиция сектора статична — меняется только геометрия (в updateRotationSector).
+  sectorMesh.matrixAutoUpdate = false;
+  sectorMesh.updateMatrix();
   g.add(sectorMesh);
 
   // Center dot
@@ -224,7 +235,7 @@ function buildRingGroup(color: number): THREE.Group {
   const dotMat = new THREE.MeshBasicMaterial({ color, depthTest: false, side: THREE.DoubleSide });
   const dot = new THREE.Mesh(dotGeo, dotMat);
   dot.position.z = 0.001;
-  g.add(dot);
+  addStatic(dot);
 
   g.visible = false;
   return g;
