@@ -1,3 +1,4 @@
+import type * as THREE from 'three';
 import type { ModelNode } from './nodes/ModelNode';
 import type {
   ModelTreeJSON,
@@ -11,6 +12,7 @@ import { Primitive } from './nodes/Primitive';
 import { GroupNode } from './nodes/GroupNode';
 import { ImportedMeshNode } from './nodes/ImportedMeshNode';
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader';
+import { migrateLegacyYupToZupIfNeeded as _migrateYupToZup } from './migrations/legacyYupToZup';
 
 /**
  * Serializes/deserializes the model tree to/from JSON.
@@ -30,11 +32,15 @@ export class Serializer {
 
   toJSON(root: ModelNode): ModelTreeJSON {
     if (root instanceof ImportedMeshNode) {
+      const hasBinaryRef = !!root.binaryRef;
       const json: ImportedMeshNodeJSON = {
         kind: 'imported',
-        stlBase64: root.stlBase64,
+        // Если бинарник в IndexedDB (binaryRef), base64 не пишем — это убирает
+        // многомегабайтную строку из localStorage и устраняет UI-фриз при сохранении.
+        stlBase64: hasBinaryRef ? '' : root.stlBase64,
         filename: root.filename,
       };
+      if (hasBinaryRef) json.binaryRef = root.binaryRef;
       if (root.name) json.name = root.name;
       if (Object.keys(root.params).length > 0) {
         json.nodeParams = this.cloneNodeParams(root.params);
@@ -88,19 +94,75 @@ export class Serializer {
       return node;
     }
     if (data.kind === 'imported') {
-      const binary = Uint8Array.from(atob(data.stlBase64), (c) => c.charCodeAt(0));
-      const loader = new STLLoader();
-      const geometry = loader.parse(binary.buffer);
+      // Источник бинарника: либо binaryRef (предварительно резолвленный
+      // через preResolveBinaryRefs в loader-е), либо legacy base64 inline.
+      const resolved = (data as { __resolvedGeometry?: THREE.BufferGeometry }).__resolvedGeometry;
+      let geometry: THREE.BufferGeometry;
+      if (resolved) {
+        geometry = resolved;
+      } else if (data.stlBase64) {
+        const binary = Uint8Array.from(atob(data.stlBase64), (c) => c.charCodeAt(0));
+        const loader = new STLLoader();
+        geometry = loader.parse(binary.buffer);
+      } else {
+        throw new Error(`[Serializer] imported-нода без stlBase64 и без resolved geometry (binaryRef=${data.binaryRef ?? '?'}). Вызови preResolveBinaryRefs до fromJSON.`);
+      }
       const node = new ImportedMeshNode(
         geometry,
-        data.stlBase64,
+        data.stlBase64 || '',
         data.filename,
         data.nodeParams ? this.cloneNodeParams(data.nodeParams) : undefined,
+        data.binaryRef,
       );
       if (data.name) node.name = data.name;
       return node;
     }
     throw new Error('Unknown JSON node kind');
+  }
+
+  /**
+   * Pre-resolve: для всех `kind:'imported'` нод с binaryRef'ом подгружает
+   * бинарник из IndexedDB и парсит STL → BufferGeometry. Геометрия пишется
+   * в JSON-узел как нестандартное поле `__resolvedGeometry`, которое потом
+   * читает sync-ный fromJSON.
+   *
+   * Также мигрирует legacy base64-сохранёнки в IndexedDB: если у ноды только
+   * stlBase64, бинарник переносится в IDB, в JSON ставится binaryRef и base64
+   * очищается. На следующем save-е сохранёнка станет лёгкой.
+   */
+  static async preResolveBinaryRefs(rootJson: ModelTreeJSON): Promise<void> {
+    const { BinaryStorage, base64ToArrayBuffer } = await import('./services/BinaryStorage');
+    const loader = new STLLoader();
+
+    const visit = async (node: ModelTreeJSON): Promise<void> => {
+      if ((node as { kind: string }).kind === 'imported') {
+        const im = node as ImportedMeshNodeJSON & { __resolvedGeometry?: THREE.BufferGeometry };
+        if (im.binaryRef) {
+          const buf = await BinaryStorage.get(im.binaryRef);
+          if (buf) im.__resolvedGeometry = loader.parse(buf);
+          // Если бинарника нет в IDB (например, удалили) — fallback на base64,
+          // если он каким-то образом сохранился. Иначе fromJSON бросит понятную ошибку.
+        } else if (im.stlBase64) {
+          // Legacy: мигрируем в IndexedDB. Не блокирующий шаг — даже если запись
+          // упадёт, узел всё равно загрузится через base64 inline.
+          try {
+            const id = BinaryStorage.newId();
+            const buf = base64ToArrayBuffer(im.stlBase64);
+            await BinaryStorage.put(id, buf);
+            im.binaryRef = id;
+            im.stlBase64 = ''; // на следующем save запишется только binaryRef
+          } catch (e) {
+            console.warn('[Serializer] migration to IndexedDB failed, keeping base64:', e);
+          }
+        }
+      }
+      if ((node as { kind: string }).kind === 'group') {
+        const children = (node as { children?: ModelTreeJSON[] }).children;
+        if (children) for (const c of children) await visit(c);
+      }
+    };
+
+    await visit(rootJson);
   }
 
   /**
@@ -113,30 +175,7 @@ export class Serializer {
    * на верхнеуровневом JSON-объекте.
    */
   static migrateLegacyYupToZupIfNeeded(rootJson: ModelTreeJSON): void {
-    const root = rootJson as ModelTreeJSON & { coordsConvention?: string };
-    if (root.coordsConvention === 'zup') return;
-
-    const swapYZ = (v?: { x: number; y: number; z: number }): void => {
-      if (!v) return;
-      const tmp = v.y;
-      v.y = v.z;
-      v.z = tmp;
-    };
-
-    const visit = (node: ModelTreeJSON): void => {
-      const np = (node as { nodeParams?: NodeParams }).nodeParams;
-      if (np) {
-        swapYZ(np.position);
-        swapYZ(np.rotation as { x: number; y: number; z: number } | undefined);
-      }
-      if ((node as { kind: string }).kind === 'group') {
-        const children = (node as { children?: ModelTreeJSON[] }).children;
-        if (children) for (const c of children) visit(c);
-      }
-    };
-
-    visit(rootJson);
-    root.coordsConvention = 'zup';
+    _migrateYupToZup(rootJson);
   }
 
   private cloneNodeParams(p: NodeParams): NodeParams {

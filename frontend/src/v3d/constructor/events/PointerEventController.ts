@@ -195,6 +195,7 @@ export interface PointerEventHost {
   clearCruiseGuides(): void;
   updateGizmoTarget(prevNodes?: ModelNode[]): void;
   rebuildSceneFromTree(): void;
+  applyMirror(node: ModelNode, axis: 'x' | 'y' | 'z'): void;
 }
 
 /**
@@ -267,10 +268,7 @@ export class PointerEventController {
         if (axis) {
           host.options.onBeforeDrag?.();
           const node = host.selectedNode;
-          node.params = node.params || {};
-          node.params.scale = node.params.scale || { x: 1, y: 1, z: 1 };
-          node.params.scale[axis] *= -1;
-          host.rebuildSceneFromTree();
+          host.applyMirror(node, axis);
           host.options.onNodeParamsChanged?.(node);
           host.options.onAfterDrag?.();
         }

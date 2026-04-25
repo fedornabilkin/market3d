@@ -436,6 +436,12 @@ import {
   SnapshotCommand,
 } from '@/v3d/constructor';
 import type { PrimitiveType } from '@/v3d/constructor';
+import {
+  loadFeatureDocument,
+  FeatureDocument,
+  featureDocumentToLegacy,
+} from '@/v3d/constructor/features';
+import type { FeatureDocumentJSON } from '@/v3d/constructor/features';
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader';
 import { dataURItoBlob } from '@/utils';
 import NodeTree from '@/components/constructor/NodeTree.vue';
@@ -485,7 +491,19 @@ onMounted(async () => {
 });
 
 const SCENE_COUNT = 3;
-const STORAGE_KEYS = Array.from({ length: SCENE_COUNT }, (_, i) => `constructor_scene_v1_${i}`);
+/**
+ * Cutover (Phase 1): v2 — канонический формат хранилища. Legacy v1-ключи
+ * остаются на чтение для пользователей с уже сохранёнными сценами
+ * (один цикл «помилования»: после первой мутации в v2 сцены данные
+ * полностью переезжают в v2-ключ, v1 становится stale, но это безопасно —
+ * мы его читаем только если v2 пуст).
+ */
+const PRIMARY_KEYS = Array.from({ length: SCENE_COUNT }, (_, i) => `constructor_scene_v2_${i}`);
+const LEGACY_FALLBACK_KEYS = Array.from({ length: SCENE_COUNT }, (_, i) => `constructor_scene_v1_${i}`);
+/** Backward-compat алиас для существующих use-сайтов; постепенно вытесняется. */
+const STORAGE_KEYS = LEGACY_FALLBACK_KEYS;
+/** @deprecated алиас перед удалением: PRIMARY_KEYS — это и есть бывший shadow. */
+const SHADOW_V2_KEYS = PRIMARY_KEYS;
 const RAD_TO_DEG = 180 / Math.PI;
 const DEG_TO_RAD = Math.PI / 180;
 
@@ -503,6 +521,43 @@ const treeVersion = ref(0);
 let sceneService: ConstructorSceneService | null = null;
 /** Snapshot taken at drag-start for undo/redo of drag operations. */
 let beforeDragJSON: any = null;
+
+/**
+ * Shadow FeatureDocument: строится параллельно legacy ModelNode-дереву на
+ * каждой загрузке сцены. Не используется для рендера (рендер по-прежнему через
+ * sceneService + ModelNode). Это валидация Phase 1: проверяем, что реальные
+ * сохранёнки пользователей мигрируют в FeatureDocumentJSON v2 без потерь и
+ * recompute не падает. Доступ для отладки: window.__featureDoc.
+ */
+let featureDoc: FeatureDocument | null = null;
+
+async function _buildShadowFeatureDocument(json: any, source: string): Promise<void> {
+  try {
+    const t0 = performance.now();
+    // loadFeatureDocument мутирует JSON (Y↔Z swap), но к этому моменту legacy
+    // путь уже сделал миграцию — и пометил coordsConvention='zup', так что
+    // повторный swap внутри loadFeatureDocument будет no-op.
+    featureDoc = await loadFeatureDocument(json);
+    const t1 = performance.now();
+    const failed = [...featureDoc.graph.values()].filter((f) => f.error);
+    const summary = {
+      source,
+      features: featureDoc.graph.size(),
+      roots: featureDoc.rootIds.length,
+      failed: failed.length,
+      ms: Math.round(t1 - t0),
+    };
+    if (failed.length > 0) {
+      console.warn('[FeatureDoc shadow] some features failed to evaluate', summary, failed.map((f) => ({ id: f.id, type: f.type, error: f.error })));
+    } else {
+      console.info('[FeatureDoc shadow] built ok', summary);
+    }
+    (window as unknown as { __featureDoc?: FeatureDocument }).__featureDoc = featureDoc;
+  } catch (e) {
+    console.warn('[FeatureDoc shadow] failed to build:', e);
+    featureDoc = null;
+  }
+}
 
 // ─── Computed ──────────────────────────────────────────────────────────────
 
@@ -928,12 +983,55 @@ function _flushSave() {
   try {
     const serializer = modelApp.value!.getSerializer();
     const root = modelApp.value!.getModelManager().getTree();
-    // toRootJSON помечает корень флагом coordsConvention='zup', чтобы при
-    // следующей загрузке Serializer.migrateLegacyYupToZupIfNeeded не делал
-    // миграцию повторно.
-    localStorage.setItem(STORAGE_KEYS[activeSceneIndex.value], JSON.stringify(serializer.toRootJSON(root)));
+    // toRootJSON синтезирует ModelTreeJSON с флагом coordsConvention='zup'.
+    // Используется как «промежуточный» формат для миграции в v2 (и как
+    // fallback на следующей загрузке, если v2-запись упадёт).
+    const legacyJson = serializer.toRootJSON(root);
+    void _writePrimaryV2(legacyJson, activeSceneIndex.value);
   } catch (e) {
     console.warn('[Constructor] Failed to save scene:', e);
+  }
+}
+
+/**
+ * Канонический путь записи (Phase 1 cutover): мутация → legacy JSON
+ * (промежуточный) → FeatureDocument → toJSON v2 → localStorage.
+ *
+ * Если запись v2 упадёт (баг в миграции или recompute) — пишем legacy v1
+ * как safety-net, чтобы не потерять работу пользователя.
+ *
+ * Side-effect: обновляет module-level featureDoc и window.__featureDoc,
+ * чтобы DevTools всегда видели актуальное состояние.
+ */
+async function _writePrimaryV2(legacyJson: any, sceneIndex: number): Promise<void> {
+  try {
+    const doc = await loadFeatureDocument(legacyJson);
+    featureDoc = doc;
+    (window as unknown as { __featureDoc?: FeatureDocument }).__featureDoc = doc;
+    const failed = [...doc.graph.values()].filter((f) => f.error);
+    if (failed.length > 0) {
+      console.warn('[FeatureDoc] save: failed features', failed.map((f) => ({ id: f.id, type: f.type, error: f.error })));
+      // Если recompute упал — legacy данные надёжнее. Пишем legacy fallback
+      // и не трогаем v2 (старый v2 если был — тоже остаётся, его читаем как
+      // fallback на следующей загрузке).
+      try {
+        localStorage.setItem(LEGACY_FALLBACK_KEYS[sceneIndex], JSON.stringify(legacyJson));
+      } catch (e2) {
+        console.warn('[Constructor] legacy safety-net write failed:', e2);
+      }
+      return;
+    }
+    const v2 = doc.toJSON();
+    localStorage.setItem(PRIMARY_KEYS[sceneIndex], JSON.stringify(v2));
+    // Чистим legacy-ключ, чтобы устаревшая копия не «тянулась» за v2.
+    localStorage.removeItem(LEGACY_FALLBACK_KEYS[sceneIndex]);
+  } catch (e) {
+    console.warn('[FeatureDoc] v2 write failed; writing legacy fallback:', e);
+    try {
+      localStorage.setItem(LEGACY_FALLBACK_KEYS[sceneIndex], JSON.stringify(legacyJson));
+    } catch (e2) {
+      console.warn('[Constructor] legacy safety-net write failed:', e2);
+    }
   }
 }
 
@@ -957,31 +1055,59 @@ function saveToLocalStorage() {
   _saveToLocalStorage();
 }
 
-function loadFromLocalStorage() {
+async function loadFromLocalStorage() {
   try {
-    const saved = localStorage.getItem(STORAGE_KEYS[activeSceneIndex.value]);
-    if (!saved) return;
-    const json = JSON.parse(saved);
+    // Cutover: v2 — основной источник. Legacy v1 — fallback для пользователей
+    // с историческими сохранёнками (или если v2-запись упала и safety-net
+    // записал legacy).
+    const v2Saved = localStorage.getItem(PRIMARY_KEYS[activeSceneIndex.value]);
+    let json: any | null = null;
+    let source: 'v2' | 'legacy' = 'v2';
+    if (v2Saved) {
+      try {
+        const v2: FeatureDocumentJSON = JSON.parse(v2Saved);
+        json = featureDocumentToLegacy(v2);
+      } catch (e) {
+        console.warn('[Constructor] v2 load failed, falling back to legacy:', e);
+        json = null;
+      }
+    }
+    if (!json) {
+      const saved = localStorage.getItem(LEGACY_FALLBACK_KEYS[activeSceneIndex.value]);
+      if (!saved) return;
+      json = JSON.parse(saved);
+      source = 'legacy';
+    }
     const serializer = modelApp.value!.getSerializer();
-    // Z-up: legacy сохранёнки в Y-up конвенции мигрируем единоразово,
-    // меняя местами Y↔Z в position и rotation. Помечаются coordsConvention='zup',
-    // чтобы повторная загрузка миграцию не повторяла.
     Serializer.migrateLegacyYupToZupIfNeeded(json);
+    await Serializer.preResolveBinaryRefs(json);
     const newRoot = serializer.fromJSON(json);
     modelApp.value!.getModelManager().setTree(newRoot);
     setSelection([]);
     treeVersion.value++;
     if (sceneService) sceneService.rebuildSceneFromTree();
+    _buildShadowFeatureDocument(json, source);
   } catch (e) {
     console.warn('[Constructor] Failed to load scene:', e);
   }
 }
 
-function saveSceneToFile() {
+async function saveSceneToFile() {
   try {
     const serializer = modelApp.value!.getSerializer();
     const root = modelApp.value!.getModelManager().getTree();
-    const json = JSON.stringify(serializer.toRootJSON(root), null, 2);
+    const legacyJson = serializer.toRootJSON(root);
+    // Cutover: экспорт в v2-формате. На случай ошибки миграции — fallback
+    // на legacy v1, чтобы пользователь не потерял экспорт.
+    let payload: any;
+    try {
+      const doc = await loadFeatureDocument(legacyJson);
+      payload = doc.toJSON();
+    } catch (e) {
+      console.warn('[Constructor] file export: v2 build failed, exporting legacy v1:', e);
+      payload = legacyJson;
+    }
+    const json = JSON.stringify(payload, null, 2);
     const blob = new Blob([json], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -1002,11 +1128,21 @@ function loadSceneFromFile() {
     const file = input.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = () => {
+    reader.onload = async () => {
       try {
-        const json = JSON.parse(reader.result as string);
+        const parsed = JSON.parse(reader.result as string);
+        // Cutover: импортируем оба формата. Если файл v2 — конвертируем
+        // в legacy ModelTreeJSON через обратный конвертер, дальше общий
+        // legacy-путь (рендер всё ещё через ModelNode).
+        let json: any;
+        if (parsed && typeof parsed === 'object' && parsed.version === 2) {
+          json = featureDocumentToLegacy(parsed as FeatureDocumentJSON);
+        } else {
+          json = parsed;
+        }
         const serializer = modelApp.value!.getSerializer();
         Serializer.migrateLegacyYupToZupIfNeeded(json);
+        await Serializer.preResolveBinaryRefs(json);
         const newRoot = serializer.fromJSON(json);
         withHistory(() => {
           modelApp.value!.getModelManager().setTree(newRoot);
@@ -1014,6 +1150,7 @@ function loadSceneFromFile() {
         setSelection([]);
         treeVersion.value++;
         if (sceneService) sceneService.rebuildSceneFromTree();
+        _buildShadowFeatureDocument(json, 'file');
       } catch (e) {
         console.warn('[Constructor] Failed to load scene from file:', e);
       }
@@ -1031,15 +1168,47 @@ function switchScene(index: number) {
   activeSceneIndex.value = index;
   // Reset history for the new scene
   modelApp.value!.getHistoryManager().clear();
-  // Load new scene (or create empty)
-  const saved = localStorage.getItem(STORAGE_KEYS[index]);
-  if (saved) {
+  // Load new scene (or create empty). v2 preferred, legacy v1 fallback.
+  let json: any | null = null;
+  let source: 'v2' | 'legacy' | null = null;
+  const v2Saved = localStorage.getItem(PRIMARY_KEYS[index]);
+  if (v2Saved) {
     try {
-      const json = JSON.parse(saved);
+      const v2: FeatureDocumentJSON = JSON.parse(v2Saved);
+      json = featureDocumentToLegacy(v2);
+      source = 'v2';
+    } catch (e) {
+      console.warn('[Constructor] v2 switch failed, falling back to legacy:', e);
+    }
+  }
+  if (!json) {
+    const saved = localStorage.getItem(LEGACY_FALLBACK_KEYS[index]);
+    if (saved) {
+      try {
+        json = JSON.parse(saved);
+        source = 'legacy';
+      } catch (e) {
+        console.warn('[Constructor] legacy load failed:', e);
+      }
+    }
+  }
+  if (json) {
+    try {
       const serializer = modelApp.value!.getSerializer();
       Serializer.migrateLegacyYupToZupIfNeeded(json);
-      const newRoot = serializer.fromJSON(json);
-      modelApp.value!.getModelManager().setTree(newRoot);
+      // Pre-resolve binaryRef'ов через IndexedDB. switchScene синхронный,
+      // поэтому fire-and-forget с последующим rebuildSceneFromTree.
+      Serializer.preResolveBinaryRefs(json).then(() => {
+        const newRoot = serializer.fromJSON(json);
+        modelApp.value!.getModelManager().setTree(newRoot);
+        if (sceneService) sceneService.rebuildSceneFromTree();
+        treeVersion.value++;
+        _buildShadowFeatureDocument(json, source ?? 'switchScene');
+      }).catch((e) => {
+        console.warn('[Constructor] preResolveBinaryRefs failed:', e);
+      });
+      // Сразу ставим пустую сцену пока IDB резолвится; новая заменит её.
+      modelApp.value!.getModelManager().setTree(new GroupNode());
     } catch (e) {
       console.warn('[Constructor] Failed to load scene:', e);
       modelApp.value!.getModelManager().setTree(new GroupNode());
@@ -1323,22 +1492,38 @@ function applyChamferToEdge(
     if (node instanceof GroupNode) {
       node.children.push(chamferGroup);
     } else {
-      // Primitive: wrap original + chamfer in a new group for CSG
+      // Primitive: wrap original + chamfer in a new group for CSG.
+      //
+      // Цель: после оборачивания мировая матрица примитива должна остаться
+      // ровно такой, как была без оборачивания. У не-обёрнутого примитива:
+      //   world = T(p.position.xy, p.position.z + halfH) ∘ R(p.rotation) ∘ S(p.scale) ∘ Geom
+      // (см. Primitive.applyParamsToMesh: +halfHeight добавляется к mesh.position
+      //  СНАРУЖИ rotation/scale.)
+      //
+      // Эквивалентная вложенная форма:
+      //   world = T(p.position.xy, p.position.z + halfH) ∘ R ∘ S ∘ T(0,0,0) ∘ Geom
+      // — так что обёртка берёт (p.position + halfHeight, R, S), а внутри
+      // примитив сидит так, чтобы applyParamsToMesh дал mesh.position=(0,0,0):
+      // primitive.params.position.z = -halfHeight, остальные трансформации
+      // обнуляются. Без этой компенсации повёрнутый/масштабированный примитив
+      // получает либо двойной scale/rotation (если их оставить на нём), либо
+      // вращение вокруг неправильного pivot'a (если обнулить params целиком).
       const idx = parent.children.indexOf(node);
       if (idx === -1) return;
+      const halfH = node.getHalfHeight();
+      const oldPos = node.params?.position ?? { x: 0, y: 0, z: 0 };
       const wrapper = new GroupNode();
       wrapper.operation = 'union';
       wrapper.name = node.name || 'Группа';
       wrapper.params = {
-        position: node.params?.position ? { ...node.params.position } : { x: 0, y: 0, z: 0 },
+        position: { x: oldPos.x, y: oldPos.y, z: (oldPos.z ?? 0) + halfH },
         scale: node.params?.scale ? { ...node.params.scale } : undefined,
         rotation: node.params?.rotation ? { ...node.params.rotation } : undefined,
         color: node.params?.color,
         isHole: node.params?.isHole,
       };
       node.params = {
-        ...node.params,
-        position: { x: 0, y: 0, z: 0 },
+        position: { x: 0, y: 0, z: -halfH },
       };
       wrapper.children.push(node, chamferGroup);
       parent.children[idx] = wrapper;
@@ -1368,11 +1553,11 @@ function buildLinearChamfer(
 ): GroupNode {
   const edgeLen = (edge.localStart as THREE.Vector3).distanceTo(edge.localEnd as THREE.Vector3);
   const lm = (edge.localMid as THREE.Vector3).clone();
-
-  if (node instanceof Primitive) {
-    // Z-up: getHalfHeight даёт половину Z-extent примитива.
-    lm.z += node.getHalfHeight();
-  }
+  // halfHeight-сдвиг здесь не нужен: при оборачивании примитива в wrapper его
+  // mesh.position устанавливается в (0,0,0) (через primitive.params.position.z
+  // = -halfHeight), и геометрия центрируется в wrapper-local. Геометрия-локальные
+  // координаты ребра уже корректны.
+  void node;
 
   // Z-up: длинная ось chamfer-local = Z. Поля perpDirX/perpDirZ были
   // откалиброваны под старую Y-up конвенцию (chamfer-Y = edge axis), где
@@ -1450,10 +1635,8 @@ function buildCircularChamfer(
   const fillet = Math.min(r, R * 0.99);
   const isTopRim = edge.isTopRim === true;
   const lm = (edge.localMid as THREE.Vector3).clone();
-  if (node instanceof Primitive) {
-    // Z-up: getHalfHeight даёт половину Z-extent примитива.
-    lm.z += node.getHalfHeight();
-  }
+  // halfHeight-сдвиг здесь не нужен: см. комментарий в buildLinearChamfer.
+  void node;
 
   const eps = 0.05;
   const chamferGroup = new GroupNode();
@@ -1945,13 +2128,13 @@ function triggerImportSTL() {
   stlFileInput.value?.click();
 }
 
-function handleImportSTL(event: Event) {
+async function handleImportSTL(event: Event) {
   const input = event.target as HTMLInputElement;
   const file = input.files?.[0];
   if (!file || !modelApp.value) return;
 
   const reader = new FileReader();
-  reader.onload = () => {
+  reader.onload = async () => {
     const buffer = reader.result as ArrayBuffer;
     const r = modelApp.value!.getModelManager().getTree();
     if (!(r instanceof GroupNode)) return;
@@ -1968,19 +2151,36 @@ function handleImportSTL(event: Event) {
     geometry.translate(-center.x, -center.y, -center.z);
     geometry.computeBoundingBox();
 
-    // Store as base64 for persistence
-    const bytes = new Uint8Array(buffer);
-    let binary = '';
-    for (let i = 0; i < bytes.length; i++) {
-      binary += String.fromCharCode(bytes[i]);
+    // Бинарник пишем в IndexedDB (асинхронно), чтобы не блокировать UI и
+    // не раздувать localStorage многомегабайтной base64-строкой. Узел
+    // хранит только лёгкий binaryRef (id в IDB).
+    let binaryRef: string | undefined;
+    try {
+      const { BinaryStorage } = await import('@/v3d/constructor/services/BinaryStorage');
+      binaryRef = BinaryStorage.newId();
+      await BinaryStorage.put(binaryRef, buffer);
+    } catch (e) {
+      console.warn('[Constructor] BinaryStorage.put failed, fallback to base64:', e);
+      binaryRef = undefined;
     }
-    const stlBase64 = btoa(binary);
+
+    // Fallback на base64, если IDB недоступен — узел всё равно создаётся.
+    let stlBase64 = '';
+    if (!binaryRef) {
+      const bytes = new Uint8Array(buffer);
+      let binary = '';
+      for (let i = 0; i < bytes.length; i++) {
+        binary += String.fromCharCode(bytes[i]);
+      }
+      stlBase64 = btoa(binary);
+    }
 
     const node = new ImportedMeshNode(
       geometry,
       stlBase64,
       file.name,
       { position: { x: 0, y: 0, z: 0 } },
+      binaryRef,
     );
 
     withHistory(() => {
@@ -2152,8 +2352,11 @@ onMounted(() => {
     localStorage.removeItem(oldKey);
   }
 
-  // Restore scene from localStorage (if any)
-  loadFromLocalStorage();
+  // Restore scene from localStorage (если есть). Async — внутри pre-resolve
+  // binaryRef'ов из IndexedDB. Не ждём — onMounted остаётся синхронным.
+  loadFromLocalStorage().catch((e) => {
+    console.warn('[Constructor] initial load failed:', e);
+  });
 
   window.addEventListener('keydown', handleKeydown);
   window.addEventListener('beforeunload', _flushPendingSave);

@@ -29,12 +29,16 @@ function createMaterial(color?: string, isHole?: boolean): THREE.MeshPhongMateri
  */
 export class ImportedMeshNode extends ModelNode {
   private readonly entity: ImportedMeshEntity;
+  /** Ключ в BinaryStorage (IndexedDB). Если задан — сериализатор пишет
+   *  binaryRef вместо base64. Заполняется при импорте через handleImportSTL. */
+  binaryRef?: string;
 
   constructor(
     geometry: THREE.BufferGeometry,
     stlBase64: string,
     filename: string,
     nodeParams?: NodeParams,
+    binaryRef?: string,
   ) {
     super();
     this.entity = new ImportedMeshBuilder()
@@ -44,9 +48,10 @@ export class ImportedMeshNode extends ModelNode {
       .build();
     this.name = filename.replace(/\.stl$/i, '');
     if (nodeParams) this.params = nodeParams;
+    if (binaryRef) this.binaryRef = binaryRef;
   }
 
-  /** Base64 исходного STL. Сохраняем публичным для совместимости с сериализатором. */
+  /** Base64 исходного STL — пусто для новых нод, использующих binaryRef. */
   get stlBase64(): string {
     return this.entity.getStlBase64();
   }
@@ -74,6 +79,7 @@ export class ImportedMeshNode extends ModelNode {
             color: this.params.color,
           }
         : undefined,
+      this.binaryRef,
     );
     cloned.name = this.name;
     return cloned;
@@ -119,9 +125,11 @@ export class ImportedMeshNode extends ModelNode {
   getMemento(): ModelMemento {
     const treeState: ImportedMeshNodeJSON = {
       kind: 'imported',
-      stlBase64: this.entity.getStlBase64(),
+      // Если есть binaryRef — base64 не пишем (бинарник в IndexedDB).
+      stlBase64: this.binaryRef ? '' : this.entity.getStlBase64(),
       filename: this.entity.getFilename(),
     };
+    if (this.binaryRef) treeState.binaryRef = this.binaryRef;
     if (this.name) treeState.name = this.name;
     if (this.params && Object.keys(this.params).length > 0) {
       treeState.nodeParams = {

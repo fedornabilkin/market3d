@@ -296,27 +296,28 @@ describe('bakeRotation', () => {
     expect(r.transform.rotation).toEqual({ x: 0, y: 0, z: 0 });
   });
 
-  it('90° around Y: width↔depth swap', () => {
-    // Local X → world -Z, local Z → world X
+  it('90° around Y: width↔height swap (Z-up)', () => {
+    // Z-up: dims = [W, D, H] → axes [X, Y, Z]. 90° Y maps X→-Z, Z→X, Y unchanged.
+    // Так что user-facing width (X) и height (Z) меняются местами; depth (Y) остаётся.
     const geom: GeometryParams = { width: 4, height: 2, depth: 1 };
     const t = makeTransform({ x: 0, y: HALF_PI, z: 0 });
     const r = bakeRotation('box', geom, t);
     expect(r.baked).toBe(true);
-    expect(r.geom.width).toBeCloseTo(1);   // was depth
-    expect(r.geom.height).toBeCloseTo(2);  // unchanged
-    expect(r.geom.depth).toBeCloseTo(4);   // was width
+    expect(r.geom.width).toBeCloseTo(2);   // was height
+    expect(r.geom.depth).toBeCloseTo(1);   // unchanged
+    expect(r.geom.height).toBeCloseTo(4);  // was width
     expect(r.transform.rotation).toEqual({ x: 0, y: 0, z: 0 });
   });
 
-  it('90° around Z: width↔height swap', () => {
-    // Local X → world Y, local Y → world -X
+  it('90° around Z: width↔depth swap (Z-up yaw)', () => {
+    // Z-up: 90° Z — yaw в горизонтальной XY-плоскости. X→Y, Y→-X. Height (Z) не меняется.
     const geom: GeometryParams = { width: 3, height: 7, depth: 2 };
     const t = makeTransform({ x: 0, y: 0, z: HALF_PI });
     const r = bakeRotation('box', geom, t);
     expect(r.baked).toBe(true);
-    expect(r.geom.width).toBeCloseTo(7);   // was height
-    expect(r.geom.height).toBeCloseTo(3);  // was width
-    expect(r.geom.depth).toBeCloseTo(2);   // unchanged
+    expect(r.geom.width).toBeCloseTo(2);   // was depth
+    expect(r.geom.depth).toBeCloseTo(3);   // was width
+    expect(r.geom.height).toBeCloseTo(7);  // unchanged
     expect(r.transform.rotation).toEqual({ x: 0, y: 0, z: 0 });
   });
 
@@ -367,39 +368,39 @@ describe('bakeRotation', () => {
     expect(r.transform.scale.z).toBeCloseTo(2);  // was y
   });
 
-  it('position.y adjusted for halfHeight change', () => {
-    // Box: width=1, height=6, depth=2, position.y=0, scale=(1,1,1)
-    // 90° X: height→depth, depth→height → new height=2
-    // oldHalfH = 6/2 = 3, newHalfH = 2/2 = 1
-    // newPos.y = 0 + 3*1 - 1*1 = 2
+  it('position.z adjusted for halfHeight change (Z-up)', () => {
+    // Z-up: Box {W=1, H=6, D=2}, pos=(5,3,0), scale=(1,1,1).
+    // 90° X в Z-up: dims [W, D, H] = [1, 2, 6]. R_x: Y→Z, Z→-Y.
+    // newDims[0]=1 (W), newDims[2]=2 (Y→Z, было depth=2), newDims[1]=6 (Z→-Y, было height=6).
+    // → geom.width=1, geom.depth=6, geom.height=2.
+    // oldHalfH = 6/2 = 3, newHalfH = 2/2 = 1, scale.z=1 → newScale.z=1.
+    // newPos.z = 0 + 3*1 - 1*1 = 2.
     const geom: GeometryParams = { width: 1, height: 6, depth: 2 };
     const t = makeTransform(
       { x: HALF_PI, y: 0, z: 0 },
-      { x: 5, y: 0, z: 3 },
+      { x: 5, y: 3, z: 0 },
     );
     const r = bakeRotation('box', geom, t);
     expect(r.baked).toBe(true);
-    expect(r.transform.position.y).toBeCloseTo(2);
-    // X and Z unchanged
+    expect(r.transform.position.z).toBeCloseTo(2);
+    // X and Y unchanged
     expect(r.transform.position.x).toBeCloseTo(5);
-    expect(r.transform.position.z).toBeCloseTo(3);
+    expect(r.transform.position.y).toBeCloseTo(3);
   });
 
-  it('position.y with scale: accounts for scaled halfHeight', () => {
-    // height=4, scale.y=2 → visual halfH = 4/2 * 2 = 4
-    // 90° X: new height = depth = 1, new scale.y = old scale.z = 1
-    // newHalfH = 1/2 = 0.5, new visual halfH = 0.5 * 1 = 0.5
-    // pos.y = 0 + 4*2 - 0.5*1 = 7.5 (but formula uses geom halfH * scale)
-    // Actually: pos.y = 0 + (4/2)*2 - (1/2)*1 = 0 + 4 - 0.5 = 3.5
+  it('position.z with scale: accounts for scaled halfHeight (Z-up)', () => {
+    // Z-up: Box {W=1, H=4, D=1}, scale.z=2 (вертикальный масштаб).
+    // 90° X: scale.y↔scale.z. newScale.z = old scale.y = 1.
+    // oldHalfH=2, newHalfH=0.5. pos.z = 0 + 2*2 - 0.5*1 = 3.5.
     const geom: GeometryParams = { width: 1, height: 4, depth: 1 };
     const t = makeTransform(
       { x: HALF_PI, y: 0, z: 0 },
       { x: 0, y: 0, z: 0 },
-      { x: 1, y: 2, z: 1 },
+      { x: 1, y: 1, z: 2 },
     );
     const r = bakeRotation('box', geom, t);
     expect(r.baked).toBe(true);
-    expect(r.transform.position.y).toBeCloseTo(3.5);
+    expect(r.transform.position.z).toBeCloseTo(3.5);
   });
 
   it('compound rotation: 90° X then 90° Y', () => {
@@ -453,11 +454,9 @@ describe('edge handle modification rules', () => {
 
 // ─── Combined rotation+modification scenario ─────────────────────────
 
-describe('rotation bake preserves visual center', () => {
-  it('tall box rotated 90° X: visual center Y stays the same', () => {
-    // Box: w=1, h=6, d=1, posY=0, scale=1
-    // Before bake: Three.js center Y = posY + halfH = 0 + 3 = 3
-    // After 90° X bake: new h=1, posY should make center = posY + 0.5 = 3 → posY = 2.5
+describe('rotation bake preserves visual center (Z-up)', () => {
+  it('tall box rotated 90° X: visual center Z stays the same', () => {
+    // Z-up: Box {W=1, H=6, D=1}, pos.z=0, scale=1. Center Z = 0 + 3 = 3.
     const geom: GeometryParams = { width: 1, height: 6, depth: 1 };
     const t: NodeTransform = {
       position: { x: 0, y: 0, z: 0 },
@@ -465,42 +464,43 @@ describe('rotation bake preserves visual center', () => {
       rotation: { x: HALF_PI, y: 0, z: 0 },
     };
 
-    const oldCenterY = t.position.y + (geom.height! / 2) * t.scale.y;
+    const oldCenterZ = t.position.z + (geom.height! / 2) * t.scale.z;
 
     const r = bakeRotation('box', geom, t);
-    const newCenterY = r.transform.position.y + (r.geom.height! / 2) * r.transform.scale.y;
+    const newCenterZ = r.transform.position.z + (r.geom.height! / 2) * r.transform.scale.z;
 
-    expect(newCenterY).toBeCloseTo(oldCenterY);
+    expect(newCenterZ).toBeCloseTo(oldCenterZ);
   });
 
-  it('asymmetric box rotated 90° Z: center Y preserved', () => {
+  it('asymmetric box rotated 90° Z (yaw): center Z preserved', () => {
+    // Z-up: 90° Z — yaw, height (Z) не меняется.
     const geom: GeometryParams = { width: 2, height: 8, depth: 3 };
     const t: NodeTransform = {
-      position: { x: 1, y: 0.5, z: 2 },
+      position: { x: 1, y: 2, z: 0.5 },
       scale: { x: 1, y: 1, z: 1 },
       rotation: { x: 0, y: 0, z: HALF_PI },
     };
 
-    const oldCenterY = t.position.y + (geom.height! / 2) * t.scale.y;
+    const oldCenterZ = t.position.z + (geom.height! / 2) * t.scale.z;
     const r = bakeRotation('box', geom, t);
-    const newCenterY = r.transform.position.y + (r.geom.height! / 2) * r.transform.scale.y;
+    const newCenterZ = r.transform.position.z + (r.geom.height! / 2) * r.transform.scale.z;
 
-    expect(newCenterY).toBeCloseTo(oldCenterY);
+    expect(newCenterZ).toBeCloseTo(oldCenterZ);
   });
 
-  it('scaled box rotated 90° X: center Y preserved', () => {
+  it('scaled box rotated 90° X: center Z preserved', () => {
     const geom: GeometryParams = { width: 1, height: 4, depth: 2 };
     const t: NodeTransform = {
-      position: { x: 0, y: 1, z: 0 },
-      scale: { x: 1, y: 3, z: 0.5 },
+      position: { x: 0, y: 0, z: 1 },
+      scale: { x: 1, y: 0.5, z: 3 },
       rotation: { x: HALF_PI, y: 0, z: 0 },
     };
 
-    const oldCenterY = t.position.y + (geom.height! / 2) * t.scale.y;
+    const oldCenterZ = t.position.z + (geom.height! / 2) * t.scale.z;
     const r = bakeRotation('box', geom, t);
-    const newCenterY = r.transform.position.y + (r.geom.height! / 2) * r.transform.scale.y;
+    const newCenterZ = r.transform.position.z + (r.geom.height! / 2) * r.transform.scale.z;
 
-    expect(newCenterY).toBeCloseTo(oldCenterY);
+    expect(newCenterZ).toBeCloseTo(oldCenterZ);
   });
 });
 

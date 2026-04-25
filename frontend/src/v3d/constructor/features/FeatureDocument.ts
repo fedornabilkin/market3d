@@ -122,24 +122,36 @@ export class FeatureDocument {
   }
 
   static fromJSON(json: FeatureDocumentJSON, registry?: FeatureRegistry): FeatureDocument {
+    const doc = new FeatureDocument(registry);
+    doc.loadFromJSON(json);
+    return doc;
+  }
+
+  /**
+   * In-place восстановление документа из JSON: чистит граф, добавляет фичи
+   * в топологическом порядке, пересчитывает всё, эмитит recompute-done.
+   * Подписки сохраняются — это и нужно для undo/redo через SnapshotCommand.
+   */
+  loadFromJSON(json: FeatureDocumentJSON): void {
     if (json.version !== 2) {
       throw new Error(`[FeatureDocument] неподдерживаемая версия: ${json.version}`);
     }
-    const doc = new FeatureDocument(registry);
+    this.graph.clear();
+    this.rootIds = [];
 
-    // Сортируем feature-list по топологической зависимости, чтобы при
-    // graph.add() все inputs уже были добавлены.
     const sorted = sortByInputs(json.features);
     for (const fjson of sorted) {
-      const feature = doc.registry.create(fjson);
-      doc.graph.add(feature);
+      const feature = this.registry.create(fjson);
+      this.graph.add(feature);
     }
 
-    doc.rootIds = [...json.rootIds];
-    if (json.metadata) doc.metadata = { ...json.metadata };
-    doc.graph.recomputeAll();
-    doc.emit({ type: 'recompute-done', featureIds: [...doc.graph.values()].map((f) => f.id) });
-    return doc;
+    this.rootIds = [...json.rootIds];
+    this.metadata = json.metadata ? { ...json.metadata } : {};
+    this.graph.recomputeAll();
+    this.emit({
+      type: 'recompute-done',
+      featureIds: [...this.graph.values()].map((f) => f.id),
+    });
   }
 }
 

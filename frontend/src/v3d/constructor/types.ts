@@ -84,10 +84,23 @@ export interface GroupNodeJSON {
   name?: string;
 }
 
-/** JSON structure for a serialized imported mesh node. */
+/** JSON structure for a serialized imported mesh node.
+ *
+ *  Один из вариантов хранения бинарника:
+ *   - `binaryRef` — ключ в IndexedDB (BinaryStorage). Предпочтительный путь
+ *     для свежих импортов: localStorage хранит только лёгкий ref, не блокируется.
+ *   - `stlBase64` — legacy-вариант (старые сохранёнки до перехода на IndexedDB).
+ *
+ *  При загрузке: если задан binaryRef, бинарник лениво подтягивается из IDB.
+ *  Если только base64 — парсится напрямую и при следующем сохранении мигрирует
+ *  в IndexedDB (запишется binaryRef, base64 удалится).
+ */
 export interface ImportedMeshNodeJSON {
   kind: 'imported';
+  /** Base64 STL — legacy. В новых сохранёнках пусто, заменено на binaryRef. */
   stlBase64: string;
+  /** Ключ в BinaryStorage (IndexedDB). Опционально — для новых сохранёнок. */
+  binaryRef?: string;
   filename: string;
   nodeParams?: NodeParams;
   name?: string;

@@ -47,3 +47,21 @@ export { GroupFeature, type GroupFeatureParams } from './composite/GroupFeature'
 
 // CSG утилита (для legacy GroupNode и расширений)
 export { booleanCsg, type BooleanInput } from './csg/booleanCsg';
+
+// Рендер-слой: связь FeatureDocument ↔ three.js сцена
+export { FeatureRenderer } from './rendering/FeatureRenderer';
+
+// Undo/redo поверх FeatureDocument
+export {
+  FeatureSnapshotCommand,
+  captureSnapshot,
+} from './commands/FeatureSnapshotCommand';
+
+// Миграция legacy ModelTreeJSON v1 → FeatureDocumentJSON v2
+export { migrateLegacyTreeToDocument } from './migration/migrateLegacyTree';
+
+// Обратная конвертация v2 → v1 (для cutover-стадии: рендер пока через legacy)
+export { featureDocumentToLegacy } from './migration/featureDocumentToLegacy';
+
+// Универсальный загрузчик: legacy v1 / новый v2 → FeatureDocument
+export { loadFeatureDocument } from './loader/loadFeatureDocument';

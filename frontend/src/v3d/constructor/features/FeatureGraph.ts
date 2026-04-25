@@ -31,6 +31,13 @@ export class FeatureGraph {
     this.indexInputs(feature);
   }
 
+  /** Удалить ВСЕ фичи и кэши. Используется для in-place restore из JSON. */
+  clear(): void {
+    this.features.clear();
+    this.dependentsIndex.clear();
+    this.cachedOutputs.clear();
+  }
+
   remove(id: FeatureId): void {
     const f = this.features.get(id);
     if (!f) return;

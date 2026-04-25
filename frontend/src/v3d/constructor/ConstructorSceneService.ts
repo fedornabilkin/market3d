@@ -289,6 +289,63 @@ export class ConstructorSceneService {
     return this.findObjectByNode(this.modelRootGroup, node);
   }
 
+  /**
+   * Зеркалит ноду по оси axis (флип scale[axis] *= -1) и компенсирует
+   * сдвиг визуального центра: после флипа объект может «уехать» от того
+   * места, где стоял — например, у группы, чей origin не совпадает с
+   * центром визуального bbox'а, отражение происходит вокруг origin'а, и
+   * визуальный bbox смещается. Алгоритм: считаем мировой центр AABB до и
+   * после флипа, добавляем разницу к params.position в системе координат
+   * родителя (только rotation-часть инверсной матрицы родителя — translation
+   * не нужен, мы переносим вектор-разницу, а не точку).
+   */
+  applyMirror(node: ModelNode, axis: 'x' | 'y' | 'z'): void {
+    if (!this.modelRootGroup) return;
+
+    const objBefore = this.findObject3DByNode(node);
+    if (!objBefore) return;
+    objBefore.updateMatrixWorld(true);
+    const centerBefore = new THREE.Box3().setFromObject(objBefore).getCenter(new THREE.Vector3());
+
+    node.params = node.params || {};
+    node.params.scale = node.params.scale || { x: 1, y: 1, z: 1 };
+    node.params.scale[axis] *= -1;
+
+    this.rebuildSceneFromTree();
+
+    const objAfter = this.findObject3DByNode(node);
+    if (!objAfter) return;
+    objAfter.updateMatrixWorld(true);
+    const centerAfter = new THREE.Box3().setFromObject(objAfter).getCenter(new THREE.Vector3());
+
+    const delta = centerBefore.clone().sub(centerAfter);
+    if (delta.lengthSq() < 1e-10) return;
+
+    // Переносим world-space delta в parent-local. Для вектора-разницы
+    // нужна только rotation+scale-часть инверсной матрицы родителя
+    // (translation вектор не сдвигает).
+    const parent = objAfter.parent ?? this.modelRootGroup;
+    const parentInv = new THREE.Matrix4().copy(parent.matrixWorld).invert();
+    const parentRotScale = new THREE.Matrix4().extractRotation(parentInv);
+    // extractRotation отбрасывает scale; включаем его обратно через ручное
+    // преобразование: разлагаем parent.matrixWorld → берём scale, делим
+    // delta на parent-scale покомпонентно. Но проще: берём parentInv, обнуляем
+    // translation-часть и применяем к delta.
+    const m = parentInv.clone();
+    m.elements[12] = 0;
+    m.elements[13] = 0;
+    m.elements[14] = 0;
+    delta.applyMatrix4(m);
+    void parentRotScale;
+
+    node.params.position = node.params.position || { x: 0, y: 0, z: 0 };
+    node.params.position.x += delta.x;
+    node.params.position.y += delta.y;
+    node.params.position.z += delta.z;
+
+    this.rebuildSceneFromTree();
+  }
+
   setGridVisible(visible: boolean): void {
     this.gridMode.setVisible(visible);
   }
