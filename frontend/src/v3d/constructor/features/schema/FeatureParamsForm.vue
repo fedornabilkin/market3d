@@ -42,29 +42,39 @@ function setField(name: string, raw: unknown, kind: FieldSchema['kind']): void {
 
 function setVecComponent(
   vecName: 'position' | 'rotation' | 'scale',
-  index: 0 | 1 | 2,
+  index: number,
   raw: unknown,
 ): void {
   const tp = params.value as Partial<TransformFeatureParams>;
   const current = tp[vecName] ?? [0, 0, 0];
   const next: [number, number, number] = [current[0], current[1], current[2]];
   const num = raw === '' || raw === null || raw === undefined ? 0 : Number(raw);
-  next[index] = Number.isNaN(num) ? 0 : num;
+  const i = (index | 0) as 0 | 1 | 2;
+  next[i] = Number.isNaN(num) ? 0 : num;
   emit('update:params', { [vecName]: next });
 }
 
 function vecValue(
   vecName: 'position' | 'rotation' | 'scale',
-  index: 0 | 1 | 2,
+  index: number,
 ): number {
   const tp = params.value as Partial<TransformFeatureParams>;
   const v = tp[vecName];
   if (!v) return vecName === 'scale' ? 1 : 0;
-  return v[index] ?? 0;
+  const i = (index | 0) as 0 | 1 | 2;
+  return v[i] ?? 0;
 }
 
 function fieldEntries() {
   return Object.entries(schema.value) as [string, FieldSchema][];
+}
+
+const vecNames = ['position', 'rotation', 'scale'] as const;
+
+function vecLabel(name: 'position' | 'rotation' | 'scale'): string {
+  if (name === 'position') return 'Позиция';
+  if (name === 'rotation') return 'Поворот';
+  return 'Масштаб';
 }
 </script>
 
@@ -77,12 +87,12 @@ function fieldEntries() {
         type="text"
         :value="feature.name ?? ''"
         :placeholder="feature.type"
-        @change="emit('update:name', ($event.target as HTMLInputElement).value || undefined)"
+        @change="emit('update:name', $event.target.value || undefined)"
       )
 
   template(v-if="isTransform")
-    .feature-params-form__vec(v-for="vecName in ['position', 'rotation', 'scale'] as const" :key="vecName")
-      label.label.is-small {{ vecName === 'position' ? 'Позиция' : vecName === 'rotation' ? 'Поворот' : 'Масштаб' }}
+    .feature-params-form__vec(v-for="vecName in vecNames" :key="vecName")
+      label.label.is-small {{ vecLabel(vecName) }}
       .columns.is-mobile.is-gapless
         .column(v-for="i in [0, 1, 2]" :key="i")
           .field.has-addons
@@ -92,8 +102,8 @@ function fieldEntries() {
               input.input.is-small(
                 type="number"
                 step="0.5"
-                :value="vecValue(vecName, i as 0 | 1 | 2)"
-                @change="setVecComponent(vecName, i as 0 | 1 | 2, ($event.target as HTMLInputElement).value)"
+                :value="vecValue(vecName, i)"
+                @change="setVecComponent(vecName, i, $event.target.value)"
               )
 
   .feature-params-form__field(
@@ -110,20 +120,20 @@ function fieldEntries() {
               type="number"
               :min="field.min"
               :max="field.max"
-              :step="field.kind === 'integer' ? 1 : (field as any).step ?? 0.1"
+              :step="field.kind === 'integer' ? 1 : (field.step ?? 0.1)"
               :value="params[name] ?? ''"
               :placeholder="field.optional ? 'auto' : ''"
-              @change="setField(name, ($event.target as HTMLInputElement).value, field.kind)"
+              @change="setField(name, $event.target.value, field.kind)"
             )
-          p.control(v-if="field.kind === 'number' && (field as any).unit")
-            a.button.is-static.is-small {{ (field as any).unit }}
+          p.control(v-if="field.kind === 'number' && field.unit")
+            a.button.is-static.is-small {{ field.unit }}
 
       .control(v-else-if="field.kind === 'boolean'")
         label.checkbox.is-small
           input(
             type="checkbox"
             :checked="!!params[name]"
-            @change="setField(name, ($event.target as HTMLInputElement).checked, 'boolean')"
+            @change="setField(name, $event.target.checked, 'boolean')"
           )
           | &nbsp;{{ field.label }}
 
@@ -132,8 +142,8 @@ function fieldEntries() {
           .control
             input(
               type="color"
-              :value="(params[name] as string) || '#cccccc'"
-              @change="setField(name, ($event.target as HTMLInputElement).value, 'color')"
+              :value="params[name] || '#cccccc'"
+              @change="setField(name, $event.target.value, 'color')"
             )
           .control(v-if="field.optional && params[name]")
             button.button.is-small(
@@ -146,7 +156,7 @@ function fieldEntries() {
         .select.is-small.is-fullwidth
           select(
             :value="params[name] ?? ''"
-            @change="setField(name, ($event.target as HTMLSelectElement).value, 'select')"
+            @change="setField(name, $event.target.value, 'select')"
           )
             option(
               v-for="opt in field.options"

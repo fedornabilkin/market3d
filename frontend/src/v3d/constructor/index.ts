@@ -5,7 +5,6 @@
 export { ModelApp } from './ModelApp';
 export { ModelManager } from './ModelManager';
 export { HistoryManager } from './HistoryManager';
-export { Renderer } from './Renderer';
 export { Serializer } from './Serializer';
 
 export { ModelNode } from './nodes/ModelNode';
@@ -14,13 +13,14 @@ export { GroupNode } from './nodes/GroupNode';
 export { ImportedMeshNode } from './nodes/ImportedMeshNode';
 
 export { Command } from './commands/Command';
-export { CSGOperation } from './commands/CSGOperation';
-export { SnapshotCommand } from './commands/SnapshotCommand';
+// CSGOperation удалён (был stub без реализации).
+// SnapshotCommand (legacy ModelTreeJSON) удалён: заменён FeatureSnapshotCommand
+// из features/commands/. См. plan/cad/phase-1-feature-tree.md.
 
 export { ModelMemento } from './memento/ModelMemento';
 export { ModificationGizmo } from './modes/ModificationGizmo';
 export { ConstructorSceneService } from './ConstructorSceneService';
-export { GridService } from './services/GridService';
+// GridService — внутренняя деталь GridMode, наружу не экспортируется.
 
 export type {
   CSGType,

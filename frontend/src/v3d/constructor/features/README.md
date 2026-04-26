@@ -114,7 +114,110 @@ npx vitest run src/v3d/constructor/features
 1. **Тип в `types.ts`** — добавить тег в `FeatureType` union.
 2. **Класс фичи** в `primitives/` или `composite/` — extends `LeafFeature` или `CompositeFeature`, реализует `accept(v)` через `v.visitNewType(this)`.
 3. **Метод в `FeatureVisitor`** — добавить `visitNewType(f: NewFeature): R { return this.visitFeature(f); }`.
-4. **Эвалюация в `EvaluateVisitor`** — переопределить `visitNewType`.
+4. **Эвалюация в `EvaluateVisitor`** — переопределить `visitNewType`. Для leaf-фичи использовать `primitiveLeaf(geometry, halfHeight, color, name)` — он выставит `bottomAnchorOffsetZ`, чтобы рендер положил низ примитива на сетку.
 5. **Валидация в `ValidateVisitor`** (если нужно) — переопределить `visitNewType`.
 6. **Реестр в `FeatureRegistry.createDefaultRegistry()`** — `register('new-type', json => new NewFeature(...))`.
-7. **Тест** — добавить покрытие в `FeatureGraph.test.ts` или отдельный файл.
+7. **Schema в `schema/paramsSchema.ts`** — описать поля параметров (`number`/`integer`/`boolean`/`color`/`select`). `FeatureParamsForm.vue` автоматически отрисует форму.
+8. **Bridge в `bridge/applyFeaturePatchToNode.ts`** (если есть legacy ModelNode-аналог) — добавить тип в `isLeafPrimitiveType` или новую ветку. Без legacy-аналога bridge просто проигнорирует с warn.
+9. **Migrator в `migration/migrateLegacyTree.ts` + reverse** — если фича есть в legacy v1-сохранёнках, добавить ветку миграции и обратной конвертации.
+10. **Бейдж в `FeatureTree.vue`** — добавить символ в `TYPE_BADGE` для отображения в feature-tree панели.
+11. **Тест** — добавить покрытие в `FeatureGraph.test.ts` или отдельный файл.
+
+## Шаги пути за пределами 1.1–1.4
+
+После фундамента (Composite + Visitor + Graph + Registry) реализованы:
+
+### 1.5 Рендер-слой — `rendering/FeatureRenderer.ts`
+
+`FeatureRenderer` подписывается на `recompute-done` и проектирует
+`FeatureOutput`-ы в three.js-сцену:
+- `LeafOutput → THREE.Mesh` с user-transform'ом (decompose из `output.transform`)
+  + сдвиг `mesh.position.z += bottomAnchorOffsetZ` (legacy-конвенция «низ на сетке»).
+- `CompositeOutput → THREE.Group` с рекурсивно построенными детьми.
+- Edge-lines per-mesh (`addEdgeLines`).
+- `selectAsUnit` маркер на не-root композитах для PointerEventController
+  (клик по ребёнку выделяет всю группу, как у legacy union-merged).
+- Hole-style propagation (`applyHoleStyle` zebra-материал).
+- Color-propagation от родителя к детям без своего цвета.
+
+В `Constructor.vue → ConstructorSceneService.rebuildSceneFromTree` интегрировано
+через мост ModelNode ↔ Feature: на каждом rebuild ModelTree migrate'ится в
+v2 (с trace), документ перестраивается, FeatureRenderer'у даётся новая
+ссылка. После рендера на меши протягиваются `userData.node` для совместимости
+с PointerEventController/legacy-handlers.
+
+### 1.6 Migration v1 ↔ v2 — `migration/`
+
+`migrateLegacyTreeToDocument(rootJson, trace?)` — legacy `ModelTreeJSON`
+(version 1) → `FeatureDocumentJSON` (version 2). Стратегия:
+- Primitive → `<Type>Feature` + при наличии `nodeParams` оборачивается в `TransformFeature`.
+- GroupNode с `union` без hole-детей → `GroupFeature` (logical container).
+- GroupNode с `subtract`/`intersect`/`union с holes` → `BooleanFeature` (CSG).
+- Корневая группа НИКОГДА не оборачивается в Transform (root.nodeParams игнорируются).
+- Опциональный параметр `trace: Map<FeatureId, ModelTreeJSON>` — для UI-bridge'ей.
+
+`featureDocumentToLegacy(docJson)` — обратный конвертер для cutover-стадии.
+Round-trip identity для документов, происходящих из legacy migration.
+
+### 1.7 UI: schema-форма + Feature Tree
+
+`schema/paramsSchema.ts` описывает поля для всех 13 типов фич:
+```ts
+type FieldSchema =
+  | { kind: 'number'; min?, max?, step?, unit?; optional? }
+  | { kind: 'integer'; min?, max?; optional? }
+  | { kind: 'boolean' }
+  | { kind: 'color'; optional? }
+  | { kind: 'select'; options: { value, label }[] };
+```
+
+`schema/FeatureParamsForm.vue` рендерит форму по schema + специальные
+3-векторные виджеты для `TransformFeature.position/rotation/scale`. Эмитит
+`update:params` (patch) и `update:name`.
+
+`components/constructor/FeatureTree.vue` + `FeatureTreeNode.vue` — read-only
+панель отображения графа, аналог legacy `NodeTree.vue`.
+
+### 1.8 Undo/redo — `commands/FeatureSnapshotCommand.ts`
+
+`captureSnapshot(doc, mutate)` оборачивает мутацию: capture before, run, capture
+after, return `FeatureSnapshotCommand`. На undo/redo вызывает
+`doc.loadFromJSON(...)` — in-place restore с подписками.
+
+В Constructor.vue пока используется legacy `SnapshotCommand` (на
+`ModelTreeJSON`); подключение `FeatureSnapshotCommand` отложено до полного
+flip'а source-of-truth.
+
+### 1.9 IndexedDB — `services/BinaryStorage.ts`
+
+STL-бинарники хранятся в IDB по ключу `binaryRef`. `ImportedMeshFeature.params`
+содержит `binaryRef` (опционально + legacy `stlBase64`/`geometry`).
+`loadFeatureDocument` lazy-резолвит binaryRef → BufferGeometry.
+
+### Bridge — `bridge/applyFeaturePatchToNode.ts`
+
+Транзитный модуль на время cutover'а: маппит patch от `FeatureParamsForm` обратно
+в legacy ModelNode-мутации. Используется duck-typing вместо `instanceof`,
+чтобы не тянуть `nodes/GroupNode → three-bvh-csg` (circular CJS) в unit-тесты.
+Полностью покрыт тестами (`applyFeaturePatchToNode.test.ts`).
+
+### Universal loader — `loader/loadFeatureDocument.ts`
+
+`loadFeatureDocument(json)` принимает legacy v1 или v2 JSON, делает миграцию
+если нужно, резолвит imported-binaryRef'ы из IDB, возвращает
+готовый `FeatureDocument`. Используется в Constructor.vue в save/load
+flow и shadow-валидации.
+
+## Текущий source-of-truth (Phase 1)
+
+ModelNode-tree остаётся primary, FeatureDocument перестраивается из него на
+каждом `rebuildSceneFromTree`. UI-формы мутируют ModelNode (через bridge для
+schema-формы или напрямую для legacy-формы). Полный flip на FeatureDocument
+как primary — отдельный шаг Phase 2 (потребует переписывания режимов:
+chamfer, mirror, alignment, generator).
+
+Cutover'ные шаги уже сделаны на стороне хранения и рендера:
+- Save/load: v2 — канонический формат (`constructor_scene_v2_*` в localStorage),
+  v1 — read-only fallback.
+- Render: через `FeatureRenderer` + `EvaluateVisitor` (CSG через `booleanCsg`).
+- Selection: bidirectional `featureId ↔ ModelNode` карты на ConstructorSceneService.

@@ -385,6 +385,16 @@ export class ModificationGizmo {
 
   setTarget(object3D: THREE.Object3D | null, node: ModelNodeLike): void {
     this.setHovered(null);
+    // Если target — пустая группа (например, root пустой сцены), bbox.isEmpty()
+    // даст Infinity-extents → весь pipeline (positions, drag-handles) даёт
+    // NaN. Явно отказываемся ставить такой target.
+    if (object3D) {
+      const probeBox = new THREE.Box3().setFromObject(object3D);
+      if (probeBox.isEmpty()) {
+        this.clearTarget();
+        return;
+      }
+    }
     this.target = object3D;
     this.node = node;
     this.group.visible = true;
@@ -477,6 +487,14 @@ export class ModificationGizmo {
   updatePositions(): void {
     if (!this.target || !this.camera) return;
     this.box.setFromObject(this.target);
+    // Пустая bbox (target — пустая группа): setFromObject даёт min=+∞,
+    // max=-∞ → дальше вся арифметика NaN'ится. Скрываем гизмо до следующего
+    // кадра, когда target наполнится или сменится.
+    if (this.box.isEmpty()) {
+      this.group.visible = false;
+      return;
+    }
+    if (!this.group.visible) this.group.visible = true;
     this.box.getSize(this.boxSize);
     this.box.getCenter(this.boxCenter);
 

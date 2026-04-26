@@ -22,6 +22,13 @@ import {
 } from './events/PointerEventController';
 import { applyHoleStyle, removeHoleStyle } from './holeMaterial';
 import { bakeRotation, remapAxisForRotatedGroup } from './primitiveTransforms';
+import { FeatureRenderer } from './features/rendering/FeatureRenderer';
+import { FeatureDocument } from './features/FeatureDocument';
+import {
+  migrateLegacyTreeToDocument,
+  type MigrationTrace,
+} from './features/migration/migrateLegacyTree';
+import type { ModelTreeJSON } from './types';
 
 /**
  * halfHeight offset used by a node's applyParamsToMesh. Primitive и ImportedMeshNode
@@ -31,6 +38,30 @@ function getNodeHalfHeight(node: ModelNode | null | undefined): number {
   if (node instanceof Primitive) return node.getHalfHeight();
   if (node instanceof ImportedMeshNode) return node.getHalfHeight();
   return 0;
+}
+
+/**
+ * Парный walk ModelTreeJSON ↔ ModelNode. Дерево JSON получено через
+ * Serializer.toJSON, который проходит ModelNode-tree рекурсивно с тем же
+ * порядком детей — структура идентична. Заполняет map: каждый JSON-узел
+ * указывает на свой ModelNode.
+ *
+ * Используется в rebuildSceneFromTree для render-cutover'а: после миграции
+ * featureId → JSON, эта map даёт JSON → ModelNode, итого featureId → ModelNode
+ * для проброса userData.node.
+ */
+function pairTrees(
+  json: ModelTreeJSON,
+  node: ModelNode,
+  out: Map<ModelTreeJSON, ModelNode>,
+): void {
+  out.set(json, node);
+  if (json.kind === 'group' && node instanceof GroupNode) {
+    const len = Math.min(json.children.length, node.children.length);
+    for (let i = 0; i < len; i++) {
+      pairTrees(json.children[i], node.children[i], out);
+    }
+  }
 }
 
 /** Normalize angle to [-π, π] range. */
@@ -116,6 +147,28 @@ export class ConstructorSceneService {
   private modelRootGroup: THREE.Group | null = null;
   private raycaster: THREE.Raycaster | null = null;
   private mouse: THREE.Vector2 | null = null;
+  /**
+   * Render-cutover (Phase 1.A): рендер сцены идёт через FeatureRenderer +
+   * FeatureDocument, а не через старый buildNodeObject3D. ModelNode-tree
+   * остаётся source-of-truth для мутаций (drag/handle/mirror/chamfer);
+   * на каждом rebuild мы конвертируем его в FeatureDocument через
+   * migrateLegacyTreeToDocument и протягиваем `userData.node` на меши,
+   * чтобы PointerEventController/findObject3DByNode продолжали работать.
+   */
+  private featureRenderer: FeatureRenderer | null = null;
+  private featureDocCurrent: FeatureDocument | null = null;
+  /**
+   * Двунаправленные карты featureId ↔ ModelNode, заполняются на каждом
+   * rebuildSceneFromTree через trace + jsonToNode. Нужны UI'ю (Feature Tree
+   * панель, FeatureParamsForm), чтобы при клике/правке фичи находить
+   * соответствующий ModelNode без обхода 3D-сцены.
+   *
+   * Если у одного ModelNode несколько фич (например, Primitive + Transform-
+   * обёртка), `nodeByFeatureId` записывает обе фичи на один и тот же ModelNode,
+   * а `featureIdByNode` хранит «корневую» (rootmost) — обычно Transform-id.
+   */
+  private nodeByFeatureId = new Map<string, ModelNode>();
+  private featureIdByNode = new Map<ModelNode, string>();
 
   // ─── Modes ────────────────────────────────────────────────────────────────
   private readonly mirrorMode = new MirrorMode();
@@ -289,6 +342,21 @@ export class ConstructorSceneService {
     return this.findObjectByNode(this.modelRootGroup, node);
   }
 
+  /** Текущий FeatureDocument (заполняется на каждом rebuild). Для UI/debug. */
+  getFeatureDocument(): FeatureDocument | null {
+    return this.featureDocCurrent;
+  }
+
+  /** ModelNode, соответствующий feature-id (через trace последнего rebuild'а). */
+  getModelNodeByFeatureId(featureId: string): ModelNode | null {
+    return this.nodeByFeatureId.get(featureId) ?? null;
+  }
+
+  /** Корневая (rootmost) feature-id для ModelNode. */
+  getFeatureIdByNode(node: ModelNode): string | null {
+    return this.featureIdByNode.get(node) ?? null;
+  }
+
   /**
    * Зеркалит ноду по оси axis (флип scale[axis] *= -1) и компенсирует
    * сдвиг визуального центра: после флипа объект может «уехать» от того
@@ -433,6 +501,9 @@ export class ConstructorSceneService {
     this.scene.add(this.modelRootGroup);
     this.modificationGizmo.addToScene();
 
+    // Render-cutover: FeatureRenderer пишет меши в modelRootGroup.
+    this.featureRenderer = new FeatureRenderer(this.modelRootGroup);
+
     // Cruise mode needs scene + model root
     this.cruiseModeCtrl.init(this.scene, this.modelRootGroup);
     this.alignmentMode.init(this.scene, this.modelRootGroup!, this.camera);
@@ -443,10 +514,7 @@ export class ConstructorSceneService {
     // View cube navigator
     this.viewCube = new ViewCubeNavigator();
 
-    const rootVal = this.modelApp.getModelManager().getTree();
-    if (rootVal) {
-      this.modelRootGroup.add(this.buildNodeObject3D(rootVal, true));
-    }
+    this.rebuildSceneFromTree();
 
     // Input
     this.raycaster = new THREE.Raycaster();
@@ -556,32 +624,124 @@ export class ConstructorSceneService {
     return this.mirrorMode.isActive();
   }
 
-  /** Dispose all existing scene objects and rebuild from the model tree. */
+  /**
+   * Render-cutover: пересобираем сцену через FeatureRenderer.
+   *
+   *   ModelNode-tree (source-of-truth)
+   *     → toRootJSON → ModelTreeJSON v1
+   *     → migrateLegacyTreeToDocument(json, trace) → FeatureDocumentJSON v2
+   *     → инжект `params.geometry` для imported-фич из ImportedMeshNode.geometry
+   *     → FeatureDocument.fromJSON → recompute → outputs
+   *     → FeatureRenderer.bindDocument → меши + edges в modelRootGroup
+   *     → пройти меши, через trace проставить `userData.node` (для совместимости
+   *       с PointerEventController / findObject3DByNode / селекшеном).
+   */
   rebuildSceneFromTree(): void {
-    if (!this.modelRootGroup) return;
-
-    // Dispose WebGL resources before removing objects to prevent memory leaks
-    disposeObject3D(this.modelRootGroup);
-    while (this.modelRootGroup.children.length) {
-      this.modelRootGroup.remove(this.modelRootGroup.children[0]);
-    }
+    if (!this.modelRootGroup || !this.featureRenderer) return;
 
     const rootVal = this.modelApp.getModelManager().getTree();
-    if (rootVal) {
-      this.modelRootGroup.add(this.buildNodeObject3D(rootVal, true));
+    if (!rootVal) {
+      // Пустая сцена: отвязываем рендер.
+      this.featureRenderer.unbindDocument();
+      this.featureDocCurrent = null;
+      this.updateGizmoTarget();
+      return;
     }
+
+    try {
+      const serializer = this.modelApp.getSerializer();
+      const json = serializer.toRootJSON(rootVal);
+
+      // Парный walk: ModelTreeJSON ↔ ModelNode (структурно идентичны
+      // по построению toRootJSON).
+      const jsonToNode = new Map<ModelTreeJSON, ModelNode>();
+      pairTrees(json, rootVal, jsonToNode);
+
+      // Миграция в v2 с трассировкой featureId → JSON-узел.
+      const trace: MigrationTrace = new Map();
+      const v2 = migrateLegacyTreeToDocument(json, trace);
+
+      // Инжект геометрии для imported-фич: ImportedMeshNode уже держит
+      // BufferGeometry в памяти, IDB-резолва не требуется. Без этого
+      // EvaluateVisitor.visitImportedMesh бросит «geometry не загружена».
+      for (const f of v2.features) {
+        if (f.type !== 'imported') continue;
+        const sourceJson = trace.get(f.id);
+        if (!sourceJson) continue;
+        const node = jsonToNode.get(sourceJson);
+        if (node instanceof ImportedMeshNode && node.geometry) {
+          (f.params as Record<string, unknown>).geometry = node.geometry;
+        }
+      }
+
+      const doc = FeatureDocument.fromJSON(v2);
+      this.featureDocCurrent = doc;
+      this.featureRenderer.bindDocument(doc);
+      // Глобальный доступ для debug-панели и DevTools.
+      (window as unknown as { __featureDoc?: FeatureDocument }).__featureDoc = doc;
+
+      // Перестраиваем featureId↔ModelNode карты для UI (Feature Tree, формы).
+      this.nodeByFeatureId.clear();
+      this.featureIdByNode.clear();
+      for (const [featureId, sourceJson] of trace) {
+        const node = jsonToNode.get(sourceJson);
+        if (node) this.nodeByFeatureId.set(featureId, node);
+      }
+      // featureIdByNode: ставим самую «верхнюю» в рамках общей цепочки
+      // (Transform-обёртку), если она есть. Идея: feature позже идущая в
+      // массиве features (сначала emit'ятся Box, потом Transform — Transform
+      // оказывается следом). Перезаписи делают так, что финальное значение
+      // — id самой внешней фичи, на которую ссылается `rootIds`/композит.
+      for (const f of v2.features) {
+        const node = this.nodeByFeatureId.get(f.id);
+        if (node) this.featureIdByNode.set(node, f.id);
+      }
+
+      // Протягиваем `userData.node` и uuid на меши/группы — это нужно
+      // PointerEventController.findObject3DByNode/findNodeByObject3D и
+      // updateNodeMaterial. featureId → JSON через trace, JSON → ModelNode
+      // через jsonToNode.
+      this.modelRootGroup.traverse((obj) => {
+        const featureId = (obj.userData as { featureId?: string }).featureId;
+        if (!featureId) return;
+        const sourceJson = trace.get(featureId);
+        if (!sourceJson) return;
+        const node = jsonToNode.get(sourceJson);
+        if (!node) return;
+        obj.userData.node = node;
+        // Записываем uuid в ModelNode, чтобы findObjectByNode по uuid работал.
+        node.setUuid(obj.uuid);
+      });
+    } catch (e) {
+      console.warn('[ConstructorSceneService] FeatureRenderer rebuild failed; falling back to legacy build:', e);
+      // Fallback: чистим и собираем по-старому.
+      this.featureRenderer.unbindDocument();
+      this.featureDocCurrent = null;
+      disposeObject3D(this.modelRootGroup);
+      while (this.modelRootGroup.children.length) {
+        this.modelRootGroup.remove(this.modelRootGroup.children[0]);
+      }
+      const root = this.modelApp.getModelManager().getTree();
+      if (root) this.modelRootGroup.add(this.buildNodeObject3D(root, true));
+    }
+
     this.updateGizmoTarget();
   }
 
   /**
-   * Appends a single node to the live scene without rebuilding existing objects.
-   * Use for addPrimitive — avoids the full rebuild that displaces other objects.
+   * Appends a single node to the live scene.
+   *
+   * До render-cutover это был быстрый incremental-апдейт: добавить меш в
+   * корневой THREE.Group без перестройки существующих. После cutover'а
+   * сцена строится FeatureRenderer'ом из FeatureDocument — incremental
+   * добавление потребовало бы поддержания featureId↔ModelNode инкрементально,
+   * что хрупко. Делаем полный rebuild — он O(N) от размера сцены, но
+   * вызывается только на addPrimitive (не на drag/handle), так что заметной
+   * деградации нет.
    */
   appendNodeToScene(node: ModelNode): void {
-    if (!this.modelRootGroup || this.modelRootGroup.children.length === 0) return;
-    const rootGroup = this.modelRootGroup.children[0] as THREE.Group;
-    const obj = this.buildNodeObject3D(node, false);
-    rootGroup.add(obj);
+    void node;
+    this.rebuildSceneFromTree();
   }
 
   /**
@@ -1105,8 +1265,18 @@ export class ConstructorSceneService {
     }
 
     // Snap позиции только для вертикального смещения (Z-up: ось Z).
+    // Снэпим визуальную нижнюю грань (bbox.min.z), а не raw params.position.z:
+    // после height-handle scale.z != 1 у нас p.z != bbox.min.z (drift-компенсация
+    // в growDim сдвигает p.z, чтобы bbox.min.z остался на месте). Снэп-на-p.z
+    // в этом случае промахивается мимо сетки на halfH*(1-scale.z).
     if (this.snapStep > 0 && handleType === 'offsetY') {
-      p.z = Math.round(p.z / this.snapStep) * this.snapStep;
+      const halfH = getNodeHalfHeight(node);
+      const scaleZ = Math.abs(params.scale?.z ?? 1);
+      // bbox.min.z = (p.z + halfH) - halfH * scaleZ = p.z + halfH*(1 - scaleZ).
+      const offset = halfH * (1 - scaleZ);
+      const bottom = (p.z ?? 0) + offset;
+      const snappedBottom = Math.round(bottom / this.snapStep) * this.snapStep;
+      p.z = snappedBottom - offset;
     }
 
     // Update mesh visuals

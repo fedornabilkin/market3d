@@ -97,7 +97,27 @@ describe('FeatureRenderer: composite output', () => {
 
     expect(groupObj).toBeInstanceOf(THREE.Group);
     expect(groupObj!.children).toHaveLength(2);
-    expect(groupObj!.userData.selectAsUnit).toBe(true);
+    // root-композит НЕ получает selectAsUnit — клик по ребёнку должен
+    // выделять ребёнка, а не всю сцену.
+    expect(groupObj!.userData.selectAsUnit).toBeUndefined();
+    renderer.dispose();
+  });
+
+  it('non-root composite gets selectAsUnit (вложенная union-группа)', () => {
+    const root = new THREE.Group();
+    const renderer = new FeatureRenderer(root);
+    const doc = new FeatureDocument();
+    doc.addFeature(new BoxFeature('b1', { width: 10, height: 10, depth: 10 }));
+    doc.addFeature(new GroupFeature('inner', {}, ['b1']));
+    doc.addFeature(new GroupFeature('outer', {}, ['inner']));
+    doc.setRootIds(['outer']);
+
+    renderer.bindDocument(doc);
+    const outerObj = renderer.getObject3D('outer')!;
+    const innerObj = outerObj.children[0];
+
+    expect(outerObj.userData.selectAsUnit).toBeUndefined();
+    expect(innerObj.userData.selectAsUnit).toBe(true);
     renderer.dispose();
   });
 });
@@ -120,7 +140,8 @@ describe('FeatureRenderer: transform', () => {
 
     expect(obj!.position.x).toBeCloseTo(5);
     expect(obj!.position.y).toBeCloseTo(7);
-    expect(obj!.position.z).toBeCloseTo(3);
+    // bottomAnchorOffsetZ для box 10×10×10: halfH = 5. mesh.z = userZ + halfH = 3+5.
+    expect(obj!.position.z).toBeCloseTo(3 + 5);
     renderer.dispose();
   });
 });
@@ -139,8 +160,9 @@ describe('FeatureRenderer: lookup', () => {
     const groupObj = renderer.getObject3D('g1')!;
     const childMesh = groupObj.children[0]; // первый ребёнок (box)
 
-    // Хотя у childMesh свой синтетический id, walk-up найдёт g1.
-    expect(renderer.findFeatureIdByObject(childMesh)).toBe('g1:0');
+    // Дочерний меш получает sourceFeatureId='b1' (выставлен visitGroup'ом),
+    // а не синтетический «g1:0» — это нужно для селекшена в render-cutover'е.
+    expect(renderer.findFeatureIdByObject(childMesh)).toBe('b1');
     expect(renderer.findFeatureIdByObject(groupObj)).toBe('g1');
     renderer.dispose();
   });

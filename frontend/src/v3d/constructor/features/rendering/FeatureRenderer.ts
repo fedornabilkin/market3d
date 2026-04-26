@@ -33,11 +33,37 @@ export class FeatureRenderer {
   private document: FeatureDocument | null = null;
   private unsubscribe: (() => void) | null = null;
 
-  /** Кэш материалов: одинаковые color+isHole переиспользуются. */
-  private materialCache = new Map<string, THREE.MeshPhongMaterial>();
+  /**
+   * Все материалы — per-mesh, без шаринга. Шаринг ломал updateNodeMaterial
+   * (изменение цвета одного меша протекало на соседей с тем же цветом).
+   * Стоимость: ~30 материалов на типичную сцену = десятки микросекунд.
+   */
+
+  /** Общий материал для edge-lines всех мешей. */
+  private static edgeLineMaterial = new THREE.LineBasicMaterial({
+    color: 0x222222,
+    transparent: true,
+    opacity: 0.25,
+  });
 
   constructor(rootGroup: THREE.Group) {
     this.rootGroup = rootGroup;
+  }
+
+  /** Тёмная обводка рёбер на меше (порог 20°). Не перехватывает raycast. */
+  private static addEdgeLines(mesh: THREE.Mesh): void {
+    const existing = mesh.children.filter((c) => c.userData.isEdgeLine);
+    for (const c of existing) {
+      (c as THREE.LineSegments).geometry.dispose();
+      mesh.remove(c);
+    }
+    const edges = new THREE.EdgesGeometry(mesh.geometry, 20);
+    const lines = new THREE.LineSegments(edges, FeatureRenderer.edgeLineMaterial);
+    lines.userData.isEdgeLine = true;
+    lines.raycast = () => {};
+    lines.matrixAutoUpdate = false;
+    lines.updateMatrix();
+    mesh.add(lines);
   }
 
   /**
@@ -78,8 +104,6 @@ export class FeatureRenderer {
 
   dispose(): void {
     this.unbindDocument();
-    for (const mat of this.materialCache.values()) mat.dispose();
-    this.materialCache.clear();
   }
 
   // ─── Internal ──────────────────────────────────────────────
@@ -115,7 +139,7 @@ export class FeatureRenderer {
     for (const id of this.document.rootIds) {
       const output = this.document.getOutput(id);
       if (!output) continue;
-      const obj = this.buildSceneObjectFromOutput(output, id);
+      const obj = this.buildSceneObjectFromOutput(output, id, true);
       if (obj) {
         this.objectsByFeatureId.set(id, obj);
         this.rootGroup.add(obj);
@@ -144,15 +168,20 @@ export class FeatureRenderer {
    * Превращает FeatureOutput в three.js Object3D.
    * Leaf → THREE.Mesh с применённым transform.
    * Composite → THREE.Group с рекурсивно построенными детьми + selectAsUnit.
+   *
+   * @param isRoot — `true` для top-level выходов из rootIds. Для root-композита
+   *                selectAsUnit НЕ выставляется (как в legacy: клик по ребёнку
+   *                root-группы выделяет ребёнка, а не всю сцену).
    */
   private buildSceneObjectFromOutput(
     output: FeatureOutput,
     featureId: FeatureId,
+    isRoot = false,
   ): THREE.Object3D | null {
     if (output.kind === 'leaf') {
       return this.buildLeaf(output, featureId);
     }
-    return this.buildComposite(output, featureId);
+    return this.buildComposite(output, featureId, isRoot);
   }
 
   private buildLeaf(output: LeafOutput, featureId: FeatureId): THREE.Mesh {
@@ -161,32 +190,70 @@ export class FeatureRenderer {
 
     // Применяем transform фичи к мешу.
     output.transform.decompose(mesh.position, mesh.quaternion, mesh.scale);
+    // bottomAnchorOffsetZ — внешний Z-сдвиг СНАРУЖИ user-transform'а (legacy
+    // applyParamsToMesh: `mesh.position.z = params.position.z + halfHeight`).
+    // Применяется после decompose, чтобы быть в мировом Z (не вращается user
+    // transform'ом). Для не-примитивных leaf (CSG-результат Boolean) — undefined,
+    // там геометрия уже в мировой позиции после CSG-bake.
+    if (output.bottomAnchorOffsetZ) {
+      mesh.position.z += output.bottomAnchorOffsetZ;
+    }
 
     // userData для обратной связи 3d → feature и для безопасного dispose.
     mesh.userData.featureId = featureId;
     if (output.sharedGeometry) mesh.userData.sharedGeometry = true;
+
+    // Edge-lines: тёмная обводка рёбер с порогом угла 20°. Не интерактивны.
+    // Синхронизация трансформа — через mesh.matrix (matrixAutoUpdate=false).
+    FeatureRenderer.addEdgeLines(mesh);
     return mesh;
   }
 
-  private buildComposite(output: CompositeOutput, featureId: FeatureId): THREE.Group {
+  private buildComposite(output: CompositeOutput, featureId: FeatureId, isRoot = false): THREE.Group {
     const group = new THREE.Group();
     output.transform.decompose(group.position, group.quaternion, group.scale);
     group.userData.featureId = featureId;
     // Маркер для PointerEventController: клик по любому ребёнку выделяет
-    // эту группу целиком, как у legacy union-merged групп.
-    group.userData.selectAsUnit = true;
+    // эту группу целиком, как у legacy union-merged групп. Для root-группы
+    // НЕ выставляем — иначе клик по примитиву-ребёнку выделил бы всю сцену.
+    if (!isRoot) group.userData.selectAsUnit = true;
 
     for (let i = 0; i < output.children.length; i++) {
-      // У детей нет своего featureId на этом уровне (они часть композита) —
-      // даём им синтезированный id «<parent>:<index>», чтобы хотя бы dispose
-      // и select-traversal работали. Для прямой адресации фич лучше использовать
-      // отдельные feature-id на детях через rootIds.
-      const childObj = this.buildSceneObjectFromOutput(output.children[i], `${featureId}:${i}`);
+      // Если у выхода ребёнка проставлен sourceFeatureId (визитор GroupFeature
+      // его выставляет), используем его — тогда `userData.featureId` точно
+      // ссылается на реальный node графа (нужно для селекшена и trace mapping
+      // в render-cutover'е). Иначе — fallback на синтезированный id, как раньше.
+      const child = output.children[i];
+      const childId = child.sourceFeatureId ?? `${featureId}:${i}`;
+      const childObj = this.buildSceneObjectFromOutput(child, childId);
       if (childObj) group.add(childObj);
     }
 
+    // Пропагация цвета родителя на детей-меши, у которых нет своего цвета
+    // (output.color === undefined). Совпадает с поведением
+    // ConstructorSceneService.buildNodeObject3D: groupColor → дети без своего color.
+    if (output.color) {
+      const parentHexColor = output.color;
+      const visit = (out: FeatureOutput, obj: THREE.Object3D): void => {
+        if (out.kind === 'leaf' && !out.color && obj instanceof THREE.Mesh) {
+          // Дочерний меш материала ещё не «знает» о родительском color — берём
+          // материал с правильным колором из кэша (с учётом isHole).
+          const newMat = this.getMaterial(parentHexColor, out.isHole);
+          obj.material = newMat;
+        } else if (out.kind === 'composite' && obj instanceof THREE.Group) {
+          for (let i = 0; i < out.children.length && i < obj.children.length; i++) {
+            visit(out.children[i], obj.children[i]);
+          }
+        }
+      };
+      for (let i = 0; i < output.children.length && i < group.children.length; i++) {
+        visit(output.children[i], group.children[i]);
+      }
+    }
+
     // Если контейнер сам помечен как hole — применяем zebra-style ко всем
-    // дочерним мешам (как у legacy GroupNode рендера).
+    // дочерним мешам (как у legacy GroupNode рендера). Материалы per-mesh
+    // (без шаринга), мутировать безопасно.
     if (output.isHole) {
       group.traverse((child) => {
         if (child instanceof THREE.Mesh && child.material) {
@@ -199,30 +266,28 @@ export class FeatureRenderer {
   }
 
   private getMaterial(color: string | undefined, isHole: boolean): THREE.MeshPhongMaterial {
-    const key = `${color ?? 'default'}|${isHole ? '1' : '0'}`;
-    const cached = this.materialCache.get(key);
-    if (cached) return cached;
-
     const mat = new THREE.MeshPhongMaterial({
       color: color ? new THREE.Color(color) : 0x00a5a4,
       shininess: 30,
       specular: 0x444444,
     });
     if (isHole) applyHoleStyle(mat);
-    this.materialCache.set(key, mat);
     return mat;
   }
 
   private disposeObject(obj: THREE.Object3D): void {
     obj.traverse((child) => {
       if (child instanceof THREE.Mesh) {
-        // Шаренные геометрии (ImportedMesh) не диспозим — переиспользуются между
-        // билдами; материалы кэшируются в materialCache, тоже не диспозим тут.
+        // Шаренные геометрии (ImportedMesh) не диспозим — переиспользуются
+        // между билдами (живут в ImportedMeshNode/Feature).
         const shared = (child.userData as { sharedGeometry?: boolean }).sharedGeometry;
         if (!shared) child.geometry?.dispose();
-      } else if (child instanceof THREE.LineSegments) {
-        child.geometry?.dispose();
+        // Материалы per-mesh, без шаринга — диспозим всегда.
         (child.material as THREE.Material | undefined)?.dispose();
+      } else if (child instanceof THREE.LineSegments) {
+        // Edge-lines: геометрия per-mesh (диспозим), материал общий
+        // (FeatureRenderer.edgeLineMaterial — НЕ диспозим, шарится).
+        child.geometry?.dispose();
       }
     });
   }

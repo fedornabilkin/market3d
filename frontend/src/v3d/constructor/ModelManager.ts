@@ -1,14 +1,10 @@
 import type { ModelNode } from './nodes/ModelNode';
-import type { CSGOperation } from './commands/CSGOperation';
 
 /**
- * Manages the model tree (composite root) and list of CSG operations.
+ * Owns the legacy ModelNode-tree (Phase 1 in-memory source-of-truth).
  */
 export class ModelManager {
-  constructor(
-    public tree: ModelNode,
-    public operations: CSGOperation[] = []
-  ) {}
+  constructor(public tree: ModelNode) {}
 
   getTree(): ModelNode {
     return this.tree;
@@ -16,17 +12,5 @@ export class ModelManager {
 
   setTree(node: ModelNode): void {
     this.tree = node;
-  }
-
-  getOperations(): CSGOperation[] {
-    return this.operations;
-  }
-
-  addOperation(op: CSGOperation): void {
-    this.operations.push(op);
-  }
-
-  applyOperations(): void {
-    // Not implemented
   }
 }

@@ -32,6 +32,23 @@ export interface LeafOutput {
   name?: string;
   /** Флаг: геометрия шарится между билдами, диспозить нельзя (например, ImportedMesh). */
   sharedGeometry?: boolean;
+  /**
+   * Сдвиг по мировому Z, применяемый рендер-слоем СНАРУЖИ user-transform'а.
+   * Реализует legacy-конвенцию «params.position.z = 0 → нижняя грань
+   * примитива на сетке»: примитивы выставляют это значение в halfHeight
+   * своей геометрии, импортированные меши — в (bb.max.z - bb.min.z)/2.
+   * Применяется как mesh.position.z += bottomAnchorOffsetZ ПОСЛЕ decompose.
+   * При CSG-bake'е этот сдвиг должен быть скомпонован в transform внутри
+   * collectLeavesForCsg.
+   */
+  bottomAnchorOffsetZ?: number;
+  /**
+   * Source featureId — для child'ов composite-группы. Заполняется visitGroup,
+   * чтобы FeatureRenderer мог проставить честный `userData.featureId` на
+   * дочернем меше (а не синтезированный «parentId:i»). Это нужно для
+   * trace-mapping при render-cutover'е (featureId → ModelNode через trace).
+   */
+  sourceFeatureId?: FeatureId;
 }
 
 /**
@@ -47,6 +64,8 @@ export interface CompositeOutput {
   isHole: boolean;
   color?: string;
   name?: string;
+  /** См. LeafOutput.sourceFeatureId. */
+  sourceFeatureId?: FeatureId;
 }
 
 export type FeatureOutput = LeafOutput | CompositeOutput;

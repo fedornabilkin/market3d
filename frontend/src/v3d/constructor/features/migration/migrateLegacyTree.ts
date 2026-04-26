@@ -15,6 +15,21 @@ import type {
 } from '../types';
 
 /**
+ * Trace-таблица соответствия featureId → legacy ModelTreeJSON.
+ *
+ * Для каждой эмитнутой фичи мы пишем ссылку на тот legacy-узел, из
+ * которого она получилась. Если legacy-узел породил две фичи (semantic +
+ * Transform-обёртка), оба id указывают на один и тот же ModelTreeJSON.
+ *
+ * Используется в render-cutover: после `FeatureRenderer.bindDocument` нужно
+ * протянуть `userData.node` на меши, чтобы PointerEventController/
+ * findObject3DByNode продолжали работать. Caller комбинирует эту таблицу
+ * с параллельным walk'ом ModelNode-tree (структурно идентичного
+ * ModelTreeJSON), чтобы получить `featureId → ModelNode`.
+ */
+export type MigrationTrace = Map<FeatureId, ModelTreeJSON>;
+
+/**
  * Миграция legacy ModelTreeJSON (version 1, единое дерево ModelNode) в
  * FeatureDocumentJSON (version 2, граф фич с inputs).
  *
@@ -27,21 +42,33 @@ import type {
  *   Imported   → ImportedMeshFeature (filename, binaryRef|stlBase64, color)
  *                Тоже оборачивается в TransformFeature при наличии nodeParams.
  *
- *   Group      → BooleanFeature (operation: union|subtract|intersect)
- *                inputs — id'шники мигрированных детей.
+ *   Group      → BooleanFeature, ЕСЛИ:
+ *                  - operation в {'subtract', 'intersect'}, ИЛИ
+ *                  - operation === 'union' И хоть один ребёнок — hole.
+ *                Иначе (чистый union без hole-детей) → GroupFeature
+ *                (logical container без CSG, рендер-слой проходит детей
+ *                независимо). Это совпадает с гибридной логикой
+ *                ConstructorSceneService.buildNodeObject3D, где union
+ *                без hole-детей рендерится как THREE.Group.
  *                Оборачивается в Transform при наличии nodeParams группы.
- *                NB: legacy GroupNode = CSG-операция (через three-bvh-csg);
- *                новый GroupFeature — чисто-логический контейнер. Поэтому
- *                карта именно в BooleanFeature, не в GroupFeature.
  *
  * Координатное соглашение НЕ конвертируется — миграцию Y↔Z делает
- * Serializer.migrateLegacyYupToZupIfNeeded(rootJson) ДО вызова этой функции.
+ * migrateLegacyYupToZupIfNeeded ДО вызова этой функции.
+ *
+ * @param trace опционально — пишем сюда featureId → legacy-узел для каждой
+ *              эмитнутой фичи. Полезно для render-cutover (см. MigrationTrace).
  */
 export function migrateLegacyTreeToDocument(
   rootJson: ModelTreeJSON,
+  trace?: MigrationTrace,
 ): FeatureDocumentJSON {
-  const ctx = new MigrationContext();
-  const rootId = visit(rootJson, ctx);
+  const ctx = new MigrationContext(trace);
+  // Корень — всегда logical container (никогда CSG), как в legacy
+  // ConstructorSceneService.buildNodeObject3D, где `isRoot=true` принудительно
+  // даёт renderAsContainer=true. Это нужно, чтобы одиночный hole-примитив
+  // в корне НЕ вычитался из сцены сразу при тогле isHole, а оставался
+  // полупрозрачным «зебра-стилем».
+  const rootId = visit(rootJson, ctx, /* isRoot */ true);
   return {
     version: 2,
     metadata: { createdAt: new Date().toISOString() },
@@ -53,21 +80,23 @@ export function migrateLegacyTreeToDocument(
 class MigrationContext {
   features: FeatureJSON[] = [];
   private seq = 0;
+  constructor(readonly trace?: MigrationTrace) {}
 
   newId(prefix: string): FeatureId {
     return `m_${prefix}_${++this.seq}`;
   }
 
-  push(f: FeatureJSON): void {
+  push(f: FeatureJSON, source: ModelTreeJSON): void {
     this.features.push(f);
+    if (this.trace) this.trace.set(f.id, source);
   }
 }
 
 /** Возвращает id корневой фичи, представляющей данный legacy-узел. */
-function visit(node: ModelTreeJSON, ctx: MigrationContext): FeatureId {
+function visit(node: ModelTreeJSON, ctx: MigrationContext, isRoot = false): FeatureId {
   if (node.kind === 'primitive') return visitPrimitive(node, ctx);
   if (node.kind === 'imported') return visitImported(node, ctx);
-  return visitGroup(node, ctx);
+  return visitGroup(node, ctx, isRoot);
 }
 
 function visitPrimitive(node: PrimitiveNodeJSON, ctx: MigrationContext): FeatureId {
@@ -81,9 +110,9 @@ function visitPrimitive(node: PrimitiveNodeJSON, ctx: MigrationContext): Feature
     params,
   };
   if (node.name) featureJson.name = node.name;
-  ctx.push(featureJson);
+  ctx.push(featureJson, node);
 
-  return wrapInTransformIfNeeded(id, node.nodeParams, node.name, ctx);
+  return wrapInTransformIfNeeded(id, node, ctx);
 }
 
 function visitImported(
@@ -102,28 +131,51 @@ function visitImported(
     params,
   };
   if (node.name) featureJson.name = node.name;
-  ctx.push(featureJson);
+  ctx.push(featureJson, node);
 
-  return wrapInTransformIfNeeded(id, node.nodeParams, node.name, ctx);
+  return wrapInTransformIfNeeded(id, node, ctx);
 }
 
-function visitGroup(node: GroupNodeJSON, ctx: MigrationContext): FeatureId {
-  const childIds = node.children.map((c) => visit(c, ctx));
-  const id = ctx.newId(`bool_${node.operation}`);
+function visitGroup(node: GroupNodeJSON, ctx: MigrationContext, isRoot = false): FeatureId {
+  const childIds = node.children.map((c) => visit(c, ctx, /* isRoot */ false));
 
-  const params: Record<string, unknown> = { operation: node.operation };
-  if (node.nodeParams?.color) params.color = node.nodeParams.color;
+  // Дискриминация GroupFeature vs BooleanFeature.
+  //  - Корень — всегда GroupFeature (logical container), как в legacy
+  //    `isRoot=true → renderAsContainer=true`. Иначе одиночный hole-примитив
+  //    в корне моментально CSG-вычитался бы из ничего и исчезал.
+  //  - Не-корень: чистый union без hole-детей → GroupFeature (рендерится как
+  //    THREE.Group без CSG). Иначе (subtract/intersect/union с holes) →
+  //    BooleanFeature (CSG-меш).
+  const hasHoleChild = node.children.some((c) => !!c.nodeParams?.isHole);
+  const useBoolean = !isRoot && (node.operation !== 'union' || hasHoleChild);
 
-  const featureJson: FeatureJSON = {
-    id,
-    type: 'boolean',
-    params,
-    inputs: childIds,
-  };
+  let id: FeatureId;
+  let featureJson: FeatureJSON;
+  if (useBoolean) {
+    id = ctx.newId(`bool_${node.operation}`);
+    const params: Record<string, unknown> = { operation: node.operation };
+    if (node.nodeParams?.color) params.color = node.nodeParams.color;
+    featureJson = { id, type: 'boolean', params, inputs: childIds };
+  } else {
+    id = ctx.newId('group');
+    const params: Record<string, unknown> = {};
+    if (node.nodeParams?.color) params.color = node.nodeParams.color;
+    featureJson = { id, type: 'group', params, inputs: childIds };
+  }
   if (node.name) featureJson.name = node.name;
-  ctx.push(featureJson);
+  ctx.push(featureJson, node);
 
-  return wrapInTransformIfNeeded(id, node.nodeParams, node.name, ctx);
+  // Корень НИКОГДА не оборачиваем в Transform: это сделало бы всю сцену
+  // зависимой от root.nodeParams (position/rotation/scale), которые в
+  // Constructor.vue ни одна штатная операция не выставляет, но могли
+  // случайно «протечь» туда от выделения root + mirror/rotate (см. отчёт
+  // от 2026-04-26: пораженный v2 имел m_xf_3 на корне с position=(209,29,9)
+  // и rotation R_y(π) — каждый последующий примитив рендерился через эту
+  // трансформацию). При сохранении после load этот фикс самоисцеляет
+  // сохранёнки: nodeParams корня молча отбрасываются.
+  if (isRoot) return id;
+
+  return wrapInTransformIfNeeded(id, node, ctx);
 }
 
 /**
@@ -134,10 +186,10 @@ function visitGroup(node: GroupNodeJSON, ctx: MigrationContext): FeatureId {
  */
 function wrapInTransformIfNeeded(
   innerId: FeatureId,
-  nodeParams: NodeParams | undefined,
-  legacyName: string | undefined,
+  source: ModelTreeJSON,
   ctx: MigrationContext,
 ): FeatureId {
+  const nodeParams = source.nodeParams;
   if (!hasNonTrivialTransform(nodeParams)) return innerId;
 
   const id = ctx.newId('xf');
@@ -156,8 +208,7 @@ function wrapInTransformIfNeeded(
   };
   // Имя из legacy-узла привязано к "семантической" фиче — оставляем его на
   // примитиве; у Transform-обёртки имя пустое (UI возьмёт дефолт по типу).
-  void legacyName;
-  ctx.push(json);
+  ctx.push(json, source);
   return id;
 }
 

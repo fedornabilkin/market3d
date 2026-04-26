@@ -1,18 +1,16 @@
 import type { ModelManager } from './ModelManager';
 import type { HistoryManager } from './HistoryManager';
-import type { Renderer } from './Renderer';
 import type { Serializer } from './Serializer';
 import { GroupNode } from './nodes/GroupNode';
 
 /**
  * Main entry point for the visual 3D constructor.
- * Composes ModelManager, HistoryManager, Renderer, Serializer.
+ * Composes ModelManager, HistoryManager, Serializer.
  */
 export class ModelApp {
   constructor(
     public modelManager: ModelManager,
     public historyManager: HistoryManager,
-    public renderer: Renderer,
     public serializer: Serializer
   ) {}
 
@@ -21,7 +19,6 @@ export class ModelApp {
     root.operation = 'union';
     root.children = [];
     this.modelManager.setTree(root);
-    this.renderer.updateFromTree(root);
   }
 
   getModelManager(): ModelManager {
@@ -30,10 +27,6 @@ export class ModelApp {
 
   getHistoryManager(): HistoryManager {
     return this.historyManager;
-  }
-
-  getRenderer(): Renderer {
-    return this.renderer;
   }
 
   getSerializer(): Serializer {

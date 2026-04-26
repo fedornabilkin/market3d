@@ -68,15 +68,27 @@ docker-compose up
 
 ## Конструктор (`frontend/src/v3d/constructor/`)
 
-Визуальный 3D-редактор:
-- **CSG только на экспорт** — рантайм показывает примитивы как обычные Three.js-меши, булевы операции выполняются один раз в `ModelExporter` при скачивании STL/OBJ
-- **Примитивы**: Box, Sphere, Cylinder, Cone, Torus, Text3D + импорт STL
-- **Persistence**: сцена сериализуется в JSON (`Serializer.ts`) и хранится в `localStorage`; поддержка нескольких сцен через `STORAGE_KEYS`
-- **История**: `HistoryManager` + `SnapshotCommand` (before/after JSON)
-- **Сетка и привязка**: `GridMode.setSnapStep(step)` → `_snapStep`; выбор шага в нижней панели `.snap-toolbar` (`Constructor.vue`)
-- **Gizmo**: `ModificationGizmo` — handles для translate/scale/rotate с raycast-драгом
-- **Режимы**: Mirror, Cruise (прилипание), Alignment, Chamfer (фаска), Generator (резьба)
-- **Стрелки**: перемещение выделенного узла на `snapStep`, с **Shift** — на `snapStep × 5`; **Ctrl+↑/↓** — по Y
+Визуальный 3D-редактор. **Phase 1 (параметрическая CAD-модель) закрыта на 2026-04-26.**
+Архитектура: feature graph (DAG из фич с типами и параметрами) — см.
+[`features/README.md`](frontend/src/v3d/constructor/features/README.md) и
+[`plan/cad/phase-1-feature-tree.md`](plan/cad/phase-1-feature-tree.md).
+
+- **Feature Graph** (`features/`) — параметрическая модель: каждый узел сцены — `Feature` (Box/Sphere/Cylinder/.../Transform/Boolean/Group/ImportedMesh, всего 13 типов). `FeatureGraph` (DAG), `FeatureDocument` (граф + roots + events), `EvaluateVisitor` (Feature → BufferGeometry+transform+flags), `FeatureRenderer` (FeatureDocument → THREE.js scene).
+- **Z-up конвенция** (как FreeCAD/SolidWorks). Legacy Y-up сохранёнки автомигрируются на load.
+- **CSG**: `three-bvh-csg` для рантайма (subtract/intersect/union с holes-детьми) и для экспорта STL/OBJ. Чистый `union` без holes-детей рендерится как logical container (без CSG, GroupFeature).
+- **Примитивы**: Box, Sphere, Cylinder, Cone, Torus, Ring, Plane, Thread, Knurl + импорт STL.
+- **Persistence**: формат на диске — `FeatureDocumentJSON v2` (`constructor_scene_v2_*` в localStorage); legacy v1 (`constructor_scene_v1_*`) — read-only fallback. STL-бинарники в IndexedDB через `BinaryStorage` (`binaryRef` вместо base64).
+- **История**: `HistoryManager` + `FeatureSnapshotCommand` (snapshots в FeatureDocumentJSON v2). Undo/redo derive'ит ModelNode-tree из featureDoc через `featureDocumentToLegacy`.
+- **In-memory source-of-truth (Phase 1)**: ModelNode-tree остаётся primary для мутаций (drag/handle/mirror/chamfer/alignment/generator/STL-import). FeatureDocument перестраивается из ModelNode на каждом `rebuildSceneFromTree`. UI: bridge `applyFeaturePatchToNode` маппит patch от schema-форм → ModelNode мутации. Полный flip на FeatureDocument primary — Phase 2 prep.
+- **UI**:
+  - Левая панель: toggle между legacy `NodeTree.vue` (по ModelNode) и `FeatureTree.vue` (по FeatureDocument).
+  - Правая панель: соответственно hand-rolled inputs или schema-driven `FeatureParamsForm.vue` (по `paramsSchema.ts`).
+  - Debug-панель `DebugPanel.vue` (FPS/camera/selection/modes/storage/featureDoc/logs/snapshot-download).
+  - Тест-чеклист `TestChecklistPanel.vue` (~50 пунктов регресс-чеклиста с persist в localStorage).
+- **Сетка и привязка**: `GridMode.setSnapStep(step)` → `_snapStep`; выбор шага в нижней панели `.snap-toolbar`.
+- **Gizmo**: `ModificationGizmo` — handles для translate/scale/rotate с raycast-драгом.
+- **Режимы**: Mirror, Cruise (прилипание), Alignment, Chamfer (фаска), Generator (резьба/насечки).
+- **Стрелки**: перемещение на `snapStep`, **Shift** — `snapStep × 5`, **Ctrl+↑/↓** — по Z.
 
 ## Конвенции
 

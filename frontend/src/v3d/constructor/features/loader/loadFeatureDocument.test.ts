@@ -43,13 +43,14 @@ describe('loadFeatureDocument: version routing', () => {
     const doc = await loadFeatureDocument(legacy);
 
     // После миграции должны появиться: BoxFeature, SphereFeature, Transform
-    // (для sphere), BooleanFeature (root). 4 фичи минимум.
+    // (для sphere), GroupFeature (root, т.к. union без hole-детей).
     expect(doc.graph.size()).toBeGreaterThanOrEqual(4);
     expect(doc.rootIds).toHaveLength(1);
 
-    // Ровно 1 boolean — это новый корень группы.
+    // Ровно 1 group — это новый корень (union без holes → GroupFeature).
     const types = [...doc.graph.values()].map((f) => f.type);
-    expect(types.filter((t) => t === 'boolean')).toHaveLength(1);
+    expect(types.filter((t) => t === 'group')).toHaveLength(1);
+    expect(types.filter((t) => t === 'boolean')).toHaveLength(0);
   });
 
   it('parses string JSON input', async () => {

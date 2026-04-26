@@ -143,7 +143,13 @@ export function featureDocumentToLegacy(doc: FeatureDocumentJSON): ModelTreeJSON
     return json;
   };
 
-  return visit(doc.rootIds[0]);
+  const result = visit(doc.rootIds[0]);
+  // FeatureDocumentJSON v2 всегда в Z-up. Без этой пометки последующий
+  // `migrateLegacyYupToZupIfNeeded` (вызывается load-флоу для legacy-сохранёнок)
+  // ошибочно посчитает данные за Y-up и поменяет Y↔Z в позициях/ротациях —
+  // объекты «улетят вверх» при первой загрузке через v2-sidecar.
+  (result as ModelTreeJSON & { coordsConvention?: string }).coordsConvention = 'zup';
+  return result;
 }
 
 /**

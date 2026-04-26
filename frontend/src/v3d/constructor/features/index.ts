@@ -65,3 +65,6 @@ export { featureDocumentToLegacy } from './migration/featureDocumentToLegacy';
 
 // Универсальный загрузчик: legacy v1 / новый v2 → FeatureDocument
 export { loadFeatureDocument } from './loader/loadFeatureDocument';
+
+// Bridge: схема-форма → legacy ModelNode мутации (на время Phase 1 cutover)
+export { applyFeaturePatchToNode } from './bridge/applyFeaturePatchToNode';

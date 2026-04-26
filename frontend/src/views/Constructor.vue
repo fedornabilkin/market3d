@@ -49,8 +49,15 @@
           @click="switchScene(i - 1)"
         ) Сцена {{ i }}
       .panel-header
-        span Узлы
+        span(v-if="!useFeatureTreeView") Узлы
+        span(v-else) Feature graph
         .panel-header-actions
+          button.btn-icon(
+            @click="useFeatureTreeView = !useFeatureTreeView"
+            :class="{ 'is-active-tool': useFeatureTreeView }"
+            :title="useFeatureTreeView ? 'Показать legacy NodeTree' : 'Показать FeatureGraph'"
+          )
+            i.fas.fa-sitemap
           button.btn-icon(@click="saveSceneToFile" title="Сохранить сцену в файл")
             i.fas.fa-save
           button.btn-icon(@click="loadSceneFromFile" title="Загрузить сцену из файла")
@@ -58,15 +65,23 @@
           button.btn-icon(@click="clearScene" title="Очистить сцену")
             i.fas.fa-trash-alt
       .node-list(v-show="!generatorModeActive")
-        NodeTree(
-          v-if="rootNode"
-          :node="rootNode"
-          :selected-nodes="selectedNodes"
-          :level="0"
-          :key="treeVersion"
-          @select="onSelectNodeFromList"
-        )
-        .node-list-empty(v-else) Сцена пуста
+        template(v-if="!useFeatureTreeView")
+          NodeTree(
+            v-if="rootNode"
+            :node="rootNode"
+            :selected-nodes="selectedNodes"
+            :level="0"
+            :key="treeVersion"
+            @select="onSelectNodeFromList"
+          )
+          .node-list-empty(v-else) Сцена пуста
+        template(v-else)
+          FeatureTree(
+            :doc="featureDocForUI"
+            :highlighted-id="highlightedFeatureId"
+            :key="treeVersion"
+            @select="onSelectFeatureFromTree"
+          )
       .panel-actions
         .shape-icons
           button.shape-btn(
@@ -160,7 +175,17 @@
             input.input.is-small(type="number" :step="snapStep || 0.5" :min="snapStep || 0.1" v-model.number="chamferRadius")
       template(v-else)
         .panel-header Настройки узла
-        .settings-content(v-if="selectedNode")
+        //- Schema-driven форма (когда включён FeatureTree-режим). Мутации
+        //- идут через bridge applyFeaturePatchToNode → withHistory →
+        //- rebuildSceneFromTree.
+        .settings-content(v-if="useFeatureTreeView && selectedFeature")
+          FeatureParamsForm(
+            :feature="selectedFeature"
+            @update:params="onFeatureFormParamsUpdate"
+            @update:name="onFeatureFormNameUpdate"
+          )
+        //- Legacy hand-rolled форма (default).
+        .settings-content(v-else-if="!useFeatureTreeView && selectedNode")
           //- Name (inline, no label)
           .field
             input.input.is-small(
@@ -306,6 +331,12 @@
         i.fas.fa-upload
       button.btn-icon(@click="toggleDebugPanel" :class="{ 'is-active-tool': showDebugPanel }" title="Debug")
         i.fas.fa-bug
+      button.btn-icon(
+        @click="toggleTestChecklist"
+        :class="{ 'is-active-tool': showTestChecklist }"
+        :title="`Тест-чеклист (${checklistState.checked.value.size}/${checklistTotalCount})`"
+      )
+        i.fas.fa-tasks
       input(
         ref="stlFileInput"
         type="file"
@@ -373,49 +404,40 @@
         button.button.is-small(@click="showExportModal = false" :disabled="exporting") Отмена
         button.button.is-small.is-primary(@click="doExport" :disabled="exporting") {{ exporting ? 'Экспорт...' : 'Скачать' }}
 
-  //- Debug panel
-  .debug-panel(v-if="showDebugPanel")
-    .debug-header
-      span Debug
-      button.debug-close(@click="toggleDebugPanel") &times;
-    .debug-body
-      .debug-section
-        .debug-title FPS
-        .debug-value {{ debugFps }}
-      .debug-section
-        .debug-title Camera
-        .debug-value(v-if="debugCamera")
-          | pos: ({{ debugCamera.x }}, {{ debugCamera.y }}, {{ debugCamera.z }})
-          br
-          | target: ({{ debugCamera.tx }}, {{ debugCamera.ty }}, {{ debugCamera.tz }})
-      .debug-section
-        .debug-title Selection
-        .debug-value(v-if="selectedNode")
-          | type: {{ debugNodeType }}
-          br
-          | name: {{ selectedNode.name || '—' }}
-          br
-          | uuid: {{ selectedNode.uuidMesh ? selectedNode.uuidMesh.slice(0, 8) : '—' }}
-          br
-          | pos: ({{ debugNodePos }})
-          br
-          | scale: ({{ debugNodeScale }})
-          br
-          | rot: ({{ debugNodeRot }})
-          br
-          | center: ({{ debugNodeCenter }})
-        .debug-value(v-else) none
-      .debug-section
-        .debug-title Scene ({{ debugSceneInfo.length }})
-        .debug-value
-          .debug-row(v-for="c in debugSceneInfo" :key="c.index")
-            | {{ c.index }}: {{ c.type }} "{{ c.name }}" vis={{ c.visible }} ch={{ c.childrenCount }}
-      .debug-section
-        .debug-title Gizmo
-        .debug-value {{ debugGizmoInfo }}
-      .debug-section
-        .debug-title History
-        .debug-value undo={{ canUndo }} redo={{ canRedo }} mirror={{ mirrorModeActive }}
+  //- Debug panel (вынесен в отдельный компонент)
+  DebugPanel(
+    v-if="showDebugPanel"
+    :fps="debugFps"
+    :now="debugNow"
+    :camera="debugCamera"
+    :selection="debugSelection"
+    :modes="debugModes"
+    :snap-step="snapStep"
+    :history="debugHistory"
+    :scene-info="debugSceneInfo"
+    :gizmo="debugGizmoInfo"
+    :feature-doc-stats="debugFeatureDocStats"
+    :storage="debugStorageStats"
+    :active-scene-index="activeSceneIndex"
+    :scene-count="SCENE_COUNT"
+    :logs="debugLogger.logs.value"
+    @close="toggleDebugPanel"
+    @download="onDownloadDebugSnapshot"
+    @clear-logs="debugLogger.clear()"
+  )
+
+  //- Test checklist (отдельный компонент). Если debug-панель открыта, чеклист
+  //- сдвигается левее (через :shifted), чтобы они не перекрывались.
+  TestChecklistPanel(
+    v-if="showTestChecklist"
+    :groups="TEST_CHECKLIST"
+    :checked="checklistState.checked.value"
+    :shifted="showDebugPanel"
+    @close="toggleTestChecklist"
+    @toggle="(id) => checklistState.toggle(id)"
+    @reset="() => checklistState.reset()"
+    @check-all="() => checklistState.checkAll()"
+  )
 </template>
 
 <script setup lang="ts">
@@ -426,25 +448,42 @@ import {
   ModelApp,
   ModelManager,
   HistoryManager,
-  Renderer,
   Serializer,
   ModelNode,
   GroupNode,
   Primitive,
   ImportedMeshNode,
   ConstructorSceneService,
-  SnapshotCommand,
 } from '@/v3d/constructor';
 import type { PrimitiveType } from '@/v3d/constructor';
 import {
   loadFeatureDocument,
   FeatureDocument,
   featureDocumentToLegacy,
+  applyFeaturePatchToNode,
+  migrateLegacyTreeToDocument,
+  FeatureSnapshotCommand,
 } from '@/v3d/constructor/features';
 import type { FeatureDocumentJSON } from '@/v3d/constructor/features';
+import FeatureParamsForm from '@/v3d/constructor/features/schema/FeatureParamsForm.vue';
+import {
+  DebugLogger,
+  buildFeatureDocStats,
+  buildStorageStats,
+  buildDebugSnapshot,
+  downloadDebugSnapshot,
+  TEST_CHECKLIST,
+  totalChecklistCount,
+  TestChecklistState,
+  type FeatureDocStats,
+  type StorageStat,
+} from '@/v3d/constructor/debug';
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader';
 import { dataURItoBlob } from '@/utils';
 import NodeTree from '@/components/constructor/NodeTree.vue';
+import FeatureTree from '@/components/constructor/FeatureTree.vue';
+import DebugPanel from '@/components/constructor/DebugPanel.vue';
+import TestChecklistPanel from '@/components/constructor/TestChecklistPanel.vue';
 import { useTourStore } from '@/store/tour';
 import { useTourPlacement } from '@/service/useTourPlacement';
 import { useSeoHeadI18n } from '@/composables/useSeoHead';
@@ -500,10 +539,6 @@ const SCENE_COUNT = 3;
  */
 const PRIMARY_KEYS = Array.from({ length: SCENE_COUNT }, (_, i) => `constructor_scene_v2_${i}`);
 const LEGACY_FALLBACK_KEYS = Array.from({ length: SCENE_COUNT }, (_, i) => `constructor_scene_v1_${i}`);
-/** Backward-compat алиас для существующих use-сайтов; постепенно вытесняется. */
-const STORAGE_KEYS = LEGACY_FALLBACK_KEYS;
-/** @deprecated алиас перед удалением: PRIMARY_KEYS — это и есть бывший shadow. */
-const SHADOW_V2_KEYS = PRIMARY_KEYS;
 const RAD_TO_DEG = 180 / Math.PI;
 const DEG_TO_RAD = Math.PI / 180;
 
@@ -520,44 +555,19 @@ const treeVersion = ref(0);
 
 let sceneService: ConstructorSceneService | null = null;
 /** Snapshot taken at drag-start for undo/redo of drag operations. */
-let beforeDragJSON: any = null;
+let beforeDragJSON: FeatureDocumentJSON | null = null;
 
 /**
- * Shadow FeatureDocument: строится параллельно legacy ModelNode-дереву на
- * каждой загрузке сцены. Не используется для рендера (рендер по-прежнему через
- * sceneService + ModelNode). Это валидация Phase 1: проверяем, что реальные
- * сохранёнки пользователей мигрируют в FeatureDocumentJSON v2 без потерь и
- * recompute не падает. Доступ для отладки: window.__featureDoc.
+ * Текущий FeatureDocument — каноничный источник для UI/debug. Берётся из
+ * sceneService, который перестраивает его на каждом rebuildSceneFromTree
+ * и публикует через `window.__featureDoc` для DevTools.
  */
-let featureDoc: FeatureDocument | null = null;
-
-async function _buildShadowFeatureDocument(json: any, source: string): Promise<void> {
-  try {
-    const t0 = performance.now();
-    // loadFeatureDocument мутирует JSON (Y↔Z swap), но к этому моменту legacy
-    // путь уже сделал миграцию — и пометил coordsConvention='zup', так что
-    // повторный swap внутри loadFeatureDocument будет no-op.
-    featureDoc = await loadFeatureDocument(json);
-    const t1 = performance.now();
-    const failed = [...featureDoc.graph.values()].filter((f) => f.error);
-    const summary = {
-      source,
-      features: featureDoc.graph.size(),
-      roots: featureDoc.rootIds.length,
-      failed: failed.length,
-      ms: Math.round(t1 - t0),
-    };
-    if (failed.length > 0) {
-      console.warn('[FeatureDoc shadow] some features failed to evaluate', summary, failed.map((f) => ({ id: f.id, type: f.type, error: f.error })));
-    } else {
-      console.info('[FeatureDoc shadow] built ok', summary);
-    }
-    (window as unknown as { __featureDoc?: FeatureDocument }).__featureDoc = featureDoc;
-  } catch (e) {
-    console.warn('[FeatureDoc shadow] failed to build:', e);
-    featureDoc = null;
-  }
+function currentFeatureDoc(): FeatureDocument | null {
+  return sceneService?.getFeatureDocument() ?? null;
 }
+
+/** Toggle между legacy NodeTree и новым FeatureTree в левой панели. */
+const useFeatureTreeView = ref(false);
 
 // ─── Computed ──────────────────────────────────────────────────────────────
 
@@ -566,6 +576,68 @@ const rootNode = computed(() => {
   treeVersion.value;
   return modelApp.value?.getModelManager()?.getTree() ?? null;
 });
+
+/** FeatureDocument из sceneService для UI-дерева. Реактивен через treeVersion. */
+const featureDocForUI = computed(() => {
+  treeVersion.value;
+  return sceneService?.getFeatureDocument() ?? null;
+});
+
+/** Подсветка выделенной фичи в FeatureTree (rootmost id). */
+const highlightedFeatureId = computed<string | null>(() => {
+  treeVersion.value;
+  const n = selectedNode.value;
+  if (!n || !sceneService) return null;
+  return sceneService.getFeatureIdByNode(n);
+});
+
+/** Клик в FeatureTree → выделение соответствующего ModelNode. */
+function onSelectFeatureFromTree(featureId: string): void {
+  if (!sceneService) return;
+  const node = sceneService.getModelNodeByFeatureId(featureId);
+  if (node) onSelectNode(node);
+}
+
+/**
+ * Текущая выделенная фича из FeatureDocument (rootmost — Transform-обёртка
+ * если она есть, иначе сама примитивная фича). Для FeatureParamsForm.
+ */
+const selectedFeature = computed(() => {
+  treeVersion.value;
+  if (!sceneService || !selectedNode.value) return null;
+  const fd = sceneService.getFeatureDocument();
+  if (!fd) return null;
+  const fid = sceneService.getFeatureIdByNode(selectedNode.value);
+  if (!fid) return null;
+  return fd.graph.get(fid) ?? null;
+});
+
+/**
+ * Bridge-handler: FeatureParamsForm → ModelNode мутации.
+ * Form работает в схеме v2 (`{ position: [...] }`, `{ width: 25 }` и т.п.).
+ * applyFeaturePatchToNode маппит patch обратно в legacy node.params/
+ * geometryParams, дальше штатный withHistory + rebuildSceneFromTree.
+ */
+function onFeatureFormParamsUpdate(patch: Record<string, unknown>): void {
+  if (!sceneService || !selectedNode.value || !selectedFeature.value) return;
+  const node = selectedNode.value;
+  const featureType = selectedFeature.value.type;
+  withHistory(() => {
+    applyFeaturePatchToNode(node, featureType, patch);
+  });
+  if (sceneService) sceneService.rebuildSceneFromTree();
+  syncFormFromNode(node);
+}
+
+function onFeatureFormNameUpdate(name: string | undefined): void {
+  if (!selectedNode.value) return;
+  const node = selectedNode.value;
+  withHistory(() => {
+    node.name = name;
+  });
+  treeVersion.value++;
+  if (sceneService) sceneService.rebuildSceneFromTree();
+}
 
 const canUndo = computed(() => {
   treeVersion.value;
@@ -728,9 +800,26 @@ const sceneSettings = ref({
 
 const showDebugPanel = ref(false);
 const debugFps = ref(0);
+const debugNow = ref('');
 const debugSceneInfo = ref<Array<{ index: number; type: string; name: string; visible: boolean; childrenCount: number }>>([]);
 const debugGizmoInfo = ref('—');
 const debugCamera = ref<{ x: string; y: string; z: string; tx: string; ty: string; tz: string } | null>(null);
+const debugFeatureDocStats = ref<FeatureDocStats | null>(null);
+const debugStorageStats = ref<StorageStat[]>([]);
+
+/** Перехватчик console.warn/error — установлен при открытии панели. */
+const debugLogger = new DebugLogger(200);
+
+// ─── Test checklist ──────────────────────────────────────────────────────
+
+const showTestChecklist = ref(false);
+const checklistState = new TestChecklistState();
+const checklistTotalCount = totalChecklistCount();
+checklistState.load();
+
+function toggleTestChecklist() {
+  showTestChecklist.value = !showTestChecklist.value;
+}
 
 let _debugFrames = 0;
 let _debugLastTime = performance.now();
@@ -742,7 +831,72 @@ function updateDebugFps() {
     debugFps.value = _debugFrames;
     _debugFrames = 0;
     _debugLastTime = now;
+    debugNow.value = new Date().toLocaleTimeString('ru-RU');
+    if (showDebugPanel.value) refreshDebugStats();
   }
+}
+
+function refreshDebugStats(): void {
+  debugFeatureDocStats.value = buildFeatureDocStats(currentFeatureDoc());
+  debugStorageStats.value = buildStorageStats(LEGACY_FALLBACK_KEYS, PRIMARY_KEYS);
+}
+
+function onDownloadDebugSnapshot(): void {
+  refreshDebugStats();
+  const snapshot = buildDebugSnapshot({
+    activeSceneIndex: activeSceneIndex.value,
+    treeVersion: treeVersion.value,
+    fps: debugFps.value,
+    camera: debugCamera.value,
+    selection: {
+      count: selectedNodes.value.length,
+      primary: selectedNode.value
+        ? {
+            type: debugNodeType.value,
+            name: selectedNode.value.name ?? null,
+            uuid: selectedNode.value.uuidMesh ?? null,
+            params: selectedNode.value.params ? JSON.parse(JSON.stringify(selectedNode.value.params)) : null,
+            geometryParams: (selectedNode.value as unknown as { geometryParams?: unknown }).geometryParams
+              ? JSON.parse(JSON.stringify((selectedNode.value as unknown as { geometryParams?: unknown }).geometryParams))
+              : null,
+          }
+        : null,
+    },
+    modes: {
+      mirror: mirrorModeActive.value,
+      cruise: cruiseModeActive.value,
+      alignment: alignmentModeActive.value,
+      chamfer: chamferModeActive.value,
+      generator: generatorModeActive.value,
+      generatorType: generatorType.value,
+    },
+    snapStep: snapStep.value,
+    sceneSettings: { ...sceneSettings.value },
+    sceneInfo: debugSceneInfo.value,
+    gizmo: debugGizmoInfo.value,
+    history: { canUndo: canUndo.value, canRedo: canRedo.value },
+    featureDoc: debugFeatureDocStats.value,
+    storage: debugStorageStats.value,
+    logs: [...debugLogger.logs.value],
+  });
+
+  // Текущая сцена в обоих форматах.
+  try {
+    const root = modelApp.value?.getModelManager()?.getTree();
+    if (root) {
+      const serializer = modelApp.value!.getSerializer();
+      snapshot.legacyTree = serializer.toRootJSON(root);
+    }
+  } catch (e) {
+    snapshot.legacyTreeError = e instanceof Error ? e.message : String(e);
+  }
+  const fd = currentFeatureDoc();
+  if (fd) {
+    try { snapshot.featureDocJson = fd.toJSON(); }
+    catch (e) { snapshot.featureDocJsonError = e instanceof Error ? e.message : String(e); }
+  }
+
+  downloadDebugSnapshot(snapshot);
 }
 
 const debugNodeType = computed(() => {
@@ -782,6 +936,39 @@ const debugNodeCenter = computed(() => {
   box.getCenter(c);
   return `${c.x.toFixed(1)}, ${c.y.toFixed(1)}, ${c.z.toFixed(1)}`;
 });
+
+/** Объединённый объект selection для DebugPanel.vue. */
+const debugSelection = computed(() => {
+  const n = selectedNode.value;
+  if (!n) return null;
+  return {
+    type: debugNodeType.value,
+    name: n.name ?? null,
+    uuid: n.uuidMesh ?? null,
+    pos: debugNodePos.value,
+    scale: debugNodeScale.value,
+    rot: debugNodeRot.value,
+    center: debugNodeCenter.value,
+    totalCount: selectedNodes.value.length,
+  };
+});
+
+/** Объединённый объект режимов для DebugPanel.vue. */
+const debugModes = computed(() => ({
+  mirror: mirrorModeActive.value,
+  cruise: cruiseModeActive.value,
+  alignment: alignmentModeActive.value,
+  chamfer: chamferModeActive.value,
+  generator: generatorModeActive.value,
+  generatorType: generatorType.value,
+}));
+
+/** История + версия дерева. */
+const debugHistory = computed(() => ({
+  canUndo: canUndo.value,
+  canRedo: canRedo.value,
+  treeVersion: treeVersion.value,
+}));
 
 // ─── Geometry field definitions per primitive type ─────────────────────────
 
@@ -932,12 +1119,32 @@ function syncFormFromNode(node: ModelNode) {
 // ─── History ───────────────────────────────────────────────────────────────
 
 /**
- * Restore the model tree from a JSON snapshot.
- * Called by SnapshotCommand on undo/redo.
+ * Снапшот текущего состояния в виде FeatureDocumentJSON v2 (canonical
+ * формат). Деривируется ОТ ModelNode-tree через migrateLegacyTreeToDocument
+ * (sync, без полной пересборки сцены) — это тот же путь что и `_writePrimaryV2`,
+ * но без IDB-резолва (нам не нужны geometries для snapshot'а — на restore
+ * они придут из живых ImportedMeshNode'ов).
  */
-function restoreFromSnapshot(json: any) {
+function captureFeatureDocSnapshot(): FeatureDocumentJSON | null {
+  const root = modelApp.value?.getModelManager()?.getTree();
+  if (!root) return null;
   const serializer = modelApp.value!.getSerializer();
-  const newRoot = serializer.fromJSON(json);
+  const legacyJson = serializer.toRootJSON(root);
+  return migrateLegacyTreeToDocument(legacyJson);
+}
+
+/**
+ * Restore из FeatureDocumentJSON: derive ModelNode-tree через обратный
+ * конвертер, заменить дерево, пересобрать сцену.
+ *
+ * После полного flip'а на FeatureDocument как primary этот callback
+ * заменится на `featureDoc.loadFromJSON(json)` без conversion-цепочки.
+ */
+function restoreFromFeatureSnapshot(json: FeatureDocumentJSON): void {
+  const legacyTree = featureDocumentToLegacy(json);
+  const serializer = modelApp.value!.getSerializer();
+  const newRoot = serializer.fromJSON(legacyTree);
+  sanitizeRootParams(newRoot);
   modelApp.value!.getModelManager().setTree(newRoot);
   setSelection([]);
   treeVersion.value++;
@@ -946,25 +1153,26 @@ function restoreFromSnapshot(json: any) {
 }
 
 /**
- * Wraps a mutation with before/after snapshots and pushes a SnapshotCommand.
- * The mutation must synchronously modify the model tree.
+ * Оборачивает мутацию before/after-снапшотами в FeatureDocumentJSON v2
+ * формате и пушит FeatureSnapshotCommand. Мутация синхронно меняет
+ * ModelNode-tree (текущий source-of-truth Phase 1); на undo/redo дерево
+ * derive'ится обратно из снапшота через featureDocumentToLegacy.
  */
 function withHistory(mutate: () => void) {
-  const serializer = modelApp.value!.getSerializer();
-  const root = modelApp.value!.getModelManager().getTree();
-  const beforeJSON = serializer.toJSON(root);
+  const beforeJSON = captureFeatureDocSnapshot();
   mutate();
-  const afterRoot = modelApp.value!.getModelManager().getTree();
-  const afterJSON = serializer.toJSON(afterRoot);
-  const cmd = new SnapshotCommand(beforeJSON, afterJSON, restoreFromSnapshot);
-  modelApp.value!.getHistoryManager().push(cmd);
+  const afterJSON = captureFeatureDocSnapshot();
+  if (beforeJSON && afterJSON) {
+    const cmd = new FeatureSnapshotCommand(beforeJSON, afterJSON, restoreFromFeatureSnapshot);
+    modelApp.value!.getHistoryManager().push(cmd);
+  }
   treeVersion.value++;
   _saveToLocalStorage();
 }
 
 function undo() {
   modelApp.value!.getHistoryManager().undo();
-  // treeVersion++ and rebuildSceneFromTree happen inside restoreFromSnapshot
+  // treeVersion++ and rebuildSceneFromTree happen inside restoreFromFeatureSnapshot
 }
 
 function redo() {
@@ -1000,14 +1208,12 @@ function _flushSave() {
  * Если запись v2 упадёт (баг в миграции или recompute) — пишем legacy v1
  * как safety-net, чтобы не потерять работу пользователя.
  *
- * Side-effect: обновляет module-level featureDoc и window.__featureDoc,
- * чтобы DevTools всегда видели актуальное состояние.
+ * window.__featureDoc обновляется самим sceneService.rebuildSceneFromTree —
+ * здесь не дублируем.
  */
 async function _writePrimaryV2(legacyJson: any, sceneIndex: number): Promise<void> {
   try {
     const doc = await loadFeatureDocument(legacyJson);
-    featureDoc = doc;
-    (window as unknown as { __featureDoc?: FeatureDocument }).__featureDoc = doc;
     const failed = [...doc.graph.values()].filter((f) => f.error);
     if (failed.length > 0) {
       console.warn('[FeatureDoc] save: failed features', failed.map((f) => ({ id: f.id, type: f.type, error: f.error })));
@@ -1062,7 +1268,6 @@ async function loadFromLocalStorage() {
     // записал legacy).
     const v2Saved = localStorage.getItem(PRIMARY_KEYS[activeSceneIndex.value]);
     let json: any | null = null;
-    let source: 'v2' | 'legacy' = 'v2';
     if (v2Saved) {
       try {
         const v2: FeatureDocumentJSON = JSON.parse(v2Saved);
@@ -1076,20 +1281,33 @@ async function loadFromLocalStorage() {
       const saved = localStorage.getItem(LEGACY_FALLBACK_KEYS[activeSceneIndex.value]);
       if (!saved) return;
       json = JSON.parse(saved);
-      source = 'legacy';
     }
     const serializer = modelApp.value!.getSerializer();
     Serializer.migrateLegacyYupToZupIfNeeded(json);
     await Serializer.preResolveBinaryRefs(json);
     const newRoot = serializer.fromJSON(json);
+    sanitizeRootParams(newRoot);
     modelApp.value!.getModelManager().setTree(newRoot);
     setSelection([]);
     treeVersion.value++;
     if (sceneService) sceneService.rebuildSceneFromTree();
-    _buildShadowFeatureDocument(json, source);
   } catch (e) {
     console.warn('[Constructor] Failed to load scene:', e);
   }
+}
+
+/**
+ * Чистит у корневой группы position/rotation/scale: ни одна штатная операция
+ * Constructor.vue не должна их выставлять, но они могли случайно «протечь»
+ * (например, mirror/rotate с выделенным root). Если оставить, вся сцена
+ * рендерится через эту корневую трансформацию — примитивы появляются вне
+ * сетки, выравнивание/зеркалирование считают мировые bbox в смещённой системе.
+ */
+function sanitizeRootParams(root: ModelNode): void {
+  if (!root.params) return;
+  if (root.params.position) delete root.params.position;
+  if (root.params.rotation) delete root.params.rotation;
+  if (root.params.scale) delete root.params.scale;
 }
 
 async function saveSceneToFile() {
@@ -1144,13 +1362,13 @@ function loadSceneFromFile() {
         Serializer.migrateLegacyYupToZupIfNeeded(json);
         await Serializer.preResolveBinaryRefs(json);
         const newRoot = serializer.fromJSON(json);
+        sanitizeRootParams(newRoot);
         withHistory(() => {
           modelApp.value!.getModelManager().setTree(newRoot);
         });
         setSelection([]);
         treeVersion.value++;
         if (sceneService) sceneService.rebuildSceneFromTree();
-        _buildShadowFeatureDocument(json, 'file');
       } catch (e) {
         console.warn('[Constructor] Failed to load scene from file:', e);
       }
@@ -1170,13 +1388,11 @@ function switchScene(index: number) {
   modelApp.value!.getHistoryManager().clear();
   // Load new scene (or create empty). v2 preferred, legacy v1 fallback.
   let json: any | null = null;
-  let source: 'v2' | 'legacy' | null = null;
   const v2Saved = localStorage.getItem(PRIMARY_KEYS[index]);
   if (v2Saved) {
     try {
       const v2: FeatureDocumentJSON = JSON.parse(v2Saved);
       json = featureDocumentToLegacy(v2);
-      source = 'v2';
     } catch (e) {
       console.warn('[Constructor] v2 switch failed, falling back to legacy:', e);
     }
@@ -1186,7 +1402,6 @@ function switchScene(index: number) {
     if (saved) {
       try {
         json = JSON.parse(saved);
-        source = 'legacy';
       } catch (e) {
         console.warn('[Constructor] legacy load failed:', e);
       }
@@ -1200,10 +1415,10 @@ function switchScene(index: number) {
       // поэтому fire-and-forget с последующим rebuildSceneFromTree.
       Serializer.preResolveBinaryRefs(json).then(() => {
         const newRoot = serializer.fromJSON(json);
+        sanitizeRootParams(newRoot);
         modelApp.value!.getModelManager().setTree(newRoot);
         if (sceneService) sceneService.rebuildSceneFromTree();
         treeVersion.value++;
-        _buildShadowFeatureDocument(json, source ?? 'switchScene');
       }).catch((e) => {
         console.warn('[Constructor] preResolveBinaryRefs failed:', e);
       });
@@ -1427,6 +1642,12 @@ function toggleCruiseMode() {
 function toggleDebugPanel() {
   showDebugPanel.value = !showDebugPanel.value;
   if (sceneService) sceneService.setDebugPanelVisible(showDebugPanel.value);
+  if (showDebugPanel.value) {
+    debugLogger.install();
+    refreshDebugStats();
+  } else {
+    debugLogger.uninstall();
+  }
 }
 
 function toggleAlignmentMode() {
@@ -1961,29 +2182,22 @@ function handleKeydown(event: KeyboardEvent) {
     return;
   }
 
-  // Arrow keys: move selected object relative to camera
+  // Arrow keys: move selected object relative to camera. Оборачиваем в общий
+  // withHistory — он сам капчит before/after и пушит FeatureSnapshotCommand.
   if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key) && selectedNode.value && sceneService) {
     event.preventDefault();
-    const s = modelApp.value!.getSerializer();
-    const root = modelApp.value!.getModelManager().getTree();
-    const beforeJSON = s.toJSON(root);
-
     const mult = event.shiftKey ? 5 : 1;
-    if (hasCtrl) {
-      if (event.key === 'ArrowUp') sceneService.moveSelectedByKey('up', mult);
-      else if (event.key === 'ArrowDown') sceneService.moveSelectedByKey('down', mult);
-    } else {
-      if (event.key === 'ArrowLeft') sceneService.moveSelectedByKey('left', mult);
-      else if (event.key === 'ArrowRight') sceneService.moveSelectedByKey('right', mult);
-      else if (event.key === 'ArrowUp') sceneService.moveSelectedByKey('forward', mult);
-      else if (event.key === 'ArrowDown') sceneService.moveSelectedByKey('backward', mult);
-    }
-
-    const afterJSON = s.toJSON(root);
-    const cmd = new SnapshotCommand(beforeJSON, afterJSON, restoreFromSnapshot);
-    modelApp.value!.getHistoryManager().push(cmd);
-    treeVersion.value++;
-    _saveToLocalStorage();
+    withHistory(() => {
+      if (hasCtrl) {
+        if (event.key === 'ArrowUp') sceneService!.moveSelectedByKey('up', mult);
+        else if (event.key === 'ArrowDown') sceneService!.moveSelectedByKey('down', mult);
+      } else {
+        if (event.key === 'ArrowLeft') sceneService!.moveSelectedByKey('left', mult);
+        else if (event.key === 'ArrowRight') sceneService!.moveSelectedByKey('right', mult);
+        else if (event.key === 'ArrowUp') sceneService!.moveSelectedByKey('forward', mult);
+        else if (event.key === 'ArrowDown') sceneService!.moveSelectedByKey('backward', mult);
+      }
+    });
     return;
   }
 
@@ -2208,10 +2422,8 @@ onMounted(() => {
   const tempRoot = new GroupNode();
   const modelManager = new ModelManager(tempRoot);
   const historyManager = new HistoryManager();
-  const dummyScene = new THREE.Scene();
-  const threeRenderer = new Renderer(dummyScene);
 
-  modelApp.value = markRaw(new ModelApp(modelManager, historyManager, threeRenderer, serializer));
+  modelApp.value = markRaw(new ModelApp(modelManager, historyManager, serializer));
   modelApp.value.init();
 
   sceneService = new ConstructorSceneService(modelApp.value, {
@@ -2255,10 +2467,9 @@ onMounted(() => {
       }
     },
     onBeforeDrag() {
+      // Снапшоты для history теперь в FeatureDocumentJSON v2-формате.
       try {
-        const s = modelApp.value!.getSerializer();
-        const root = modelApp.value!.getModelManager().getTree();
-        beforeDragJSON = s.toJSON(root);
+        beforeDragJSON = captureFeatureDocSnapshot();
       } catch (_) {
         beforeDragJSON = null;
       }
@@ -2266,11 +2477,11 @@ onMounted(() => {
     onAfterDrag() {
       if (!beforeDragJSON) return;
       try {
-        const s = modelApp.value!.getSerializer();
-        const root = modelApp.value!.getModelManager().getTree();
-        const afterJSON = s.toJSON(root);
-        const cmd = new SnapshotCommand(beforeDragJSON, afterJSON, restoreFromSnapshot);
-        modelApp.value!.getHistoryManager().push(cmd);
+        const afterJSON = captureFeatureDocSnapshot();
+        if (afterJSON) {
+          const cmd = new FeatureSnapshotCommand(beforeDragJSON, afterJSON, restoreFromFeatureSnapshot);
+          modelApp.value!.getHistoryManager().push(cmd);
+        }
         treeVersion.value++;
         _saveToLocalStorage();
       } catch (_) {
@@ -2344,11 +2555,11 @@ onMounted(() => {
     sceneService!.setGeneratorMode(false);
   };
 
-  // Migrate old single-scene data to scene 0
+  // Migrate old single-scene data to scene 0 (legacy один-сценовая схема)
   const oldKey = 'constructor_scene_v1';
   const oldData = localStorage.getItem(oldKey);
-  if (oldData && !localStorage.getItem(STORAGE_KEYS[0])) {
-    localStorage.setItem(STORAGE_KEYS[0], oldData);
+  if (oldData && !localStorage.getItem(LEGACY_FALLBACK_KEYS[0])) {
+    localStorage.setItem(LEGACY_FALLBACK_KEYS[0], oldData);
     localStorage.removeItem(oldKey);
   }
 
@@ -2364,6 +2575,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   _flushPendingSave();
+  debugLogger.uninstall();
   if (sceneService) {
     sceneService.unmount();
     sceneService = null;
@@ -2847,62 +3059,7 @@ onBeforeUnmount(() => {
   transition: width 0.15s ease;
 }
 
-/* ─── Debug panel ────────────────────────────────────────────── */
-.debug-panel {
-  position: absolute;
-  bottom: 0.5rem;
-  right: 0.5rem;
-  z-index: 15;
-  width: 300px;
-  max-height: 50vh;
-  overflow-y: auto;
-  background: rgba(255, 255, 255, 0.95);
-  border: 1px solid #d0d0d0;
-  border-radius: 6px;
-  font-family: monospace;
-  font-size: 0.72rem;
-  color: #333;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-}
-.debug-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0.3rem 0.5rem;
-  font-weight: 700;
-  border-bottom: 1px solid #e0e0e0;
-  font-size: 0.78rem;
-}
-.debug-close {
-  background: none;
-  border: none;
-  cursor: pointer;
-  font-size: 1rem;
-  color: #999;
-  line-height: 1;
-}
-.debug-close:hover { color: #333; }
-.debug-body {
-  padding: 0.3rem 0.5rem;
-}
-.debug-section {
-  margin-bottom: 0.35rem;
-}
-.debug-title {
-  font-weight: 600;
-  color: #666;
-  margin-bottom: 0.1rem;
-}
-.debug-value {
-  color: #333;
-  word-break: break-all;
-  line-height: 1.4;
-}
-.debug-row {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
+/* Debug-панель и её стили вынесены в @/components/constructor/DebugPanel.vue. */
 .is-active-tool {
   color: #e67700 !important;
 }

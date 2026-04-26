@@ -49,90 +49,72 @@ export class EvaluateVisitor extends FeatureVisitor<FeatureOutput> {
   }
 
   // ─── Примитивы ─────────────────────────────────────────────
+  // Соглашение позиции (совпадает с legacy Primitive.applyParamsToMesh):
+  //   `params.position.z = 0` означает «нижняя грань на сетке (z=0)».
+  //   Геометрии примитивов центрированы вокруг origin'а, поэтому в
+  //   LeafOutput.transform добавляем сдвиг (0, 0, halfHeight). Сверху
+  //   TransformFeature композирует свои position/rotation/scale.
   override visitBox(f: BoxFeature): FeatureOutput {
-    return primitiveLeaf(
-      new BoxBuilder().withParams(f.params).build().createGeometry(),
-      f.params.color,
-      f.name,
-    );
+    const entity = new BoxBuilder().withParams(f.params).build();
+    return primitiveLeaf(entity.createGeometry(), entity.getHalfHeight(), f.params.color, f.name);
   }
 
   override visitSphere(f: SphereFeature): FeatureOutput {
-    return primitiveLeaf(
-      new SphereBuilder().withParams(f.params).build().createGeometry(),
-      f.params.color,
-      f.name,
-    );
+    const entity = new SphereBuilder().withParams(f.params).build();
+    return primitiveLeaf(entity.createGeometry(), entity.getHalfHeight(), f.params.color, f.name);
   }
 
   override visitCylinder(f: CylinderFeature): FeatureOutput {
-    return primitiveLeaf(
-      new CylinderBuilder().withParams(f.params).build().createGeometry(),
-      f.params.color,
-      f.name,
-    );
+    const entity = new CylinderBuilder().withParams(f.params).build();
+    return primitiveLeaf(entity.createGeometry(), entity.getHalfHeight(), f.params.color, f.name);
   }
 
   override visitCone(f: ConeFeature): FeatureOutput {
-    return primitiveLeaf(
-      new ConeBuilder().withParams(f.params).build().createGeometry(),
-      f.params.color,
-      f.name,
-    );
+    const entity = new ConeBuilder().withParams(f.params).build();
+    return primitiveLeaf(entity.createGeometry(), entity.getHalfHeight(), f.params.color, f.name);
   }
 
   override visitTorus(f: TorusFeature): FeatureOutput {
-    return primitiveLeaf(
-      new TorusBuilder().withParams(f.params).build().createGeometry(),
-      f.params.color,
-      f.name,
-    );
+    const entity = new TorusBuilder().withParams(f.params).build();
+    return primitiveLeaf(entity.createGeometry(), entity.getHalfHeight(), f.params.color, f.name);
   }
 
   override visitRing(f: RingFeature): FeatureOutput {
-    return primitiveLeaf(
-      new RingBuilder().withParams(f.params).build().createGeometry(),
-      f.params.color,
-      f.name,
-    );
+    const entity = new RingBuilder().withParams(f.params).build();
+    return primitiveLeaf(entity.createGeometry(), entity.getHalfHeight(), f.params.color, f.name);
   }
 
   override visitPlane(f: PlaneFeature): FeatureOutput {
-    return primitiveLeaf(
-      new PlaneBuilder().withParams(f.params).build().createGeometry(),
-      f.params.color,
-      f.name,
-    );
+    const entity = new PlaneBuilder().withParams(f.params).build();
+    return primitiveLeaf(entity.createGeometry(), entity.getHalfHeight(), f.params.color, f.name);
   }
 
   override visitThread(f: ThreadFeature): FeatureOutput {
-    return primitiveLeaf(
-      new ThreadBuilder().withParams(f.params).build().createGeometry(),
-      f.params.color,
-      f.name,
-    );
+    const entity = new ThreadBuilder().withParams(f.params).build();
+    return primitiveLeaf(entity.createGeometry(), entity.getHalfHeight(), f.params.color, f.name);
   }
 
   override visitKnurl(f: KnurlFeature): FeatureOutput {
-    return primitiveLeaf(
-      new KnurlBuilder().withParams(f.params).build().createGeometry(),
-      f.params.color,
-      f.name,
-    );
+    const entity = new KnurlBuilder().withParams(f.params).build();
+    return primitiveLeaf(entity.createGeometry(), entity.getHalfHeight(), f.params.color, f.name);
   }
 
   override visitImportedMesh(f: ImportedMeshFeature): FeatureOutput {
     if (!f.params.geometry) {
       throw new Error(`[ImportedMesh ${f.id}] geometry не загружена (binaryRef=${f.params.binaryRef ?? '?'})`);
     }
+    const geom = f.params.geometry;
+    if (!geom.boundingBox) geom.computeBoundingBox();
+    const halfH = geom.boundingBox ? (geom.boundingBox.max.z - geom.boundingBox.min.z) / 2 : 0;
     return {
       kind: 'leaf',
-      geometry: f.params.geometry,
+      geometry: geom,
       transform: new THREE.Matrix4(),
       isHole: false,
       color: f.params.color,
       name: f.name,
       sharedGeometry: true,
+      bottomAnchorOffsetZ: halfH,
     };
   }
 
@@ -195,7 +177,10 @@ export class EvaluateVisitor extends FeatureVisitor<FeatureOutput> {
     for (const inputId of f.getInputs()) {
       const out = this.ctx.resolved.get(inputId);
       if (!out) throw new Error(`[Group ${f.id}] вход ${inputId} не разрешён`);
-      children.push(out);
+      // Помечаем child выходом source-feature'ом, чтобы FeatureRenderer мог
+      // проставить честный userData.featureId на дочернем меше (для
+      // selection / trace mapping при render-cutover'е).
+      children.push({ ...out, sourceFeatureId: inputId });
     }
     return {
       kind: 'composite',
@@ -212,16 +197,21 @@ export class EvaluateVisitor extends FeatureVisitor<FeatureOutput> {
 
 function primitiveLeaf(
   geometry: THREE.BufferGeometry,
+  halfHeight: number,
   color: string | undefined,
   name: string | undefined,
 ): LeafOutput {
   return {
     kind: 'leaf',
     geometry,
+    // transform = identity. halfHeight-сдвиг — отдельное поле, применяется
+    // FeatureRenderer'ом СНАРУЖИ user-transform (как `mesh.position.z += halfH`
+    // в legacy applyParamsToMesh — сверху rotation/scale/translation).
     transform: new THREE.Matrix4(),
     isHole: false,
     color,
     name,
+    bottomAnchorOffsetZ: halfHeight,
   };
 }
 
@@ -245,7 +235,9 @@ function collectLeavesForCsg(out: FeatureOutput, target: BooleanInput[]): void {
   if (out.kind === 'leaf') {
     target.push({
       geometry: out.geometry,
-      transform: out.transform,
+      // bottomAnchorOffsetZ — внешний Z-сдвиг (legacy mesh.position.z += halfH).
+      // Для CSG нужно скомпоновать его в матрицу: T(0,0,halfH) · transform.
+      transform: bakeBottomAnchor(out.transform, out.bottomAnchorOffsetZ),
       isHole: out.isHole,
     });
     return;
@@ -253,9 +245,11 @@ function collectLeavesForCsg(out: FeatureOutput, target: BooleanInput[]): void {
   // composite: разворачиваем детей с компонованным transform'ом
   for (const child of out.children) {
     if (child.kind === 'leaf') {
+      // T(0,0,halfH_child) · out.transform · child.transform
+      const composed = out.transform.clone().multiply(child.transform);
       target.push({
         geometry: child.geometry,
-        transform: out.transform.clone().multiply(child.transform),
+        transform: bakeBottomAnchor(composed, child.bottomAnchorOffsetZ),
         isHole: out.isHole || child.isHole,
       });
     } else {
@@ -268,4 +262,10 @@ function collectLeavesForCsg(out: FeatureOutput, target: BooleanInput[]): void {
       collectLeavesForCsg(folded, target);
     }
   }
+}
+
+/** Применяет bottomAnchorOffsetZ как внешнюю Z-трансляцию: T(0,0,halfH) · transform. */
+function bakeBottomAnchor(transform: THREE.Matrix4, halfH: number | undefined): THREE.Matrix4 {
+  if (!halfH) return transform.clone();
+  return new THREE.Matrix4().makeTranslation(0, 0, halfH).multiply(transform);
 }
