@@ -102,8 +102,6 @@ export interface HandleDragState {
   startRotation?: number;
   rotationTangentU?: THREE.Vector3;
   rotationTangentV?: THREE.Vector3;
-  /** Z-координата нижней грани bbox в момент старта drag — для re-anchor'a после поворота. */
-  startBottomZ?: number;
   groupPivotWorld?: THREE.Vector3;
   groupPivotLocal?: THREE.Vector3;
   startQuaternion?: THREE.Quaternion;
@@ -655,10 +653,6 @@ export class PointerEventController {
           const pivot = center.clone();
           host.handleDragState.groupPivotWorld = pivot;
           host.handleDragState.groupPivotLocal = obj.worldToLocal(pivot.clone());
-          // Z-up: запоминаем нижнюю грань bbox — после поворота вокруг
-          // горизонтальной оси (X/Y) объект расширяется по Z, и без re-anchor'a
-          // его нижняя грань уехала бы вверх или вниз относительно сетки.
-          host.handleDragState.startBottomZ = box.min.z;
         }
       }
     }

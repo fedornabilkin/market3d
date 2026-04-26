@@ -39,7 +39,10 @@
       "Bash(curl -s -o /dev/null -w '%{http_code}' http://localhost:5174/__TRACKED_VAR__)",
       "Bash(curl *)",
       "Bash(netstat -ano)",
-      "Bash(echo \"base.ts: $\\(curl -s -o /dev/null -w \"%{http_code}\" \"http://localhost:5174/src/v3d/generator/base.ts\"\\)\")"
+      "Bash(echo \"base.ts: $\\(curl -s -o /dev/null -w \"%{http_code}\" \"http://localhost:5174/src/v3d/generator/base.ts\"\\)\")",
+      "Bash(awk 'NR>40 && NR<60')",
+      "Bash(awk -F: '$2 > 487 && $2 < 700')",
+      "Bash(awk 'NR==487,/^  }$/' src/v3d/constructor/modes/ModificationGizmo.ts)"
     ]
   }
 }

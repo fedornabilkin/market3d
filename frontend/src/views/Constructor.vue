@@ -455,9 +455,11 @@ import {
   ImportedMeshNode,
   ConstructorSceneService,
 } from '@/v3d/constructor';
+import { SequentialFeatureIdGenerator } from '@/v3d/constructor/services/FeatureIdGenerator';
+import { FeatureFactory } from '@/v3d/constructor/services/FeatureFactory';
+import { SceneOperations } from '@/v3d/constructor/services/SceneOperations';
 import type { PrimitiveType } from '@/v3d/constructor';
 import {
-  loadFeatureDocument,
   FeatureDocument,
   featureDocumentToLegacy,
   applyFeaturePatchToNode,
@@ -554,6 +556,15 @@ const activeSceneIndex = ref(0);
 const treeVersion = ref(0);
 
 let sceneService: ConstructorSceneService | null = null;
+/**
+ * Facade над высокоуровневыми мутациями (add/import/delete/duplicate).
+ * Использует FeatureFactory и SequentialFeatureIdGenerator (паттерны
+ * Factory Method + Strategy). Готов к flip'у на FeatureDocument primary —
+ * caller'ы не меняются, перепишутся только внутренности.
+ */
+const featureIdGen = new SequentialFeatureIdGenerator();
+const featureFactory = new FeatureFactory(featureIdGen);
+let sceneOps: SceneOperations | null = null;
 /** Snapshot taken at drag-start for undo/redo of drag operations. */
 let beforeDragJSON: FeatureDocumentJSON | null = null;
 
@@ -1072,18 +1083,7 @@ function computeGroupDimensions(node: any): { width?: number; height?: number; d
   }
 }
 
-function getDefaultParamsForType(type: PrimitiveType) {
-  switch (type) {
-    case 'box': return { width: 20, height: 20, depth: 20 };
-    case 'sphere': return { radius: 10, widthSegments: 32, heightSegments: 32 };
-    case 'cylinder': return { radiusTop: 10, radiusBottom: 10, height: 20, segments: 32 };
-    case 'cone': return { radius: 10, height: 20, segments: 32 };
-    case 'torus': return { radius: 10, tube: 2, segments: 32 };
-    case 'plane': return { width: 20, height: 20 };
-    case 'ring': return { innerRadius: 5, outerRadius: 10, segments: 32 };
-    default: return { width: 20, height: 20, depth: 20 };
-  }
-}
+// Дефолтные геомпараметры по типу примитива переехали в `FeatureFactory`.
 
 // ─── Sync form ↔ node ──────────────────────────────────────────────────────
 
@@ -1187,57 +1187,49 @@ function redo() {
 // flow импорта/драга (оттуда и подвисания «страница не отвечает»).
 let _saveTimer: ReturnType<typeof setTimeout> | null = null;
 
+/**
+ * P2-prep-1 save flip: featureDoc — каноничный источник, читаем из него
+ * напрямую (минуя round-trip через `loadFeatureDocument(legacyJson)`).
+ *
+ * featureDoc обновляется в `sceneService.rebuildSceneFromTree` после
+ * каждой мутации, поэтому на момент save'а он всегда актуален.
+ *
+ * Failed-фичи (ошибки recompute) → пишем legacy v1 как safety-net:
+ * пользователь не теряет работу даже если что-то сломалось в миграции.
+ */
 function _flushSave() {
+  const sceneIndex = activeSceneIndex.value;
+  const fd = currentFeatureDoc();
+  if (!fd) return;
   try {
-    const serializer = modelApp.value!.getSerializer();
-    const root = modelApp.value!.getModelManager().getTree();
-    // toRootJSON синтезирует ModelTreeJSON с флагом coordsConvention='zup'.
-    // Используется как «промежуточный» формат для миграции в v2 (и как
-    // fallback на следующей загрузке, если v2-запись упадёт).
-    const legacyJson = serializer.toRootJSON(root);
-    void _writePrimaryV2(legacyJson, activeSceneIndex.value);
+    const failed = [...fd.graph.values()].filter((f) => f.error);
+    if (failed.length > 0) {
+      console.warn('[FeatureDoc] save: failed features', failed.map((f) => ({ id: f.id, type: f.type, error: f.error })));
+      _writeLegacySafetyNet(sceneIndex);
+      return;
+    }
+    const v2 = fd.toJSON();
+    localStorage.setItem(PRIMARY_KEYS[sceneIndex], JSON.stringify(v2));
+    localStorage.removeItem(LEGACY_FALLBACK_KEYS[sceneIndex]);
   } catch (e) {
-    console.warn('[Constructor] Failed to save scene:', e);
+    console.warn('[FeatureDoc] v2 write failed; writing legacy fallback:', e);
+    _writeLegacySafetyNet(sceneIndex);
   }
 }
 
 /**
- * Канонический путь записи (Phase 1 cutover): мутация → legacy JSON
- * (промежуточный) → FeatureDocument → toJSON v2 → localStorage.
- *
- * Если запись v2 упадёт (баг в миграции или recompute) — пишем legacy v1
- * как safety-net, чтобы не потерять работу пользователя.
- *
- * window.__featureDoc обновляется самим sceneService.rebuildSceneFromTree —
- * здесь не дублируем.
+ * Safety-net: пишет legacy v1 (toRootJSON) на случай, если featureDoc
+ * не даёт корректного v2 (failed-фичи, баг сериализации). На следующей
+ * загрузке legacy v1 fallback подхватит данные.
  */
-async function _writePrimaryV2(legacyJson: any, sceneIndex: number): Promise<void> {
+function _writeLegacySafetyNet(sceneIndex: number): void {
   try {
-    const doc = await loadFeatureDocument(legacyJson);
-    const failed = [...doc.graph.values()].filter((f) => f.error);
-    if (failed.length > 0) {
-      console.warn('[FeatureDoc] save: failed features', failed.map((f) => ({ id: f.id, type: f.type, error: f.error })));
-      // Если recompute упал — legacy данные надёжнее. Пишем legacy fallback
-      // и не трогаем v2 (старый v2 если был — тоже остаётся, его читаем как
-      // fallback на следующей загрузке).
-      try {
-        localStorage.setItem(LEGACY_FALLBACK_KEYS[sceneIndex], JSON.stringify(legacyJson));
-      } catch (e2) {
-        console.warn('[Constructor] legacy safety-net write failed:', e2);
-      }
-      return;
-    }
-    const v2 = doc.toJSON();
-    localStorage.setItem(PRIMARY_KEYS[sceneIndex], JSON.stringify(v2));
-    // Чистим legacy-ключ, чтобы устаревшая копия не «тянулась» за v2.
-    localStorage.removeItem(LEGACY_FALLBACK_KEYS[sceneIndex]);
-  } catch (e) {
-    console.warn('[FeatureDoc] v2 write failed; writing legacy fallback:', e);
-    try {
-      localStorage.setItem(LEGACY_FALLBACK_KEYS[sceneIndex], JSON.stringify(legacyJson));
-    } catch (e2) {
-      console.warn('[Constructor] legacy safety-net write failed:', e2);
-    }
+    const root = modelApp.value?.getModelManager()?.getTree();
+    if (!root) return;
+    const legacyJson = modelApp.value!.getSerializer().toRootJSON(root);
+    localStorage.setItem(LEGACY_FALLBACK_KEYS[sceneIndex], JSON.stringify(legacyJson));
+  } catch (e2) {
+    console.warn('[Constructor] legacy safety-net write failed:', e2);
   }
 }
 
@@ -1312,18 +1304,21 @@ function sanitizeRootParams(root: ModelNode): void {
 
 async function saveSceneToFile() {
   try {
-    const serializer = modelApp.value!.getSerializer();
-    const root = modelApp.value!.getModelManager().getTree();
-    const legacyJson = serializer.toRootJSON(root);
-    // Cutover: экспорт в v2-формате. На случай ошибки миграции — fallback
-    // на legacy v1, чтобы пользователь не потерял экспорт.
+    // Экспорт в v2-формате через текущий featureDoc. Fallback на
+    // legacy v1, если featureDoc невалиден.
     let payload: any;
-    try {
-      const doc = await loadFeatureDocument(legacyJson);
-      payload = doc.toJSON();
-    } catch (e) {
-      console.warn('[Constructor] file export: v2 build failed, exporting legacy v1:', e);
-      payload = legacyJson;
+    const fd = currentFeatureDoc();
+    if (fd) {
+      try {
+        payload = fd.toJSON();
+      } catch (e) {
+        console.warn('[Constructor] file export: featureDoc.toJSON failed:', e);
+      }
+    }
+    if (!payload) {
+      const serializer = modelApp.value!.getSerializer();
+      const root = modelApp.value!.getModelManager().getTree();
+      payload = serializer.toRootJSON(root);
     }
     const json = JSON.stringify(payload, null, 2);
     const blob = new Blob([json], { type: 'application/json' });
@@ -1480,18 +1475,10 @@ function onSelectNodeFromList(ev: any) {
 // ─── Primitives & groups ───────────────────────────────────────────────────
 
 function addPrimitiveOfType(type: PrimitiveType) {
-  if (addCooldown.value) return;
-  const r = modelApp.value!.getModelManager().getTree();
-  if (!(r instanceof GroupNode)) return;
-  const geometryParams = getDefaultParamsForType(type);
-  const prim = new Primitive(type, geometryParams, { position: { x: 0, y: 0, z: 0 } });
-
-  withHistory(() => {
-    r.children.push(prim);
-  });
-
-  if (sceneService) sceneService.appendNodeToScene(prim);
-  onSelectNode(prim);
+  if (addCooldown.value || !sceneOps) return;
+  const node = sceneOps.addPrimitive(type);
+  if (!node) return;
+  onSelectNode(node);
 
   // 3-second cooldown
   addCooldown.value = true;
@@ -1522,7 +1509,8 @@ function duplicateSelected(shrink: boolean = false) {
   const parent = sceneService ? sceneService.getParentOf(node) : null;
   if (!parent || !(parent instanceof GroupNode)) return;
 
-  const cloned = node.clone();
+  // Клонируем через factory — он навешивает свежий uuid сразу.
+  const cloned = featureFactory.cloneNode(node);
   cloned.params = cloned.params || {};
 
   if (shrink && snapStep.value > 0 && sceneService) {
@@ -1938,6 +1926,7 @@ function alignNodes(mode: AlignMode) {
     case 'centerZ': target = (anchor.min.z + anchor.max.z) / 2; break;
   }
 
+  const updates: Array<{ node: ModelNode; patch: { position: { x: number; y: number; z: number } } }> = [];
   withHistory(() => {
     for (let i = 1; i < entries.length; i++) {
       const { node, box } = entries[i];
@@ -1957,32 +1946,27 @@ function alignNodes(mode: AlignMode) {
         case 'maxZ':    current = box.max.z; p.z += target - current; break;
         case 'centerZ': current = (box.min.z + box.max.z) / 2; p.z += target - current; break;
       }
+      updates.push({ node, patch: { position: { x: p.x, y: p.y, z: p.z } } });
     }
   });
 
-  if (sceneService) sceneService.rebuildSceneFromTree();
+  if (sceneService) sceneService.batchUpdateNodeTransformsLive(updates);
 }
 
 function deleteSelected() {
   const node = selectedNode.value;
-  const r = modelApp.value!.getModelManager().getTree();
-  if (!node || !r) return;
+  const r = modelApp.value?.getModelManager()?.getTree();
+  if (!node || !r || !sceneOps) return;
+  // Сам root удалять нельзя.
   const nodeUuid = node.uuidMesh;
   if (nodeUuid && r.uuidMesh === nodeUuid) return;
-  const parent = sceneService ? sceneService.getParentOf(node) : null;
-  if (!parent || !(parent instanceof GroupNode)) return;
-  const idx = nodeUuid
-    ? parent.children.findIndex((c) => c.uuidMesh === nodeUuid)
-    : parent.children.indexOf(node);
-  if (idx === -1) return;
 
-  withHistory(() => {
-    parent.children.splice(idx, 1);
-    if (sceneService) pruneEmptyGroups(r);
-  });
+  const removed = sceneOps.removeNode(node);
+  if (!removed) return;
+  // pruneEmptyGroups — отдельная side-effect логика, остаётся в Constructor.vue.
+  if (sceneService) pruneEmptyGroups(r);
 
   setSelection(selectedNodes.value.filter((n) => (nodeUuid ? n.uuidMesh !== nodeUuid : n !== node)));
-  if (sceneService) sceneService.rebuildSceneFromTree();
 }
 
 function pruneEmptyGroups(rootNode: any) {
@@ -2099,33 +2083,39 @@ function resetColor() {
 
 function applySettingsPosition() {
   if (!selectedNode.value) return;
+  const node = selectedNode.value;
+  const next = { ...selectedPosition.value };
   withHistory(() => {
-    selectedNode.value!.params = selectedNode.value!.params || {};
-    selectedNode.value!.params.position = { ...selectedPosition.value };
+    node.params = node.params || {};
+    node.params.position = next;
   });
-  if (sceneService) sceneService.rebuildSceneFromTree();
+  if (sceneService) sceneService.updateNodeTransformLive(node, { position: next });
 }
 
 function applySettingsScale() {
   if (!selectedNode.value) return;
+  const node = selectedNode.value;
+  const next = { ...selectedScale.value };
   withHistory(() => {
-    selectedNode.value!.params = selectedNode.value!.params || {};
-    selectedNode.value!.params.scale = { ...selectedScale.value };
+    node.params = node.params || {};
+    node.params.scale = next;
   });
-  if (sceneService) sceneService.rebuildSceneFromTree();
+  if (sceneService) sceneService.updateNodeTransformLive(node, { scale: next });
 }
 
 function applySettingsRotation() {
   if (!selectedNode.value) return;
+  const node = selectedNode.value;
+  const next = {
+    x: selectedRotationDeg.value.x * DEG_TO_RAD,
+    y: selectedRotationDeg.value.y * DEG_TO_RAD,
+    z: selectedRotationDeg.value.z * DEG_TO_RAD,
+  };
   withHistory(() => {
-    selectedNode.value!.params = selectedNode.value!.params || {};
-    selectedNode.value!.params.rotation = {
-      x: selectedRotationDeg.value.x * DEG_TO_RAD,
-      y: selectedRotationDeg.value.y * DEG_TO_RAD,
-      z: selectedRotationDeg.value.z * DEG_TO_RAD,
-    };
+    node.params = node.params || {};
+    node.params.rotation = next;
   });
-  if (sceneService) sceneService.rebuildSceneFromTree();
+  if (sceneService) sceneService.updateNodeTransformLive(node, { rotation: next });
 }
 
 function applySettingsGeometry() {
@@ -2345,19 +2335,16 @@ function triggerImportSTL() {
 async function handleImportSTL(event: Event) {
   const input = event.target as HTMLInputElement;
   const file = input.files?.[0];
-  if (!file || !modelApp.value) return;
+  if (!file || !modelApp.value || !sceneOps) return;
 
   const reader = new FileReader();
   reader.onload = async () => {
     const buffer = reader.result as ArrayBuffer;
-    const r = modelApp.value!.getModelManager().getTree();
-    if (!(r instanceof GroupNode)) return;
+    if (!sceneOps) return;
 
-    // Parse geometry
+    // Parse + center geometry.
     const loader = new STLLoader();
     const geometry = loader.parse(buffer);
-
-    // Center geometry at origin and compute size
     geometry.computeBoundingBox();
     const bb = geometry.boundingBox!;
     const center = new THREE.Vector3();
@@ -2365,9 +2352,9 @@ async function handleImportSTL(event: Event) {
     geometry.translate(-center.x, -center.y, -center.z);
     geometry.computeBoundingBox();
 
-    // Бинарник пишем в IndexedDB (асинхронно), чтобы не блокировать UI и
-    // не раздувать localStorage многомегабайтной base64-строкой. Узел
-    // хранит только лёгкий binaryRef (id в IDB).
+    // Бинарник в IndexedDB (асинхронно): не блокирует UI и не раздувает
+    // localStorage многомегабайтной base64-строкой. Узел хранит только
+    // binaryRef (id в IDB).
     let binaryRef: string | undefined;
     try {
       const { BinaryStorage } = await import('@/v3d/constructor/services/BinaryStorage');
@@ -2383,29 +2370,12 @@ async function handleImportSTL(event: Event) {
     if (!binaryRef) {
       const bytes = new Uint8Array(buffer);
       let binary = '';
-      for (let i = 0; i < bytes.length; i++) {
-        binary += String.fromCharCode(bytes[i]);
-      }
+      for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
       stlBase64 = btoa(binary);
     }
 
-    const node = new ImportedMeshNode(
-      geometry,
-      stlBase64,
-      file.name,
-      { position: { x: 0, y: 0, z: 0 } },
-      binaryRef,
-    );
-
-    withHistory(() => {
-      r.children.push(node);
-    });
-
-    // appendNodeToScene вместо rebuildSceneFromTree: иначе каждый уже
-    // импортированный меш пересобирается с нуля (dispose + getMesh), что на
-    // плотных STL надолго блокирует UI.
-    if (sceneService) sceneService.appendNodeToScene(node);
-    onSelectNode(node);
+    const node = sceneOps.addImportedMesh(file.name, geometry, { binaryRef, stlBase64 });
+    if (node) onSelectNode(node);
   };
   reader.readAsArrayBuffer(file);
 
@@ -2477,6 +2447,12 @@ onMounted(() => {
     onAfterDrag() {
       if (!beforeDragJSON) return;
       try {
+        // Drag меняет node.params + manually obj.position/scale/rotation, минуя
+        // rebuildSceneFromTree → sceneService.featureDoc остаётся pre-drag
+        // (стейл). Чтобы _saveToLocalStorage сохранял актуальный v2, обновляем
+        // featureDoc через rebuild. Stage-B оптимизация (live-sync без полного
+        // rebuild) — отдельный шаг.
+        if (sceneService) sceneService.rebuildSceneFromTree();
         const afterJSON = captureFeatureDocSnapshot();
         if (afterJSON) {
           const cmd = new FeatureSnapshotCommand(beforeDragJSON, afterJSON, restoreFromFeatureSnapshot);
@@ -2502,6 +2478,15 @@ onMounted(() => {
   sceneService.setBackgroundColor(sceneSettings.value.background);
   sceneService.setZoomSpeed(sceneSettings.value.zoomSpeed);
   sceneService.setGridSize(sceneSettings.value.gridWidth, sceneSettings.value.gridLength);
+
+  // Высокоуровневый facade мутаций. Инициализируется после sceneService и
+  // modelApp — они нужны как зависимости для context'а.
+  sceneOps = new SceneOperations(featureFactory, {
+    getRoot: () => modelApp.value?.getModelManager()?.getTree() ?? null,
+    getParentOf: (target) => sceneService?.getParentOf(target) ?? null,
+    rebuildSceneFromTree: () => { if (sceneService) sceneService.rebuildSceneFromTree(); },
+    withHistory: (mutate) => withHistory(mutate),
+  });
 
   // Chamfer mode: wire up edge click callback
   sceneService.getChamferMode().onEdgeClick = (obj, edge, settings) => {

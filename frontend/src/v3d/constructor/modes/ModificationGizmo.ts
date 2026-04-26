@@ -684,16 +684,17 @@ export class ModificationGizmo {
   private getDimensionLabel(type: HandleType): string | null {
     if (!this.node) return null;
 
-    // Use AABB dimensions directly — uniformly covers primitives (including
-    // cylinders with different radiusTop/radiusBottom), rotated/scaled objects,
-    // groups and imports. Values align with what's visible on the grid.
+    // Z-up convention: width = X, depth = Y, height = Z. AABB-размеры берём
+    // напрямую — единообразно покрывают примитивы (включая cylinder с разным
+    // radiusTop/radiusBottom), повёрнутые/масштабированные объекты, группы и
+    // импорты.
     const bw = +this.boxSize.x.toFixed(2);
-    const bh = +this.boxSize.y.toFixed(2);
-    const bd = +this.boxSize.z.toFixed(2);
-    const rawBottomY = this.box.min.y;
-    // Snap near-zero bottom to 0 so an object sitting on the grid never shows a
-    // small negative number from floating-point drift or group-pivot offsets.
-    const bottomY = Math.abs(rawBottomY) < 0.05 ? 0 : +rawBottomY.toFixed(2);
+    const bd = +this.boxSize.y.toFixed(2);
+    const bh = +this.boxSize.z.toFixed(2);
+    // Snap near-zero нижней грани (Z=0) к 0, чтобы объект «на сетке» не
+    // показывал крошечную отрицательную дельту из-за floating-point drift'а.
+    const rawBottomZ = this.box.min.z;
+    const bottomZ = Math.abs(rawBottomZ) < 0.05 ? 0 : +rawBottomZ.toFixed(2);
 
     switch (type) {
       case 'edgeWidthLeft':
@@ -710,7 +711,8 @@ export class ModificationGizmo {
       case 'cornerTR':
         return `${bw} × ${bd}`;
       case 'offsetY':
-        return `Y: ${bottomY}`;
+        // Z-up: вертикальная ручка показывает нижнюю грань bbox по Z.
+        return `Z: ${bottomZ}`;
       case 'rotateX': {
         const deg = +((this.node.params?.rotation?.x ?? 0) * (180 / Math.PI)).toFixed(1);
         return `X: ${deg}°`;

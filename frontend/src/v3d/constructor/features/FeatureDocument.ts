@@ -70,6 +70,31 @@ export class FeatureDocument {
     this.emit({ type: 'recompute-done', featureIds: [...result.updated] });
   }
 
+  /**
+   * Live-update API для high-frequency mid-drag путей (handle-drag в 3D).
+   *
+   * Отличия от `updateParams`:
+   *  - Re-evaluate ТОЛЬКО эту фичу (не downstream-зависимые) — `recomputeOne`.
+   *  - Эмитит `feature-updated`, НЕ эмитит `recompute-done`.
+   *  - Подписчики (FeatureRenderer) делают targeted-update меша через
+   *    decompose новой матрицы, БЕЗ полной пересборки сцены.
+   *
+   * **Контракт:** caller обязан вызвать `updateParams` (полный путь) на
+   * pointer-up — это пересчитает downstream и сделает history-snapshot.
+   * До этого момента downstream cached outputs «чуть stale», но live-render
+   * выглядит корректно для самой dragged-фичи.
+   *
+   * Подходит для transform-only изменений (position/rotation/scale у Transform).
+   * Для изменений геометрии (width/radius у примитива) нужен полный
+   * `updateParams` — иначе downstream Boolean/Group получат stale-геометрию.
+   */
+  updateParamsLive<TP extends object>(id: FeatureId, patch: Partial<TP>): void {
+    const changed = this.graph.updateParams<TP>(id, patch);
+    if (!changed) return;
+    this.graph.recomputeOne(id);
+    this.emit({ type: 'feature-updated', featureIds: [id] });
+  }
+
   updateInputs(id: FeatureId, next: FeatureId[]): void {
     const changed = this.graph.updateInputs(id, next);
     if (!changed) return;

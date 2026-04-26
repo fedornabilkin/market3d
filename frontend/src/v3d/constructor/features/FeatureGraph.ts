@@ -213,6 +213,34 @@ export class FeatureGraph {
     return { updated, failed };
   }
 
+  /**
+   * Re-evaluate ОДНОЙ фичи по уже-кэшированным входам. Не трогает downstream
+   * (их кэши становятся «слегка stale» — это допустимо для live-mid-drag,
+   * на pointer-up вызывается полный `recompute([id])` который их освежит).
+   *
+   * Используется FeatureDocument.updateParamsLive — high-frequency путь
+   * для drag-handles: меняем transform-params одной фичи, обновляем её
+   * Output, рендер реагирует через `feature-updated` event.
+   *
+   * Возвращает новый Output или null если фича не найдена / упала.
+   */
+  recomputeOne(id: FeatureId): FeatureOutput | null {
+    const feature = this.features.get(id);
+    if (!feature) return null;
+    const ctx: EvaluateContext = { resolved: new Map(this.cachedOutputs) };
+    const visitor = new EvaluateVisitor(ctx);
+    try {
+      const output = feature.accept(visitor);
+      feature.error = undefined;
+      this.cachedOutputs.set(id, output);
+      return output;
+    } catch (e) {
+      feature.error = e instanceof Error ? e.message : String(e);
+      this.cachedOutputs.delete(id);
+      return null;
+    }
+  }
+
   /** Полный пересчёт всех фич (например, после загрузки документа). */
   recomputeAll(): RecomputeResult {
     return this.recompute([...this.features.keys()]);

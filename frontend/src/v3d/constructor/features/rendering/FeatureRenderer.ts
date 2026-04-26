@@ -112,15 +112,21 @@ export class FeatureRenderer {
     if (!this.document) return;
 
     if (event.type === 'recompute-done') {
-      // Собираем ids с обновлёнными outputs + всех корней (на случай, если
-      // изменилась roots-композиция). Точечно перерисовываем только их под-графы.
-      const updated = new Set(event.featureIds ?? []);
-      // Для простоты Шага 1.5: если обновился любой узел, переинициализируем
-      // ВСЕХ корней, чьи поддеревья пересекаются с updated. На практике обычно
-      // это просто все root'ы — затраты приемлемы для типичных размеров сцен.
-      // Targeted-update в один меш — оптимизация Шага 1.5+.
+      // Полная пересборка корней — простая и предсказуемая стратегия для
+      // структурных мутаций (add/remove/updateInputs или полный updateParams).
+      // High-frequency путь идёт через `feature-updated` (см. ниже).
       this.fullRebuild();
-      void updated; // отметим, что use не нужен сейчас
+      return;
+    }
+
+    if (event.type === 'feature-updated') {
+      // Live targeted-update от FeatureDocument.updateParamsLive: меняем
+      // только transform у уже существующих мешей, БЕЗ полной пересборки
+      // и без re-create геометрии. Caller гарантирует, что изменился только
+      // transform (для геометрических правок нужен полный updateParams).
+      for (const id of event.featureIds ?? []) {
+        this.applyLiveUpdate(id);
+      }
       return;
     }
 
@@ -130,6 +136,29 @@ export class FeatureRenderer {
       }
       return;
     }
+  }
+
+  /**
+   * Targeted live-update: получает свежий FeatureOutput из graph.cachedOutputs
+   * (его обновил `recomputeOne` внутри updateParamsLive) и пересчитывает
+   * transform у соответствующего THREE.Object3D — без disposal'а / rebuild'а
+   * меша.
+   *
+   * Пропускает фичи, не входящие в rootIds (их меши не существуют как
+   * top-level Object3D). На практике для drag-handles обновляется именно
+   * корневая Transform-фича, и она в rootIds.
+   */
+  private applyLiveUpdate(featureId: FeatureId): void {
+    if (!this.document) return;
+    const obj = this.objectsByFeatureId.get(featureId);
+    if (!obj) return;
+    const output = this.document.getOutput(featureId);
+    if (!output) return;
+    output.transform.decompose(obj.position, obj.quaternion, obj.scale);
+    if (output.kind === 'leaf' && output.bottomAnchorOffsetZ) {
+      obj.position.z += output.bottomAnchorOffsetZ;
+    }
+    obj.updateMatrixWorld(true);
   }
 
   /** Полная пересборка: чистим сцену и строим все корни. */

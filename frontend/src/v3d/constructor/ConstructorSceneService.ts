@@ -21,7 +21,9 @@ import {
   type HandleDragState,
 } from './events/PointerEventController';
 import { applyHoleStyle, removeHoleStyle } from './holeMaterial';
-import { bakeRotation, remapAxisForRotatedGroup } from './primitiveTransforms';
+import { HandleDragController } from './events/HandleDragController';
+import { computeHandleConstraintPlane as computeHandleConstraintPlaneFn } from './events/handleConstraintPlane';
+import { bakeRotationIntoDimensions as bakeRotationOnDrag } from './events/bakeRotationOnDrag';
 import { FeatureRenderer } from './features/rendering/FeatureRenderer';
 import { FeatureDocument } from './features/FeatureDocument';
 import {
@@ -29,48 +31,21 @@ import {
   type MigrationTrace,
 } from './features/migration/migrateLegacyTree';
 import type { ModelTreeJSON } from './types';
+import {
+  getNodeHalfHeight,
+  pairTrees,
+  disposeObject3D,
+  normalizeAngle,
+} from './services/sceneObjectHelpers';
+import { applyMirror as applyMirrorOp } from './modes/MirrorOperation';
+import {
+  applySelectionGlow as applyGlow,
+  clearSelectionGlow as clearGlow,
+} from './services/SelectionHighlight';
+import { YZeroIndicator } from './services/YZeroIndicator';
 
-/**
- * halfHeight offset used by a node's applyParamsToMesh. Primitive и ImportedMeshNode
- * рендерятся как mesh.position.z = params.position.z + halfHeight (Z-up); GroupNode — без оффсета.
- */
-function getNodeHalfHeight(node: ModelNode | null | undefined): number {
-  if (node instanceof Primitive) return node.getHalfHeight();
-  if (node instanceof ImportedMeshNode) return node.getHalfHeight();
-  return 0;
-}
-
-/**
- * Парный walk ModelTreeJSON ↔ ModelNode. Дерево JSON получено через
- * Serializer.toJSON, который проходит ModelNode-tree рекурсивно с тем же
- * порядком детей — структура идентична. Заполняет map: каждый JSON-узел
- * указывает на свой ModelNode.
- *
- * Используется в rebuildSceneFromTree для render-cutover'а: после миграции
- * featureId → JSON, эта map даёт JSON → ModelNode, итого featureId → ModelNode
- * для проброса userData.node.
- */
-function pairTrees(
-  json: ModelTreeJSON,
-  node: ModelNode,
-  out: Map<ModelTreeJSON, ModelNode>,
-): void {
-  out.set(json, node);
-  if (json.kind === 'group' && node instanceof GroupNode) {
-    const len = Math.min(json.children.length, node.children.length);
-    for (let i = 0; i < len; i++) {
-      pairTrees(json.children[i], node.children[i], out);
-    }
-  }
-}
-
-/** Normalize angle to [-π, π] range. */
-function normalizeAngle(a: number): number {
-  a = a % (2 * Math.PI);
-  if (a > Math.PI) a -= 2 * Math.PI;
-  if (a < -Math.PI) a += 2 * Math.PI;
-  return a;
-}
+// Helpers `getNodeHalfHeight`, `pairTrees`, `normalizeAngle`, `disposeObject3D`
+// вынесены в services/sceneObjectHelpers.ts — переиспользуются здесь и в режимах.
 
 // ─── Debug / callback types ───────────────────────────────────────────────────
 
@@ -109,30 +84,6 @@ export interface ConstructorSceneServiceOptions {
   onAfterDrag?: () => void;
   /** Called when the user finishes a marquee (rectangle) selection on the canvas. */
   onMarqueeSelect?: (nodes: ModelNode[]) => void;
-}
-
-// ─── Utility ─────────────────────────────────────────────────────────────────
-
-/**
- * Recursively disposes geometries and materials of all Mesh/LineSegments
- * descendants of obj (does NOT dispose obj itself if it is a Group).
- */
-function disposeObject3D(obj: THREE.Object3D): void {
-  obj.traverse((child) => {
-    if (child instanceof THREE.Mesh) {
-      // Шаренные геометрии (ImportedMeshNode) не диспозим — тот же
-      // BufferGeometry переиспользуется в следующем билде сцены; иначе
-      // каждый rebuild вызывал бы перезалив многомегабайтных аттрибутов на GPU.
-      const shared = (child.userData as { sharedGeometry?: boolean }).sharedGeometry;
-      if (!shared) child.geometry?.dispose();
-      const mat = child.material;
-      if (Array.isArray(mat)) mat.forEach((m) => m.dispose());
-      else mat?.dispose();
-    } else if (child instanceof THREE.LineSegments) {
-      child.geometry?.dispose();
-      (child.material as THREE.Material | undefined)?.dispose();
-    }
-  });
 }
 
 // ─── Service ─────────────────────────────────────────────────────────────────
@@ -208,8 +159,7 @@ export class ConstructorSceneService {
   private debugFrameCount = 0;
 
   /** Visual ring shown at Y=0 when dragging an object vertically. */
-  private yZeroIndicator: THREE.Mesh | null = null;
-  private yZeroIndicatorTimeout: ReturnType<typeof setTimeout> | null = null;
+  private readonly yZeroIndicator = new YZeroIndicator();
 
 
   // ─── Scene settings (applied before mount or via setters) ──────────────���───
@@ -218,6 +168,7 @@ export class ConstructorSceneService {
 
   private readonly exporter: ModelExporter;
   private readonly pointerController: PointerEventController;
+  private readonly handleDrag: HandleDragController;
 
   constructor(
     private readonly modelApp: ModelApp,
@@ -228,6 +179,7 @@ export class ConstructorSceneService {
       () => this.selectedNode,
     );
     this.pointerController = new PointerEventController(this._host);
+    this.handleDrag = new HandleDragController(this as unknown as import('./events/HandleDragController').HandleDragHost);
   }
 
   /** Returns the export helper (STL/OBJ download). */
@@ -358,60 +310,116 @@ export class ConstructorSceneService {
   }
 
   /**
-   * Зеркалит ноду по оси axis (флип scale[axis] *= -1) и компенсирует
-   * сдвиг визуального центра: после флипа объект может «уехать» от того
-   * места, где стоял — например, у группы, чей origin не совпадает с
-   * центром визуального bbox'а, отражение происходит вокруг origin'а, и
-   * визуальный bbox смещается. Алгоритм: считаем мировой центр AABB до и
-   * после флипа, добавляем разницу к params.position в системе координат
-   * родителя (только rotation-часть инверсной матрицы родителя — translation
-   * не нужен, мы переносим вектор-разницу, а не точку).
+   * Live-апдейт transform у ноды через FeatureDocument.updateParamsLive
+   * (без полной пересборки сцены). Caller обязан УЖЕ обновить
+   * node.params.{position|rotation|scale} (legacy source-of-truth Phase 1).
+   *
+   * Если у ноды есть Transform-обёртка в featureDoc — точечно обновляет её
+   * params, FeatureRenderer применит targeted-decompose к мешу.
+   * Иначе (нода с тривиальными nodeParams — Transform ещё не создан) →
+   * fallback на rebuildSceneFromTree, который создаст обёртку при следующем
+   * проходе migrateLegacyTreeToDocument; последующие вызовы пойдут по
+   * быстрому пути.
+   */
+  updateNodeTransformLive(
+    node: ModelNode,
+    patch: {
+      position?: { x: number; y: number; z: number };
+      rotation?: { x: number; y: number; z: number };
+      scale?: { x: number; y: number; z: number };
+    },
+  ): void {
+    if (!this.applyLiveTransform(node, patch)) {
+      this.rebuildSceneFromTree();
+    }
+  }
+
+  /**
+   * Batch live-update transform'ов нескольких нод (alignment / formation).
+   * "Все или ничего": если у любой ноды нет Transform-обёртки в featureDoc,
+   * делаем один полный rebuildSceneFromTree (он создаст недостающие обёртки).
+   * Иначе — N точечных updateParamsLive подряд, без rebuild'а.
+   *
+   * Caller обязан УЖЕ обновить node.params (legacy source-of-truth).
+   */
+  batchUpdateNodeTransformsLive(
+    updates: Array<{
+      node: ModelNode;
+      patch: {
+        position?: { x: number; y: number; z: number };
+        rotation?: { x: number; y: number; z: number };
+        scale?: { x: number; y: number; z: number };
+      };
+    }>,
+  ): void {
+    for (const { node } of updates) {
+      const featureId = this.featureIdByNode.get(node);
+      const feature = featureId ? this.featureDocCurrent?.graph.get(featureId) : null;
+      if (!feature || feature.type !== 'transform') {
+        this.rebuildSceneFromTree();
+        return;
+      }
+    }
+    for (const { node, patch } of updates) {
+      this.applyLiveTransform(node, patch);
+    }
+  }
+
+  /**
+   * Drag-frame путь: silent-sync `node.params.{position,rotation,scale}` →
+   * featureDoc через updateParamsLive. Без rebuild-fallback'а — на drag-frame'ах
+   * полный rebuild был бы катастрофически дорог. Если Transform-обёртки ещё
+   * нет, no-op: featureDoc останется stale до `onAfterDrag`-rebuild'а, где
+   * каноническая пересборка создаст обёртку и приведёт документ в соответствие.
+   *
+   * Сама сцена (three.js) во время драга обновляется напрямую в
+   * HandleDragController через obj.position/rotation/scale, поэтому отсутствие
+   * featureDoc-sync на frame'е не влияет на визуал.
+   */
+  syncNodeTransformLive(node: ModelNode): void {
+    const params = node.params;
+    if (!params) return;
+    const patch: {
+      position?: { x: number; y: number; z: number };
+      rotation?: { x: number; y: number; z: number };
+      scale?: { x: number; y: number; z: number };
+    } = {};
+    if (params.position) patch.position = params.position;
+    if (params.rotation) patch.rotation = params.rotation;
+    if (params.scale) patch.scale = params.scale;
+    this.applyLiveTransform(node, patch);
+  }
+
+  private applyLiveTransform(
+    node: ModelNode,
+    patch: {
+      position?: { x: number; y: number; z: number };
+      rotation?: { x: number; y: number; z: number };
+      scale?: { x: number; y: number; z: number };
+    },
+  ): boolean {
+    const featureId = this.featureIdByNode.get(node);
+    const feature = featureId ? this.featureDocCurrent?.graph.get(featureId) : null;
+    if (!feature || feature.type !== 'transform') return false;
+    const livePatch: Record<string, [number, number, number]> = {};
+    if (patch.position) livePatch.position = [patch.position.x, patch.position.y, patch.position.z];
+    if (patch.rotation) livePatch.rotation = [patch.rotation.x, patch.rotation.y, patch.rotation.z];
+    if (patch.scale) livePatch.scale = [patch.scale.x, patch.scale.y, patch.scale.z];
+    this.featureDocCurrent!.updateParamsLive(featureId!, livePatch);
+    return true;
+  }
+
+  /**
+   * Зеркалит ноду по оси axis с компенсацией визуального центра.
+   * Реализация — в `modes/MirrorOperation.applyMirror`. Этот метод —
+   * тонкий адаптер: пробрасывает контекст (findObject3DByNode/rebuild/rootGroup).
    */
   applyMirror(node: ModelNode, axis: 'x' | 'y' | 'z'): void {
-    if (!this.modelRootGroup) return;
-
-    const objBefore = this.findObject3DByNode(node);
-    if (!objBefore) return;
-    objBefore.updateMatrixWorld(true);
-    const centerBefore = new THREE.Box3().setFromObject(objBefore).getCenter(new THREE.Vector3());
-
-    node.params = node.params || {};
-    node.params.scale = node.params.scale || { x: 1, y: 1, z: 1 };
-    node.params.scale[axis] *= -1;
-
-    this.rebuildSceneFromTree();
-
-    const objAfter = this.findObject3DByNode(node);
-    if (!objAfter) return;
-    objAfter.updateMatrixWorld(true);
-    const centerAfter = new THREE.Box3().setFromObject(objAfter).getCenter(new THREE.Vector3());
-
-    const delta = centerBefore.clone().sub(centerAfter);
-    if (delta.lengthSq() < 1e-10) return;
-
-    // Переносим world-space delta в parent-local. Для вектора-разницы
-    // нужна только rotation+scale-часть инверсной матрицы родителя
-    // (translation вектор не сдвигает).
-    const parent = objAfter.parent ?? this.modelRootGroup;
-    const parentInv = new THREE.Matrix4().copy(parent.matrixWorld).invert();
-    const parentRotScale = new THREE.Matrix4().extractRotation(parentInv);
-    // extractRotation отбрасывает scale; включаем его обратно через ручное
-    // преобразование: разлагаем parent.matrixWorld → берём scale, делим
-    // delta на parent-scale покомпонентно. Но проще: берём parentInv, обнуляем
-    // translation-часть и применяем к delta.
-    const m = parentInv.clone();
-    m.elements[12] = 0;
-    m.elements[13] = 0;
-    m.elements[14] = 0;
-    delta.applyMatrix4(m);
-    void parentRotScale;
-
-    node.params.position = node.params.position || { x: 0, y: 0, z: 0 };
-    node.params.position.x += delta.x;
-    node.params.position.y += delta.y;
-    node.params.position.z += delta.z;
-
-    this.rebuildSceneFromTree();
+    applyMirrorOp(node, axis, {
+      findObject3DByNode: (n) => this.findObject3DByNode(n),
+      rebuildSceneFromTree: () => this.rebuildSceneFromTree(),
+      rootGroup: this.modelRootGroup,
+    });
   }
 
   setGridVisible(visible: boolean): void {
@@ -448,6 +456,7 @@ export class ConstructorSceneService {
 
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(this.backgroundColor as Parameters<THREE.Color['set']>[0]);
+    this.yZeroIndicator.attach(this.scene);
 
     // Grid (лежит в XY, Z=0)
     this.gridMode.init(this.scene);
@@ -576,11 +585,7 @@ export class ConstructorSceneService {
       this.scene?.remove(this.centerMarker);
       this.centerMarker = null;
     }
-    if (this.yZeroIndicator) {
-      this.yZeroIndicator.geometry.dispose();
-      (this.yZeroIndicator.material as THREE.Material).dispose();
-      this.yZeroIndicator = null;
-    }
+    this.yZeroIndicator.detach();
     this.gridMode.dispose();
 
     this.scene = null;
@@ -951,33 +956,18 @@ export class ConstructorSceneService {
     return meshes;
   }
 
-  private static readonly NEON_EMISSIVE = new THREE.Color(0x00a5a4);
-  private static readonly NEON_INTENSITY = 0.15;
-
+  /** Снимает emissive-glow с мешей всех заданных нод (если найдены). */
   private clearSelectionGlow(nodes: ModelNode[]): void {
     if (!this.modelRootGroup) return;
     for (const node of nodes) {
       const obj = this.findObjectByNode(this.modelRootGroup, node);
-      if (!obj) continue;
-      obj.traverse((child) => {
-        if (child instanceof THREE.Mesh && child.material && !child.userData.isEdgeLine) {
-          const mat = child.material as THREE.MeshPhongMaterial;
-          mat.emissive.setScalar(0);
-          mat.needsUpdate = true;
-        }
-      });
+      if (obj) clearGlow(obj);
     }
   }
 
+  /** Применяет emissive-glow ко всем мешам в obj. */
   private applySelectionGlow(obj: THREE.Object3D): void {
-    obj.traverse((child) => {
-      if (child instanceof THREE.Mesh && child.material && !child.userData.isEdgeLine) {
-        const mat = child.material as THREE.MeshPhongMaterial;
-        mat.emissive.copy(ConstructorSceneService.NEON_EMISSIVE);
-        mat.emissiveIntensity = ConstructorSceneService.NEON_INTENSITY;
-        mat.needsUpdate = true;
-      }
-    });
+    applyGlow(obj);
   }
 
   private updateGizmoTarget(prevNodes?: ModelNode[]): void {
@@ -1058,324 +1048,30 @@ export class ConstructorSceneService {
   }
 
   /**
-   * Applies a delta from a handle drag.
-   * `dx` is the horizontal delta, `dy` is the vertical delta.
+   * Applies a delta from a handle drag. Реализация — в `HandleDragController`
+   * (`events/HandleDragController.ts`). Здесь — тонкий делегатор для
+   * совместимости с `PointerEventHost` интерфейсом.
    */
   private applyHandleDragDelta(
     node: ModelNode | null,
     handleType: string,
     dx: number,
-    dy: number
+    dy: number,
   ): void {
-    if (!node) return;
-
-    const prim = node instanceof Primitive ? node : null;
-    node.params = node.params || {};
-    const params = node.params;
-    params.position = params.position || { x: 0, y: 0, z: 0 };
-    params.scale = params.scale || { x: 1, y: 1, z: 1 };
-
-    const p = params.position!;
-    const s = params.scale!;
-
-    // Compute AABB and unrotated bbox for scale-based sizing.
-    // Needed for groups (no geometryParams) and for primitives whose geomKey
-    // is absent (e.g. cylinder/cone have no width/depth — edge handles use scale).
-    let objBoxSize: THREE.Vector3 | null = null;
-    let objBox: THREE.Box3 | null = null;
-    if (this.selectedObject3D) {
-      objBox = new THREE.Box3().setFromObject(this.selectedObject3D);
-
-      // Unrotated bbox — for size along each local axis (scale operates before rotation)
-      const savedQ = this.selectedObject3D.quaternion.clone();
-      this.selectedObject3D.quaternion.set(0, 0, 0, 1);
-      this.selectedObject3D.updateMatrixWorld(true);
-      const objBoxUnrotated = new THREE.Box3().setFromObject(this.selectedObject3D);
-      this.selectedObject3D.quaternion.copy(savedQ);
-      this.selectedObject3D.updateMatrixWorld(true);
-
-      objBoxSize = new THREE.Vector3();
-      objBoxUnrotated.getSize(objBoxSize);
-    }
-
-    // Remap world handle direction to the best-matching local scale axis.
-    // E.g. if object is rotated 90° around Y, world X handle should scale local Z.
-    const remapAxis = (worldAxis: 'x' | 'y' | 'z'): 'x' | 'y' | 'z' => {
-      const rot = params.rotation;
-      if (!rot) return worldAxis;
-      return remapAxisForRotatedGroup(rot, worldAxis);
-    };
-
-    // Helper: scale object along one axis using "before-after" AABB approach:
-    // record the fixed face position, change scale, measure drift, compensate with position.
-    const growDim = (
-      delta: number,
-      _geomKey: 'width' | 'height' | 'depth',
-      scaleAxis: 'x' | 'y' | 'z',
-      posAxis: 'x' | 'y' | 'z',
-      posSign: number // +1 or -1: direction position shifts to keep opposite face fixed
-    ) => {
-      // For rotated groups, remap scale axis to best-matching local axis
-      const effectiveScaleAxis = remapAxis(scaleAxis);
-
-      if (this.selectedObject3D) {
-        const obj = this.selectedObject3D;
-        const currentSize = objBoxSize ? objBoxSize[effectiveScaleAxis] : 0;
-        if (currentSize > 0.01) {
-          // Record which AABB face must stay fixed (world-space)
-          const fixedBefore = objBox
-            ? (posSign > 0 ? objBox.min[posAxis] : objBox.max[posAxis])
-            : p[posAxis];
-
-          // Change scale in local space (using remapped axis)
-          const oldScale = s[effectiveScaleAxis] ?? 1;
-          const scaleDelta = delta / currentSize * oldScale;
-          s[effectiveScaleAxis] = Math.max(0.01, oldScale + scaleDelta);
-
-          // Apply new scale to 3D object and measure where the fixed face moved
-          obj.scale.set(s.x, s.y, s.z);
-          obj.updateMatrixWorld(true);
-          const newBox = new THREE.Box3().setFromObject(obj);
-          const fixedAfter = posSign > 0 ? newBox.min[posAxis] : newBox.max[posAxis];
-
-          // Compensate position so the fixed face doesn't move
-          const drift = fixedAfter - fixedBefore;
-          p[posAxis] -= drift;
-
-          // Sync 3D object position for subsequent growDim calls (corners call twice)
-          const halfH = getNodeHalfHeight(node);
-          obj.position.set(p.x, p.y, (p.z ?? 0) + halfH);
-          obj.updateMatrixWorld(true);
-          objBox = new THREE.Box3().setFromObject(obj);
-        } else {
-          s[effectiveScaleAxis] = Math.max(0.01, (s[effectiveScaleAxis] ?? 1) + delta * 0.01);
-          p[posAxis] += (delta / 2) * posSign;
-        }
-      }
-    };
-
-    switch (handleType) {
-      // Edge handles: grow one dimension, shift position so the opposite face stays put.
-      // Z-up: «depth» — горизонтальная глубина по оси Y (раньше была Z).
-      case 'edgeWidthRight': growDim(dx, 'width',  'x', 'x', +1); break;
-      case 'edgeWidthLeft':  growDim(-dx, 'width',  'x', 'x', -1); break;
-      case 'edgeLengthFront':growDim(dx, 'depth',  'y', 'y', +1); break;
-      case 'edgeLengthBack': growDim(-dx, 'depth',  'y', 'y', -1); break;
-
-      // Corner handles: dx = X-axis delta (width), dy = Y-axis delta (depth).
-      case 'cornerTR': {
-        growDim(dx, 'width', 'x', 'x', +1);
-        growDim(dy, 'depth', 'y', 'y', +1);
-        break;
-      }
-      case 'cornerTL': {
-        growDim(-dx, 'width', 'x', 'x', -1);
-        growDim(dy, 'depth', 'y', 'y', +1);
-        break;
-      }
-      case 'cornerBR': {
-        growDim(dx, 'width', 'x', 'x', +1);
-        growDim(-dy, 'depth', 'y', 'y', -1);
-        break;
-      }
-      case 'cornerBL': {
-        growDim(-dx, 'width', 'x', 'x', -1);
-        growDim(-dy, 'depth', 'y', 'y', -1);
-        break;
-      }
-
-      // Height: grow upward, bottom face stays fixed. Z-up: вертикаль = Z.
-      case 'height': {
-        const hObj = this.selectedObject3D;
-        // Запоминаем bbox.min.z (bottom face) до изменения.
-        let bottomBefore: number | null = null;
-        if (hObj) {
-          const bBefore = new THREE.Box3().setFromObject(hObj);
-          bottomBefore = bBefore.min.z;
-        }
-
-        {
-          const heightAxis = remapAxis('z');
-          const currentH = objBoxSize ? objBoxSize[heightAxis] : 0;
-          if (currentH > 0.01) {
-            const oldScaleH = s[heightAxis] ?? 1;
-            const scaleDelta = dy / currentH * oldScaleH;
-            s[heightAxis] = Math.max(0.01, oldScaleH + scaleDelta);
-          } else {
-            s[heightAxis] = Math.max(0.01, (s[heightAxis] ?? 1) + dy * 0.01);
-          }
-        }
-
-        // Компенсируем позицию, чтобы bbox.min.z остался на месте.
-        if (hObj && bottomBefore !== null) {
-          // Удаляем устаревшие edge-line дочерние объекты — их bbox от предыдущей
-          // геометрии раздувает setFromObject и ломает вычисление drift.
-          // updatePrimitiveGeometryInPlace пересоздаст их ниже.
-          const staleEdges = hObj.children.filter(c => c.userData.isEdgeLine);
-          staleEdges.forEach(c => {
-            if ((c as THREE.LineSegments).geometry) (c as THREE.LineSegments).geometry.dispose();
-            hObj.remove(c);
-          });
-
-          // Применяем промежуточные значения к mesh для вычисления нового bbox.
-          {
-            const halfH = getNodeHalfHeight(node);
-            hObj.position.set(p.x, p.y, (p.z ?? 0) + halfH);
-            if (params.scale) hObj.scale.set(params.scale.x, params.scale.y, params.scale.z);
-          }
-          hObj.updateMatrixWorld(true);
-          const bAfter = new THREE.Box3().setFromObject(hObj);
-          const drift = bAfter.min.z - bottomBefore;
-          if (Math.abs(drift) > 0.0001) {
-            p.z -= drift;
-          }
-        }
-        break;
-      }
-
-      // Vertical offset: pure translation along Z (Z-up).
-      // Тип ручки 'offsetY' исторически — переименование оставлено на UI-фазу.
-      case 'offsetY':
-        p.z = (p.z ?? 0) + dy;
-        break;
-
-      // Axis-constrained rotation: dx = absolute angle, applied in world space via quaternion
-      case 'rotateX':
-      case 'rotateY':
-      case 'rotateZ': {
-        params.rotation = params.rotation || { x: 0, y: 0, z: 0 };
-        const ds = this.handleDragState;
-        if (ds?.startQuaternion && ds.rotationWorldAxis) {
-          const startRot = ds.startRotation ?? 0;
-          const deltaAngle = dx - startRot;
-          // Дельта-поворот вокруг мировой оси
-          const deltaQuat = new THREE.Quaternion().setFromAxisAngle(ds.rotationWorldAxis, deltaAngle);
-          // Новый кватернион = дельта * начальный (world-space rotation)
-          const newQuat = deltaQuat.multiply(ds.startQuaternion.clone());
-          // Разложить обратно в Euler
-          const euler = new THREE.Euler().setFromQuaternion(newQuat, 'XYZ');
-          params.rotation.x = normalizeAngle(euler.x);
-          params.rotation.y = normalizeAngle(euler.y);
-          params.rotation.z = normalizeAngle(euler.z);
-        }
-        break;
-      }
-      default:
-        break;
-    }
-
-    // Snap позиции только для вертикального смещения (Z-up: ось Z).
-    // Снэпим визуальную нижнюю грань (bbox.min.z), а не raw params.position.z:
-    // после height-handle scale.z != 1 у нас p.z != bbox.min.z (drift-компенсация
-    // в growDim сдвигает p.z, чтобы bbox.min.z остался на месте). Снэп-на-p.z
-    // в этом случае промахивается мимо сетки на halfH*(1-scale.z).
-    if (this.snapStep > 0 && handleType === 'offsetY') {
-      const halfH = getNodeHalfHeight(node);
-      const scaleZ = Math.abs(params.scale?.z ?? 1);
-      // bbox.min.z = (p.z + halfH) - halfH * scaleZ = p.z + halfH*(1 - scaleZ).
-      const offset = halfH * (1 - scaleZ);
-      const bottom = (p.z ?? 0) + offset;
-      const snappedBottom = Math.round(bottom / this.snapStep) * this.snapStep;
-      p.z = snappedBottom - offset;
-    }
-
-    // Update mesh visuals
-    const obj = this.selectedObject3D;
-
-    if (obj) {
-      const halfH = getNodeHalfHeight(node);
-      if (params.position) {
-        obj.position.set(params.position.x, params.position.y, (params.position.z ?? 0) + halfH);
-      }
-      if (params.scale) obj.scale.set(params.scale.x, params.scale.y, params.scale.z);
-      if (params.rotation) {
-        if (this.handleDragState?.groupPivotWorld
-            && this.handleDragState?.groupPivotLocal) {
-          const pivotWorld = this.handleDragState.groupPivotWorld;
-          const pivotLocal = this.handleDragState.groupPivotLocal;
-
-          // Поставить новое вращение
-          obj.rotation.set(params.rotation.x, params.rotation.y, params.rotation.z);
-          obj.updateMatrixWorld(true);
-
-          // Куда сместился pivot после вращения (localToWorld = R * v + P)
-          const rotatedOffset = obj.localToWorld(pivotLocal.clone()).sub(obj.position);
-
-          // Позиция = pivot_мировой − повёрнутый_offset
-          obj.position.copy(pivotWorld).sub(rotatedOffset);
-          obj.updateMatrixWorld(true);
-
-          // Z-up: после поворота вокруг горизонтальной оси новая bbox.min.z
-          // отличается от исходной (геометрия «расходится» в Z). Удерживаем
-          // нижнюю грань на исходном Z (например, на сетке), чтобы объект
-          // визуально не уезжал вверх/вниз при наклонах.
-          const startBottomZ = this.handleDragState.startBottomZ;
-          if (startBottomZ !== undefined) {
-            const newBox = new THREE.Box3().setFromObject(obj);
-            const drift = newBox.min.z - startBottomZ;
-            if (Math.abs(drift) > 0.0001) {
-              obj.position.z -= drift;
-            }
-          }
-
-          params.position = params.position || { x: 0, y: 0, z: 0 };
-          params.position.x = obj.position.x;
-          params.position.y = obj.position.y;
-          params.position.z = obj.position.z - halfH;
-        } else {
-          obj.rotation.set(params.rotation.x, params.rotation.y, params.rotation.z);
-        }
-      }
-    }
-
-    this.showYZeroIndicatorIfNeeded(node);
-    this.options.onNodeParamsChanged?.(node);
+    this.handleDrag.applyDragDelta(node, handleType, dx, dy);
   }
 
   /**
-   * After a rotation drag ends, if the resulting rotation is aligned to 90° increments,
-   * bake the rotation into geometry dimensions (swap width/height/depth) and reset rotation to 0.
-   * Uses the pure `bakeRotation()` function for the math; this method applies the
-   * result to the node, 3D object, and gizmo.
+   * После rotation-drag'а: бейкаем rotation в размеры (для box при 90°).
+   * Реализация — в `events/bakeRotationOnDrag.ts`.
    */
   private bakeRotationIntoDimensions(node: ModelNode): void {
-    const rot = node.params?.rotation;
-    if (!rot) return;
-
-    const prim = node instanceof Primitive ? node : null;
-
-    // ── Box primitive baking ──
-    if (prim) {
-      const transform = {
-        position: node.params!.position || { x: 0, y: 0, z: 0 },
-        scale: node.params!.scale || { x: 1, y: 1, z: 1 },
-        rotation: { ...rot },
-      };
-      const result = bakeRotation(prim.type, { ...prim.geometryParams }, transform);
-      if (!result.baked) return;
-
-      prim.geometryParams.width = result.geom.width;
-      prim.geometryParams.height = result.geom.height;
-      prim.geometryParams.depth = result.geom.depth;
-      node.params!.position = result.transform.position;
-      node.params!.scale = result.transform.scale;
-      rot.x = 0; rot.y = 0; rot.z = 0;
-
-      const obj = this.selectedObject3D;
-      if (obj) {
-        obj.rotation.set(0, 0, 0);
-        obj.scale.set(result.transform.scale.x, result.transform.scale.y, result.transform.scale.z);
-        this.updatePrimitiveGeometryInPlace(prim, obj as THREE.Mesh);
-      }
-    }
-
-    // Groups keep their rotation — no baking. Handles are rotation-aware.
-    else {
-      return;
-    }
-
-    this.updateGizmoTarget();
-    this.options.onNodeParamsChanged?.(node);
+    bakeRotationOnDrag(node, {
+      selectedObject3D: this.selectedObject3D,
+      updatePrimitiveGeometryInPlace: (prim, mesh) => this.updatePrimitiveGeometryInPlace(prim, mesh),
+      updateGizmoTarget: () => this.updateGizmoTarget(),
+      options: this.options,
+    });
   }
 
   // ─── Public: keyboard movement ──────────────────────────────────
@@ -1444,176 +1140,29 @@ export class ConstructorSceneService {
     this.options.onNodeParamsChanged?.(node);
   }
 
-  // ─── Private: camera-aware axis projection ────────────────────
-
   /**
-   * Computes the constraint plane and world axis for a handle drag.
-   *
-   * For horizontal handles (edges, corners): the constraint plane is Y=objectY (the XZ grid plane
-   * at the object's height), so the cursor raycast always tracks real grid cells.
-   *
-   * For vertical handles (height, offsetY): the constraint plane passes through the object
-   * and faces the camera, so vertical mouse movement maps to Y-axis displacement regardless
-   * of camera rotation.
+   * Constraint-плоскость для handle-drag'а. Реализация — в
+   * `events/handleConstraintPlane.ts`.
    */
-  private computeHandleConstraintPlane(handleType: string): {
-    plane: THREE.Plane;
-    worldAxis: THREE.Vector3;
-    isVertical: boolean;
-    isCorner: boolean;
-    localAxisX?: THREE.Vector3;
-    localAxisZ?: THREE.Vector3;
-  } {
-    const objectPos = new THREE.Vector3();
-    if (this.selectedObject3D) {
-      this.selectedObject3D.getWorldPosition(objectPos);
-    }
-
-    // Z-up: точка на уровне нижней грани объекта (Z=min.z).
-    let botZ = 0;
-    if (this.selectedObject3D) {
-      const box = new THREE.Box3().setFromObject(this.selectedObject3D);
-      botZ = box.min.z;
-    }
-    const projOrigin = new THREE.Vector3(objectPos.x, objectPos.y, botZ);
-
-    // Оси проекции — мировые. В Z-up: depth (front-back) = Y, height = Z.
-    let worldAxis: THREE.Vector3;
-    let isVertical = false;
-    let isCorner = false;
-    let localAxisX: THREE.Vector3 | undefined;
-    let localAxisZ: THREE.Vector3 | undefined;
-
-    switch (handleType) {
-      case 'edgeWidthLeft':
-      case 'edgeWidthRight':
-        worldAxis = new THREE.Vector3(1, 0, 0);
-        break;
-      case 'edgeLengthFront':
-      case 'edgeLengthBack':
-        worldAxis = new THREE.Vector3(0, 1, 0);
-        break;
-      case 'height':
-      case 'offsetY':
-        // Тип имени 'offsetY' исторический — семантика «вертикаль», т.е. Z в Z-up.
-        worldAxis = new THREE.Vector3(0, 0, 1);
-        isVertical = true;
-        break;
-      case 'cornerBL':
-      case 'cornerBR':
-      case 'cornerTL':
-      case 'cornerTR':
-        // Угловая ручка тянет в XY-плоскости. localAxisX — ось X, поле
-        // localAxisZ переиспользуется под вторую горизонтальную ось (Y).
-        worldAxis = new THREE.Vector3(1, 1, 0).normalize();
-        isCorner = true;
-        localAxisX = new THREE.Vector3(1, 0, 0);
-        localAxisZ = new THREE.Vector3(0, 1, 0);
-        break;
-      default:
-        worldAxis = new THREE.Vector3(1, 0, 0);
-        break;
-    }
-
-    let plane: THREE.Plane;
-    if (isVertical) {
-      // Вертикальные: плоскость лицом к камере (drag отслеживает Z-перемещение).
-      const camDir = new THREE.Vector3();
-      this.camera!.getWorldDirection(camDir);
-      const normal = camDir.clone().negate().normalize();
-      if (normal.lengthSq() < 0.001) {
-        normal.set(0, 1, 0);
-      }
-      plane = new THREE.Plane().setFromNormalAndCoplanarPoint(normal, objectPos);
-    } else {
-      // Рёбра и углы: горизонтальная плоскость Z=botZ (нижняя грань объекта).
-      plane = new THREE.Plane().setFromNormalAndCoplanarPoint(
-        new THREE.Vector3(0, 0, 1),
-        projOrigin,
-      );
-    }
-
-    return { plane, worldAxis, isVertical, isCorner, localAxisX, localAxisZ };
+  private computeHandleConstraintPlane(handleType: string): ReturnType<typeof computeHandleConstraintPlaneFn> {
+    return computeHandleConstraintPlaneFn(handleType, {
+      selectedObject3D: this.selectedObject3D,
+      camera: this.camera,
+    });
   }
 
   // ─── Private: Y=0 indicator ───────────────────────────────────
+  // Логика и lifecycle самого индикатора живут в `services/YZeroIndicator.ts`.
+  // Здесь — мост: компьютим world-AABB ноды и передаём в YZeroIndicator.
 
   private showYZeroIndicatorIfNeeded(node: ModelNode): void {
-    if (!this.scene) return;
-    // Z-up: проверяем нижнюю грань bbox по Z (раньше — по Y).
-    // Имя метода/индикатора оставлено как «YZero» — это ярлык «нулевая высота».
     const obj = this.modelRootGroup ? this.findObjectByNode(this.modelRootGroup, node) : null;
-    if (!obj) {
-      this.hideYZeroIndicator();
-      return;
-    }
-    const box = new THREE.Box3().setFromObject(obj);
-    if (Math.abs(box.min.z) < 0.05) {
-      this.showYZeroIndicator(node);
-    } else {
-      this.hideYZeroIndicator();
-    }
-  }
-
-  private showYZeroIndicator(node: ModelNode): void {
-    if (!this.scene) return;
-
-    // Find the 3D object to compute its bounding box footprint
-    const obj = this.modelRootGroup ? this.findObjectByNode(this.modelRootGroup, node) : null;
-    const box = new THREE.Box3();
-    if (obj) {
-      box.setFromObject(obj);
-    } else {
-      // Fallback: small area around position. Z-up: footprint в XY на Z=0.
-      const pos = node.params?.position ?? { x: 0, y: 0, z: 0 };
-      box.min.set(pos.x - 5, pos.y - 5, 0);
-      box.max.set(pos.x + 5, pos.y + 5, 0);
-    }
-
-    const sizeX = box.max.x - box.min.x;
-    const sizeY = box.max.y - box.min.y;
-    const centerX = (box.min.x + box.max.x) / 2;
-    const centerY = (box.min.y + box.max.y) / 2;
-
-    // Z-up: индикатор лежит плоско в XY-плоскости — PlaneGeometry уже там.
-    if (this.yZeroIndicator) {
-      this.yZeroIndicator.geometry.dispose();
-      const geo = new THREE.PlaneGeometry(sizeX, sizeY);
-      this.yZeroIndicator.geometry = geo;
-    } else {
-      const geo = new THREE.PlaneGeometry(sizeX, sizeY);
-      const mat = new THREE.MeshBasicMaterial({
-        color: 0x00ff88,
-        side: THREE.DoubleSide,
-        transparent: true,
-        opacity: 0.35,
-        depthTest: false,
-      });
-      this.yZeroIndicator = new THREE.Mesh(geo, mat);
-      this.yZeroIndicator.renderOrder = 2;
-    }
-
-    this.yZeroIndicator.position.set(centerX, centerY, 0.01);
-    if (this.yZeroIndicator.parent !== this.scene) {
-      this.scene.add(this.yZeroIndicator);
-    }
-    this.yZeroIndicator.visible = true;
-
-    // Auto-hide after 800ms
-    if (this.yZeroIndicatorTimeout) clearTimeout(this.yZeroIndicatorTimeout);
-    this.yZeroIndicatorTimeout = setTimeout(() => {
-      this.hideYZeroIndicator();
-    }, 800);
+    const box = obj ? new THREE.Box3().setFromObject(obj) : null;
+    this.yZeroIndicator.showIfOnGrid(box);
   }
 
   private hideYZeroIndicator(): void {
-    if (this.yZeroIndicator) {
-      this.yZeroIndicator.visible = false;
-    }
-    if (this.yZeroIndicatorTimeout) {
-      clearTimeout(this.yZeroIndicatorTimeout);
-      this.yZeroIndicatorTimeout = null;
-    }
+    this.yZeroIndicator.hide();
   }
 
   // ─── Debug: center marker ──────────────────────────────────────────────────

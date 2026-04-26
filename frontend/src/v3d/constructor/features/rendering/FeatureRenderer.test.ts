@@ -80,6 +80,33 @@ describe('FeatureRenderer: live updates', () => {
     expect(renderer.getObject3D('s1')).toBeUndefined();
     renderer.dispose();
   });
+
+  it('updateParamsLive: targeted-update меша без полной пересборки', () => {
+    const root = new THREE.Group();
+    const renderer = new FeatureRenderer(root);
+    const doc = new FeatureDocument();
+    doc.addFeature(new BoxFeature('b1', { width: 10, height: 10, depth: 10 }));
+    doc.addFeature(new TransformFeature('t1', {
+      position: [0, 0, 0],
+      rotation: [0, 0, 0],
+      scale: [1, 1, 1],
+    }, ['b1']));
+    doc.setRootIds(['t1']);
+    renderer.bindDocument(doc);
+
+    const meshBefore = renderer.getObject3D('t1')!;
+    const meshUuidBefore = meshBefore.uuid;
+    expect(meshBefore.position.x).toBeCloseTo(0);
+
+    // Live-update сдвигает Transform.position.
+    doc.updateParamsLive('t1', { position: [42, 0, 0] });
+
+    // Тот же объект (НЕ пересоздан), позиция обновлена.
+    const meshAfter = renderer.getObject3D('t1')!;
+    expect(meshAfter.uuid).toBe(meshUuidBefore);
+    expect(meshAfter.position.x).toBeCloseTo(42);
+    renderer.dispose();
+  });
 });
 
 describe('FeatureRenderer: composite output', () => {
