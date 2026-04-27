@@ -20,7 +20,7 @@ import {
   type PointerEventHost,
   type HandleDragState,
 } from './events/PointerEventController';
-import { applyHoleStyle, removeHoleStyle } from './holeMaterial';
+import { applyHoleStyle } from './holeMaterial';
 import { HandleDragController } from './events/HandleDragController';
 import { computeHandleConstraintPlane as computeHandleConstraintPlaneFn } from './events/handleConstraintPlane';
 import { bakeRotationIntoDimensions as bakeRotationOnDrag } from './events/bakeRotationOnDrag';
@@ -928,46 +928,6 @@ export class ConstructorSceneService {
     this.modelApp.getModelManager().setTree(newRoot);
     this.skipNextMigrate = true;
     this.rebuildSceneFromTree();
-  }
-
-  /**
-   * Appends a single node to the live scene.
-   *
-   * До render-cutover это был быстрый incremental-апдейт: добавить меш в
-   * корневой THREE.Group без перестройки существующих. После cutover'а
-   * сцена строится FeatureRenderer'ом из FeatureDocument — incremental
-   * добавление потребовало бы поддержания featureId↔ModelNode инкрементально,
-   * что хрупко. Делаем полный rebuild — он O(N) от размера сцены, но
-   * вызывается только на addPrimitive (не на drag/handle), так что заметной
-   * деградации нет.
-   */
-  appendNodeToScene(node: ModelNode): void {
-    void node;
-    this.rebuildSceneFromTree();
-  }
-
-  /**
-   * Updates a node's material in-place (color / isHole transparency).
-   * Avoids a full scene rebuild for material-only changes.
-   */
-  updateNodeMaterial(node: ModelNode): void {
-    if (!this.modelRootGroup) return;
-    const obj = this.findObjectByNode(this.modelRootGroup, node);
-    if (!obj) return;
-    const isHole = !!node.params?.isHole;
-    const color = (node.params?.color) as string | undefined;
-    // Apply to all meshes in the object (handles groups with multiple children)
-    obj.traverse((child) => {
-      if (child instanceof THREE.Mesh && child.material && !child.userData.isEdgeLine) {
-        const mat = child.material as THREE.MeshPhongMaterial;
-        if (color) mat.color.setStyle(color);
-        if (isHole) {
-          applyHoleStyle(mat);
-        } else {
-          removeHoleStyle(mat);
-        }
-      }
-    });
   }
 
   /** Returns the parent GroupNode of target in the model tree (used for delete/merge). */
