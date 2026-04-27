@@ -2,11 +2,8 @@ import * as THREE from 'three';
 import * as BufferGeometryUtils from 'three/examples/jsm/utils/BufferGeometryUtils';
 import { Brush, Evaluator, ADDITION, SUBTRACTION, INTERSECTION } from 'three-bvh-csg';
 import type { CSGType } from '../types';
-import type { ModelMemento } from '../memento/ModelMemento';
-import type { GroupNodeJSON } from '../types';
 import { ModelNode } from './ModelNode';
 import type { ExportProgressCallback } from './ModelNode';
-import { ModelMemento as ModelMementoClass } from '../memento/ModelMemento';
 
 /**
  * Composite node: holds children and applies CSG operation to produce a merged mesh.
@@ -297,22 +294,4 @@ export class GroupNode extends ModelNode {
     }
   }
 
-  getMemento(): ModelMemento {
-    const treeState: GroupNodeJSON = {
-      kind: 'group',
-      operation: this.operation,
-      children: this.children.map((c) => c.getMemento().getState()),
-    };
-    if (this.name) treeState.name = this.name;
-    if (this.params && Object.keys(this.params).length > 0) {
-      treeState.nodeParams = {
-        position: this.params.position && { ...this.params.position },
-        scale: this.params.scale && { ...this.params.scale },
-        rotation: this.params.rotation && { ...this.params.rotation },
-        color: this.params.color,
-        isHole: this.params.isHole,
-      };
-    }
-    return new ModelMementoClass(treeState);
-  }
 }

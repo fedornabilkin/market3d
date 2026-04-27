@@ -43,6 +43,28 @@ export function pairTrees(
 }
 
 /**
+ * Парный walk двух ModelTreeJSON-деревьев одной структуры. Используется в
+ * load-flip пути: один tree получен из `featureDocumentToLegacy` (с trace
+ * featureId → этот tree), другой — из `Serializer.toRootJSON(ModelNode-tree)`,
+ * где ModelNode-tree был построен из того же v2. Две копии структурно
+ * идентичны (тот же порядок детей), но это разные объекты в памяти, и
+ * нам нужна map между ними.
+ */
+export function pairTreesByPosition(
+  a: ModelTreeJSON,
+  b: ModelTreeJSON,
+  out: Map<ModelTreeJSON, ModelTreeJSON>,
+): void {
+  out.set(a, b);
+  if (a.kind === 'group' && b.kind === 'group') {
+    const len = Math.min(a.children.length, b.children.length);
+    for (let i = 0; i < len; i++) {
+      pairTreesByPosition(a.children[i], b.children[i], out);
+    }
+  }
+}
+
+/**
  * Рекурсивно диспозит геометрии и материалы всех Mesh/LineSegments-детей
  * obj. Сам obj (если Group) не освобождается — caller сам решает что с ним
  * делать.

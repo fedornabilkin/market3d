@@ -49,15 +49,8 @@
           @click="switchScene(i - 1)"
         ) Сцена {{ i }}
       .panel-header
-        span(v-if="!useFeatureTreeView") Узлы
-        span(v-else) Feature graph
+        span Feature graph
         .panel-header-actions
-          button.btn-icon(
-            @click="useFeatureTreeView = !useFeatureTreeView"
-            :class="{ 'is-active-tool': useFeatureTreeView }"
-            :title="useFeatureTreeView ? 'Показать legacy NodeTree' : 'Показать FeatureGraph'"
-          )
-            i.fas.fa-sitemap
           button.btn-icon(@click="saveSceneToFile" title="Сохранить сцену в файл")
             i.fas.fa-save
           button.btn-icon(@click="loadSceneFromFile" title="Загрузить сцену из файла")
@@ -65,23 +58,12 @@
           button.btn-icon(@click="clearScene" title="Очистить сцену")
             i.fas.fa-trash-alt
       .node-list(v-show="!generatorModeActive")
-        template(v-if="!useFeatureTreeView")
-          NodeTree(
-            v-if="rootNode"
-            :node="rootNode"
-            :selected-nodes="selectedNodes"
-            :level="0"
-            :key="treeVersion"
-            @select="onSelectNodeFromList"
-          )
-          .node-list-empty(v-else) Сцена пуста
-        template(v-else)
-          FeatureTree(
-            :doc="featureDocForUI"
-            :highlighted-id="highlightedFeatureId"
-            :key="treeVersion"
-            @select="onSelectFeatureFromTree"
-          )
+        FeatureTree(
+          :doc="featureDocForUI"
+          :selected-ids="selectedFeatureIds"
+          :key="treeVersion"
+          @select="onSelectFeatureFromTree"
+        )
       .panel-actions
         .shape-icons
           button.shape-btn(
@@ -174,90 +156,18 @@
             label.label Размер (мм)
             input.input.is-small(type="number" :step="snapStep || 0.5" :min="snapStep || 0.1" v-model.number="chamferRadius")
       template(v-else)
-        .panel-header Настройки узла
-        //- Schema-driven форма (когда включён FeatureTree-режим). Мутации
-        //- идут через bridge applyFeaturePatchToNode → withHistory →
-        //- rebuildSceneFromTree.
-        .settings-content(v-if="useFeatureTreeView && selectedFeature")
+        .panel-header Настройки фичи
+        //- Schema-driven форма по выбранной фиче (FeatureTree-primary).
+        //- Мутации идут напрямую через featureDoc.updateParams → FeatureRenderer.
+        .settings-content(v-if="selectedFeature")
           FeatureParamsForm(
             :feature="selectedFeature"
+            :version="treeVersion"
             @update:params="onFeatureFormParamsUpdate"
             @update:name="onFeatureFormNameUpdate"
           )
-        //- Legacy hand-rolled форма (default).
-        .settings-content(v-else-if="!useFeatureTreeView && selectedNode")
-          //- Name (inline, no label)
-          .field
-            input.input.is-small(
-              type="text"
-              v-model="selectedName"
-              placeholder="Название узла"
-              @change="applyName"
-            )
-          //- isHole
-          .field
-            label.checkbox
-              input(type="checkbox" v-model="selectedIsHole" @change="applyIsHole")
-              span  Отверстие
-          //- Color (inline, no label)
-          .field
-            .color-row
-              input(type="color" v-model="selectedColor" @change="applyColor")
-              button.button.is-small.reset-color(@click="resetColor" title="Сбросить цвет") ✕
-          //- Position
-          .field
-            label.label Позиция (мм)
-            .field.has-addons
-              .xyz-input
-                span.xyz-label X
-                input.input(type="number" step="1" v-model.number="selectedPosition.x" @change="applySettingsPosition")
-              .xyz-input
-                span.xyz-label Y
-                input.input(type="number" step="1" v-model.number="selectedPosition.y" @change="applySettingsPosition")
-              .xyz-input
-                span.xyz-label Z
-                input.input(type="number" step="1" v-model.number="selectedPosition.z" @change="applySettingsPosition")
-          //- Scale
-          .field
-            label.label Масштаб
-            .field.has-addons
-              .xyz-input
-                span.xyz-label X
-                input.input(type="number" step="0.1" min="0.01" v-model.number="selectedScale.x" @change="applySettingsScale")
-              .xyz-input
-                span.xyz-label Y
-                input.input(type="number" step="0.1" min="0.01" v-model.number="selectedScale.y" @change="applySettingsScale")
-              .xyz-input
-                span.xyz-label Z
-                input.input(type="number" step="0.1" min="0.01" v-model.number="selectedScale.z" @change="applySettingsScale")
-          //- Rotation in degrees
-          .field
-            label.label Поворот (°)
-            .field.has-addons
-              .xyz-input
-                span.xyz-label X
-                input.input(type="number" step="1" v-model.number="selectedRotationDeg.x" @change="applySettingsRotation")
-              .xyz-input
-                span.xyz-label Y
-                input.input(type="number" step="1" v-model.number="selectedRotationDeg.y" @change="applySettingsRotation")
-              .xyz-input
-                span.xyz-label Z
-                input.input(type="number" step="1" v-model.number="selectedRotationDeg.z" @change="applySettingsRotation")
-          //- Geometry params (primitives and groups)
-          .field(v-if="currentGeometryFields.length")
-            label.label Геометрия
-            .geometry-grid
-              .geometry-item(v-for="field in currentGeometryFields" :key="field.key")
-                span.geometry-label {{ field.label }}
-                input.input.is-small.geometry-input(
-                  type="number"
-                  step="0.5"
-                  min="0.01"
-                  v-model.number="selectedGeometryParams[field.key]"
-                  @change="applySettingsGeometry"
-                )
         .settings-placeholder(v-else)
-          | Выберите узел в сцене или в списке
+          | Выберите фичу в сцене или в дереве
 
   .constructor-canvas-wrap
     div(ref="containerRef" class="canvas-container")
@@ -455,19 +365,39 @@ import {
   ImportedMeshNode,
   ConstructorSceneService,
 } from '@/v3d/constructor';
-import { SequentialFeatureIdGenerator } from '@/v3d/constructor/services/FeatureIdGenerator';
-import { FeatureFactory } from '@/v3d/constructor/services/FeatureFactory';
-import { SceneOperations } from '@/v3d/constructor/services/SceneOperations';
 import type { PrimitiveType } from '@/v3d/constructor';
 import {
   FeatureDocument,
   featureDocumentToLegacy,
-  applyFeaturePatchToNode,
   migrateLegacyTreeToDocument,
   FeatureSnapshotCommand,
+  ThreadFeature,
+  KnurlFeature,
+  GroupFeature,
+  ImportedMeshFeature,
 } from '@/v3d/constructor/features';
+// applyFeaturePatchToNode (legacy bridge) больше не используется — все формы
+// идут через featureDoc.updateParams напрямую.
 import type { FeatureDocumentJSON } from '@/v3d/constructor/features';
+import {
+  nextP2FeatureId,
+  ensureTransformWrapper,
+  findParent,
+  cloneFeatureSubgraph,
+} from '@/v3d/constructor/features/utils/dagMutations';
+import { TransformFeature } from '@/v3d/constructor/features/composite/TransformFeature';
+import { GroupingFeatureOperations } from '@/v3d/constructor/modes/GroupingFeatureOperations';
+import {
+  ChamferFeatureBuilder,
+  type EdgeSpec,
+} from '@/v3d/constructor/modes/ChamferFeatureBuilder';
+import { PrimitiveFeatureFactory } from '@/v3d/constructor/modes/PrimitiveFeatureFactory';
+import {
+  AlignmentFeatureOperation,
+  type AlignMode,
+} from '@/v3d/constructor/modes/AlignmentFeatureOperation';
 import FeatureParamsForm from '@/v3d/constructor/features/schema/FeatureParamsForm.vue';
+import { migrateAllV1ToV2 } from '@/v3d/constructor/loader/migrateV1Storage';
 import {
   DebugLogger,
   buildFeatureDocStats,
@@ -482,7 +412,6 @@ import {
 } from '@/v3d/constructor/debug';
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader';
 import { dataURItoBlob } from '@/utils';
-import NodeTree from '@/components/constructor/NodeTree.vue';
 import FeatureTree from '@/components/constructor/FeatureTree.vue';
 import DebugPanel from '@/components/constructor/DebugPanel.vue';
 import TestChecklistPanel from '@/components/constructor/TestChecklistPanel.vue';
@@ -533,38 +462,38 @@ onMounted(async () => {
 
 const SCENE_COUNT = 3;
 /**
- * Cutover (Phase 1): v2 — канонический формат хранилища. Legacy v1-ключи
- * остаются на чтение для пользователей с уже сохранёнными сценами
- * (один цикл «помилования»: после первой мутации в v2 сцены данные
- * полностью переезжают в v2-ключ, v1 становится stale, но это безопасно —
- * мы его читаем только если v2 пуст).
+ * v2 — единственный рантайм-формат хранилища. Legacy v1-ключи мигрируются
+ * один раз в `onMounted` через `migrateAllV1ToV2` и удаляются. После этого
+ * рантайм работает только с `constructor_scene_v2_*`.
  */
 const PRIMARY_KEYS = Array.from({ length: SCENE_COUNT }, (_, i) => `constructor_scene_v2_${i}`);
-const LEGACY_FALLBACK_KEYS = Array.from({ length: SCENE_COUNT }, (_, i) => `constructor_scene_v1_${i}`);
 const RAD_TO_DEG = 180 / Math.PI;
 const DEG_TO_RAD = Math.PI / 180;
 
 // ─── Refs ──────────────────────────────────────────────────────────────────
 
 const containerRef = ref<HTMLDivElement | null>(null);
-const selectedNode = shallowRef<ModelNode | null>(null);
-const selectedNodes = shallowRef<ModelNode[]>([]);
+/**
+ * Selection — primary state в FeatureId. ModelNode-tree пересобирается на
+ * каждой mutation (через featureDocumentToLegacy + serializer.fromJSON),
+ * ссылки на ModelNode становятся stale. FeatureId стабилен между rebuild'ами,
+ * поэтому держим его как источник истины. Legacy-консьюмеры читают
+ * `selectedNode`/`selectedNodes` (computed ниже).
+ */
+const selectedFeatureId = shallowRef<string | null>(null);
+const selectedFeatureIdsRaw = shallowRef<string[]>([]);
 const modelApp = shallowRef<ModelApp | null>(null);
 const activeSceneIndex = ref(0);
 
-/** Incremented to force NodeTree re-render when tree structure/labels change. */
+/** Incremented to force FeatureTree re-render when graph structure/labels change. */
 const treeVersion = ref(0);
 
 let sceneService: ConstructorSceneService | null = null;
 /**
- * Facade над высокоуровневыми мутациями (add/import/delete/duplicate).
- * Использует FeatureFactory и SequentialFeatureIdGenerator (паттерны
- * Factory Method + Strategy). Готов к flip'у на FeatureDocument primary —
- * caller'ы не меняются, перепишутся только внутренности.
+ * Factory для новых Primitive-фич: используется в addPrimitiveOfType.
+ * Дефолтные параметры по типу инкапсулированы внутри (см. модуль).
  */
-const featureIdGen = new SequentialFeatureIdGenerator();
-const featureFactory = new FeatureFactory(featureIdGen);
-let sceneOps: SceneOperations | null = null;
+const primitiveFeatureFactory = new PrimitiveFeatureFactory();
 /** Snapshot taken at drag-start for undo/redo of drag operations. */
 let beforeDragJSON: FeatureDocumentJSON | null = null;
 
@@ -576,9 +505,6 @@ let beforeDragJSON: FeatureDocumentJSON | null = null;
 function currentFeatureDoc(): FeatureDocument | null {
   return sceneService?.getFeatureDocument() ?? null;
 }
-
-/** Toggle между legacy NodeTree и новым FeatureTree в левой панели. */
-const useFeatureTreeView = ref(false);
 
 // ─── Computed ──────────────────────────────────────────────────────────────
 
@@ -594,19 +520,37 @@ const featureDocForUI = computed(() => {
   return sceneService?.getFeatureDocument() ?? null;
 });
 
-/** Подсветка выделенной фичи в FeatureTree (rootmost id). */
-const highlightedFeatureId = computed<string | null>(() => {
+/**
+ * Selection как массив FeatureId (primary state — stable across rebuild).
+ * Read-only computed для UI консьюмеров (FeatureTree multi-select).
+ */
+const selectedFeatureIds = computed<readonly string[]>(() => selectedFeatureIdsRaw.value);
+
+/**
+ * Derived ModelNode для legacy-консьюмеров. После каждого treeVersion bump'а
+ * computed пересчитывается — getModelNodeByFeatureId возвращает свежий
+ * ModelNode (или null если фича удалена / mapping ещё не построен).
+ */
+const selectedNode = computed<ModelNode | null>(() => {
   treeVersion.value;
-  const n = selectedNode.value;
-  if (!n || !sceneService) return null;
-  return sceneService.getFeatureIdByNode(n);
+  if (!selectedFeatureId.value || !sceneService) return null;
+  return sceneService.getModelNodeByFeatureId(selectedFeatureId.value);
 });
 
-/** Клик в FeatureTree → выделение соответствующего ModelNode. */
-function onSelectFeatureFromTree(featureId: string): void {
-  if (!sceneService) return;
-  const node = sceneService.getModelNodeByFeatureId(featureId);
-  if (node) onSelectNode(node);
+const selectedNodes = computed<ModelNode[]>(() => {
+  treeVersion.value;
+  if (!sceneService) return [];
+  const out: ModelNode[] = [];
+  for (const fid of selectedFeatureIdsRaw.value) {
+    const n = sceneService.getModelNodeByFeatureId(fid);
+    if (n) out.push(n);
+  }
+  return out;
+});
+
+/** Клик в FeatureTree → выделение по featureId (shift = multi-select). */
+function onSelectFeatureFromTree(payload: { id: string; shiftKey: boolean }): void {
+  onSelectFeature(payload.id, payload.shiftKey);
 }
 
 /**
@@ -624,30 +568,56 @@ const selectedFeature = computed(() => {
 });
 
 /**
- * Bridge-handler: FeatureParamsForm → ModelNode мутации.
- * Form работает в схеме v2 (`{ position: [...] }`, `{ width: 25 }` и т.п.).
- * applyFeaturePatchToNode маппит patch обратно в legacy node.params/
- * geometryParams, дальше штатный withHistory + rebuildSceneFromTree.
+ * Bridge-handler: FeatureParamsForm → featureDoc мутация.
+ * Form работает в схеме v2; патч передаётся напрямую в `featureDoc.updateParams`,
+ * featureRenderer обновляет сцену через events. Fallback на legacy bridge —
+ * если у ноды нет featureId mapping (редко, до первого rebuild'а).
  */
 function onFeatureFormParamsUpdate(patch: Record<string, unknown>): void {
   if (!sceneService || !selectedNode.value || !selectedFeature.value) return;
   const node = selectedNode.value;
-  const featureType = selectedFeature.value.type;
-  withHistory(() => {
-    applyFeaturePatchToNode(node, featureType, patch);
+  const featureId = sceneService.getFeatureIdByNode(node);
+  if (!featureId) return;
+  // Маршрутизируем patch: transform-params (position/rotation/scale/isHole/color)
+  // идут на Transform-обёртку, геометрические — на inner primitive.
+  withFeatureDocHistory((doc) => {
+    const target = doc.graph.get(featureId);
+    if (!target) return;
+    if (target.type === 'transform') {
+      const transformKeys = ['position', 'rotation', 'scale', 'isHole', 'color'];
+      const transformPatch: Record<string, unknown> = {};
+      const innerPatch: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(patch)) {
+        if (transformKeys.includes(k)) transformPatch[k] = v;
+        else innerPatch[k] = v;
+      }
+      if (Object.keys(transformPatch).length > 0) {
+        doc.updateParams(featureId, transformPatch);
+      }
+      if (Object.keys(innerPatch).length > 0) {
+        const inner = (target as { getInputs(): readonly string[] }).getInputs()[0];
+        if (inner) doc.updateParams(inner, innerPatch);
+      }
+    } else {
+      doc.updateParams(featureId, patch);
+    }
   });
-  if (sceneService) sceneService.rebuildSceneFromTree();
-  syncFormFromNode(node);
 }
 
 function onFeatureFormNameUpdate(name: string | undefined): void {
-  if (!selectedNode.value) return;
+  if (!selectedNode.value || !sceneService) return;
   const node = selectedNode.value;
-  withHistory(() => {
-    node.name = name;
+  const featureId = sceneService.getFeatureIdByNode(node);
+  if (!featureId) {
+    withHistory(() => { node.name = name; });
+    treeVersion.value++;
+    sceneService.rebuildSceneFromTree();
+    return;
+  }
+  withFeatureDocHistory((doc) => {
+    const f = doc.graph.get(featureId);
+    if (f) f.name = name;
   });
-  treeVersion.value++;
-  if (sceneService) sceneService.rebuildSceneFromTree();
 }
 
 const canUndo = computed(() => {
@@ -781,16 +751,6 @@ function setGeneratorType(type: 'thread' | 'knurl') {
   gm.updatePreview();
 }
 
-const selectedGroupOperation = ref('union');
-const selectedPosition = ref({ x: 0, y: 0, z: 0 });
-const selectedScale = ref({ x: 1, y: 1, z: 1 });
-/** Rotation stored in degrees for the UI. Converted to radians on apply. */
-const selectedRotationDeg = ref({ x: 0, y: 0, z: 0 });
-const selectedGeometryParams = ref({});
-const selectedIsHole = ref(false);
-const selectedColor = ref('#cccccc');
-const selectedName = ref('');
-
 const snapStep = ref(1);
 const snapValues = [0.1, 0.25, 0.5, 1, 2, 5, 10];
 function applySnapStep(step: number) {
@@ -849,7 +809,7 @@ function updateDebugFps() {
 
 function refreshDebugStats(): void {
   debugFeatureDocStats.value = buildFeatureDocStats(currentFeatureDoc());
-  debugStorageStats.value = buildStorageStats(LEGACY_FALLBACK_KEYS, PRIMARY_KEYS);
+  debugStorageStats.value = buildStorageStats(PRIMARY_KEYS);
 }
 
 function onDownloadDebugSnapshot(): void {
@@ -1041,20 +1001,6 @@ const GEOMETRY_FIELDS = {
   ],
 };
 
-const GROUP_GEOMETRY_FIELDS = [
-  { key: 'width', label: 'Ширина' },
-  { key: 'height', label: 'Высота' },
-  { key: 'depth', label: 'Глубина' },
-];
-
-const currentGeometryFields = computed(() => {
-  const node = selectedNode.value;
-  if (!node) return [];
-  if (isPrimitive(node)) return GEOMETRY_FIELDS[node.type] ?? [];
-  if (isGroupNode(node) && node !== rootNode.value) return GROUP_GEOMETRY_FIELDS;
-  return [];
-});
-
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
 function isPrimitive(node: any): node is Primitive {
@@ -1065,67 +1011,23 @@ function isGroupNode(node: any): node is GroupNode {
   return node instanceof GroupNode;
 }
 
-function computeGroupDimensions(node: any): { width?: number; height?: number; depth?: number } {
-  if (!isGroupNode(node)) return {};
-  try {
-    const mesh = node.getMesh();
-    mesh.updateMatrixWorld(true);
-    const box = new THREE.Box3().setFromObject(mesh);
-    const size = new THREE.Vector3();
-    box.getSize(size);
-    return {
-      width: parseFloat(size.x.toFixed(2)),
-      height: parseFloat(size.y.toFixed(2)),
-      depth: parseFloat(size.z.toFixed(2)),
-    };
-  } catch {
-    return { width: 0, height: 0, depth: 0 };
-  }
-}
-
-// Дефолтные геомпараметры по типу примитива переехали в `FeatureFactory`.
-
-// ─── Sync form ↔ node ──────────────────────────────────────────────────────
-
-function syncFormFromNode(node: ModelNode) {
-  if (!node) return;
-  const p = node.params?.position ?? { x: 0, y: 0, z: 0 };
-  const s = node.params?.scale ?? { x: 1, y: 1, z: 1 };
-  const r = node.params?.rotation ?? { x: 0, y: 0, z: 0 };
-  selectedPosition.value = { ...p };
-  selectedScale.value = { ...s };
-  // Store degrees in the form
-  selectedRotationDeg.value = {
-    x: parseFloat((r.x * RAD_TO_DEG).toFixed(2)),
-    y: parseFloat((r.y * RAD_TO_DEG).toFixed(2)),
-    z: parseFloat((r.z * RAD_TO_DEG).toFixed(2)),
-  };
-  selectedColor.value = (node.params?.color) ?? '#cccccc';
-  selectedName.value = node.name ?? '';
-  if (isPrimitive(node)) {
-    selectedGeometryParams.value = { ...node.geometryParams };
-  } else if (isGroupNode(node)) {
-    // For groups, compute bounding-box based dimensions
-    selectedGeometryParams.value = computeGroupDimensions(node);
-  } else {
-    selectedGeometryParams.value = {};
-  }
-  selectedIsHole.value = !!node.params?.isHole;
-  if (isGroupNode(node)) {
-    selectedGroupOperation.value = node.operation;
-  }
-}
-
 // ─── History ───────────────────────────────────────────────────────────────
 
 /**
  * Снапшот текущего состояния в виде FeatureDocumentJSON v2 (canonical
- * формат). Деривируется ОТ ModelNode-tree через migrateLegacyTreeToDocument
- * (sync, без полной пересборки сцены) — это тот же путь что и `_writePrimaryV2`,
- * но без IDB-резолва (нам не нужны geometries для snapshot'а — на restore
- * они придут из живых ImportedMeshNode'ов).
+ * формат). После save/load flip'а primary path: читаем из живого
+ * featureDoc'а напрямую (его `toJSON()` — canonical). Fallback на legacy
+ * migrate, если featureDoc по каким-то причинам ещё не инициализирован.
  */
 function captureFeatureDocSnapshot(): FeatureDocumentJSON | null {
+  const fd = sceneService?.getFeatureDocument();
+  if (fd) {
+    try {
+      return fd.toJSON();
+    } catch (e) {
+      console.warn('[Constructor] featureDoc.toJSON failed, falling back to legacy migrate:', e);
+    }
+  }
   const root = modelApp.value?.getModelManager()?.getTree();
   if (!root) return null;
   const serializer = modelApp.value!.getSerializer();
@@ -1134,21 +1036,20 @@ function captureFeatureDocSnapshot(): FeatureDocumentJSON | null {
 }
 
 /**
- * Restore из FeatureDocumentJSON: derive ModelNode-tree через обратный
- * конвертер, заменить дерево, пересобрать сцену.
- *
- * После полного flip'а на FeatureDocument как primary этот callback
- * заменится на `featureDoc.loadFromJSON(json)` без conversion-цепочки.
+ * Restore из FeatureDocumentJSON: использует унифицированный load-flip путь
+ * через sceneService.loadFromV2JSON. featureDoc восстанавливается напрямую,
+ * ModelNode-tree деривируется внутри.
  */
 function restoreFromFeatureSnapshot(json: FeatureDocumentJSON): void {
-  const legacyTree = featureDocumentToLegacy(json);
+  if (!sceneService) return;
   const serializer = modelApp.value!.getSerializer();
-  const newRoot = serializer.fromJSON(legacyTree);
-  sanitizeRootParams(newRoot);
-  modelApp.value!.getModelManager().setTree(newRoot);
+  sceneService.loadFromV2JSON(json, (legacyJson) => {
+    const newRoot = serializer.fromJSON(legacyJson);
+    sanitizeRootParams(newRoot);
+    return newRoot;
+  });
   setSelection([]);
   treeVersion.value++;
-  if (sceneService) sceneService.rebuildSceneFromTree();
   _saveToLocalStorage();
 }
 
@@ -1170,6 +1071,55 @@ function withHistory(mutate: () => void) {
   _saveToLocalStorage();
 }
 
+/**
+ * History-обёртка для feature-doc мутаций (P2-prep flip API). Объединяет:
+ *  - before/after captureFeatureDocSnapshot.
+ *  - sceneService.mutateFeatureDoc (Template Method из ConstructorSceneService).
+ *  - push FeatureSnapshotCommand в history.
+ *  - treeVersion bump + _saveToLocalStorage.
+ *
+ * `mutate` получает featureDoc и возвращает произвольный T (например, id новой
+ * фичи или extracted children) — caller может его использовать после.
+ *
+ * Замена для дублирующегося boilerplate в mergeSelected/ungroupSelected/
+ * generator/mirror/etc.
+ */
+function withFeatureDocHistory<T>(mutate: (doc: FeatureDocument) => T): T | null {
+  if (!sceneService) return null;
+  const serializer = modelApp.value!.getSerializer();
+  let captured: T | null = null;
+  const beforeJSON = captureFeatureDocSnapshot();
+  sceneService.mutateFeatureDoc(
+    (doc) => { captured = mutate(doc); },
+    (legacyJson) => {
+      const newRoot = serializer.fromJSON(legacyJson);
+      sanitizeRootParams(newRoot);
+      return newRoot;
+    },
+  );
+  // FeatureIds стабильны через rebuild; selectedNode/selectedNodes — computed
+  // по featureId → derived ModelNode, ре-резолв на следующий treeVersion bump.
+  // Sync gizmo/glow через sceneService.setSelection — НЕ читаем computed
+  // (его cache ещё на pre-bump value); резолвим напрямую через mapping.
+  if (sceneService) {
+    const ids = selectedFeatureIdsRaw.value;
+    const primaryFid = selectedFeatureId.value;
+    const nodes = ids
+      .map((fid) => sceneService!.getModelNodeByFeatureId(fid))
+      .filter((n): n is ModelNode => !!n);
+    const primary = primaryFid ? sceneService.getModelNodeByFeatureId(primaryFid) : null;
+    sceneService.setSelection(nodes, primary);
+  }
+  const afterJSON = captureFeatureDocSnapshot();
+  if (beforeJSON && afterJSON) {
+    const cmd = new FeatureSnapshotCommand(beforeJSON, afterJSON, restoreFromFeatureSnapshot);
+    modelApp.value!.getHistoryManager().push(cmd);
+  }
+  treeVersion.value++;
+  _saveToLocalStorage();
+  return captured;
+}
+
 function undo() {
   modelApp.value!.getHistoryManager().undo();
   // treeVersion++ and rebuildSceneFromTree happen inside restoreFromFeatureSnapshot
@@ -1189,13 +1139,12 @@ let _saveTimer: ReturnType<typeof setTimeout> | null = null;
 
 /**
  * P2-prep-1 save flip: featureDoc — каноничный источник, читаем из него
- * напрямую (минуя round-trip через `loadFeatureDocument(legacyJson)`).
+ * напрямую. featureDoc обновляется в `sceneService.rebuildSceneFromTree`
+ * после каждой мутации, поэтому на момент save'а он всегда актуален.
  *
- * featureDoc обновляется в `sceneService.rebuildSceneFromTree` после
- * каждой мутации, поэтому на момент save'а он всегда актуален.
- *
- * Failed-фичи (ошибки recompute) → пишем legacy v1 как safety-net:
- * пользователь не теряет работу даже если что-то сломалось в миграции.
+ * Failed-фичи (ошибки recompute) пропускаем: лучше оставить предыдущий
+ * корректный v2 в localStorage, чем затереть его сценой со сломанным
+ * recompute. Пользователь увидит warning и сможет откатить изменение.
  */
 function _flushSave() {
   const sceneIndex = activeSceneIndex.value;
@@ -1204,32 +1153,13 @@ function _flushSave() {
   try {
     const failed = [...fd.graph.values()].filter((f) => f.error);
     if (failed.length > 0) {
-      console.warn('[FeatureDoc] save: failed features', failed.map((f) => ({ id: f.id, type: f.type, error: f.error })));
-      _writeLegacySafetyNet(sceneIndex);
+      console.warn('[FeatureDoc] save: failed features (skip write)', failed.map((f) => ({ id: f.id, type: f.type, error: f.error })));
       return;
     }
     const v2 = fd.toJSON();
     localStorage.setItem(PRIMARY_KEYS[sceneIndex], JSON.stringify(v2));
-    localStorage.removeItem(LEGACY_FALLBACK_KEYS[sceneIndex]);
   } catch (e) {
-    console.warn('[FeatureDoc] v2 write failed; writing legacy fallback:', e);
-    _writeLegacySafetyNet(sceneIndex);
-  }
-}
-
-/**
- * Safety-net: пишет legacy v1 (toRootJSON) на случай, если featureDoc
- * не даёт корректного v2 (failed-фичи, баг сериализации). На следующей
- * загрузке legacy v1 fallback подхватит данные.
- */
-function _writeLegacySafetyNet(sceneIndex: number): void {
-  try {
-    const root = modelApp.value?.getModelManager()?.getTree();
-    if (!root) return;
-    const legacyJson = modelApp.value!.getSerializer().toRootJSON(root);
-    localStorage.setItem(LEGACY_FALLBACK_KEYS[sceneIndex], JSON.stringify(legacyJson));
-  } catch (e2) {
-    console.warn('[Constructor] legacy safety-net write failed:', e2);
+    console.warn('[FeatureDoc] v2 write failed:', e);
   }
 }
 
@@ -1255,37 +1185,51 @@ function saveToLocalStorage() {
 
 async function loadFromLocalStorage() {
   try {
-    // Cutover: v2 — основной источник. Legacy v1 — fallback для пользователей
-    // с историческими сохранёнками (или если v2-запись упала и safety-net
-    // записал legacy).
     const v2Saved = localStorage.getItem(PRIMARY_KEYS[activeSceneIndex.value]);
-    let json: any | null = null;
-    if (v2Saved) {
-      try {
-        const v2: FeatureDocumentJSON = JSON.parse(v2Saved);
-        json = featureDocumentToLegacy(v2);
-      } catch (e) {
-        console.warn('[Constructor] v2 load failed, falling back to legacy:', e);
-        json = null;
-      }
-    }
-    if (!json) {
-      const saved = localStorage.getItem(LEGACY_FALLBACK_KEYS[activeSceneIndex.value]);
-      if (!saved) return;
-      json = JSON.parse(saved);
-    }
-    const serializer = modelApp.value!.getSerializer();
-    Serializer.migrateLegacyYupToZupIfNeeded(json);
-    await Serializer.preResolveBinaryRefs(json);
-    const newRoot = serializer.fromJSON(json);
-    sanitizeRootParams(newRoot);
-    modelApp.value!.getModelManager().setTree(newRoot);
-    setSelection([]);
-    treeVersion.value++;
-    if (sceneService) sceneService.rebuildSceneFromTree();
+    if (!v2Saved || !sceneService) return;
+    const v2: FeatureDocumentJSON = JSON.parse(v2Saved);
+    await loadV2IntoScene(v2);
   } catch (e) {
     console.warn('[Constructor] Failed to load scene:', e);
   }
+}
+
+/**
+ * Общий хелпер для load-flip путей: пушит v2 в sceneService через
+ * loadFromV2JSON. ModelNode-tree деривация делегирована Serializer.fromJSON
+ * через callback (sceneService не знает про serializer).
+ *
+ * Imported-фичи требуют резолвенного `params.geometry` ДО loadFromJSON
+ * (EvaluateVisitor бросит без него). Резолвим через preResolveBinaryRefs
+ * на legacyJson, потом legacyJson попадает обратно в featureDoc через
+ * inverse-конверсию (то есть через `loadFromV2JSON` → `featureDocumentToLegacy`
+ * → ModelNode → legacy fromJSON, который умеет binaryRef-resolve в memory).
+ */
+async function loadV2IntoScene(v2: FeatureDocumentJSON): Promise<void> {
+  if (!sceneService) return;
+  const serializer = modelApp.value!.getSerializer();
+
+  // Резолвим бинарники: для imported-фич v2 переводим в legacy, потом
+  // serializer.fromJSON на legacy умеет подгружать binaryRef'ы из IDB и
+  // кладёт BufferGeometry в ImportedMeshNode.geometry. После того как
+  // ModelNode-tree готов, его можно сериализовать обратно в v2 c уже
+  // загруженной geometry. Этот roundtrip временный — после mutation flips
+  // будем грузить geometry напрямую в v2.params.
+  const legacyForResolve = featureDocumentToLegacy(v2);
+  Serializer.migrateLegacyYupToZupIfNeeded(legacyForResolve);
+  await Serializer.preResolveBinaryRefs(legacyForResolve);
+
+  sceneService.loadFromV2JSON(v2, (legacyJson) => {
+    // Используем legacyForResolve, в котором geometry уже подгружена.
+    // Игнорируем legacyJson, который sceneService свеже-сгенерировал —
+    // его imported-фичи не имеют geometry в памяти.
+    const newRoot = serializer.fromJSON(legacyForResolve);
+    sanitizeRootParams(newRoot);
+    return newRoot;
+  });
+
+  setSelection([]);
+  treeVersion.value++;
 }
 
 /**
@@ -1344,26 +1288,26 @@ function loadSceneFromFile() {
     reader.onload = async () => {
       try {
         const parsed = JSON.parse(reader.result as string);
-        // Cutover: импортируем оба формата. Если файл v2 — конвертируем
-        // в legacy ModelTreeJSON через обратный конвертер, дальше общий
-        // legacy-путь (рендер всё ещё через ModelNode).
-        let json: any;
+        // Унифицированный load-flip путь: оба формата сводятся к v2 и идут
+        // через loadV2IntoScene. История пишется ДО загрузки (before/after
+        // снапшот featureDoc охватит изменение root'а).
+        let v2: FeatureDocumentJSON;
         if (parsed && typeof parsed === 'object' && parsed.version === 2) {
-          json = featureDocumentToLegacy(parsed as FeatureDocumentJSON);
+          v2 = parsed as FeatureDocumentJSON;
         } else {
-          json = parsed;
+          // Legacy v1: применяем Y↔Z миграцию и резолв binaryRef'ов до миграции в v2,
+          // чтобы Serializer.fromJSON смог инжектить geometry в ImportedMeshNode.
+          Serializer.migrateLegacyYupToZupIfNeeded(parsed);
+          await Serializer.preResolveBinaryRefs(parsed);
+          v2 = migrateLegacyTreeToDocument(parsed);
         }
-        const serializer = modelApp.value!.getSerializer();
-        Serializer.migrateLegacyYupToZupIfNeeded(json);
-        await Serializer.preResolveBinaryRefs(json);
-        const newRoot = serializer.fromJSON(json);
-        sanitizeRootParams(newRoot);
-        withHistory(() => {
-          modelApp.value!.getModelManager().setTree(newRoot);
-        });
-        setSelection([]);
-        treeVersion.value++;
-        if (sceneService) sceneService.rebuildSceneFromTree();
+        const beforeJSON = captureFeatureDocSnapshot();
+        await loadV2IntoScene(v2);
+        const afterJSON = captureFeatureDocSnapshot();
+        if (beforeJSON && afterJSON) {
+          const cmd = new FeatureSnapshotCommand(beforeJSON, afterJSON, restoreFromFeatureSnapshot);
+          modelApp.value!.getHistoryManager().push(cmd);
+        }
       } catch (e) {
         console.warn('[Constructor] Failed to load scene from file:', e);
       }
@@ -1373,114 +1317,115 @@ function loadSceneFromFile() {
   input.click();
 }
 
-function switchScene(index: number) {
+async function switchScene(index: number) {
   if (index === activeSceneIndex.value) return;
-  // Save current scene
   _saveToLocalStorage();
-  // Switch
   activeSceneIndex.value = index;
-  // Reset history for the new scene
   modelApp.value!.getHistoryManager().clear();
-  // Load new scene (or create empty). v2 preferred, legacy v1 fallback.
-  let json: any | null = null;
+
   const v2Saved = localStorage.getItem(PRIMARY_KEYS[index]);
-  if (v2Saved) {
+  if (v2Saved && sceneService) {
     try {
       const v2: FeatureDocumentJSON = JSON.parse(v2Saved);
-      json = featureDocumentToLegacy(v2);
+      await loadV2IntoScene(v2);
+      return;
     } catch (e) {
-      console.warn('[Constructor] v2 switch failed, falling back to legacy:', e);
+      console.warn('[Constructor] v2 switch load failed:', e);
     }
   }
-  if (!json) {
-    const saved = localStorage.getItem(LEGACY_FALLBACK_KEYS[index]);
-    if (saved) {
-      try {
-        json = JSON.parse(saved);
-      } catch (e) {
-        console.warn('[Constructor] legacy load failed:', e);
-      }
-    }
-  }
-  if (json) {
-    try {
-      const serializer = modelApp.value!.getSerializer();
-      Serializer.migrateLegacyYupToZupIfNeeded(json);
-      // Pre-resolve binaryRef'ов через IndexedDB. switchScene синхронный,
-      // поэтому fire-and-forget с последующим rebuildSceneFromTree.
-      Serializer.preResolveBinaryRefs(json).then(() => {
-        const newRoot = serializer.fromJSON(json);
-        sanitizeRootParams(newRoot);
-        modelApp.value!.getModelManager().setTree(newRoot);
-        if (sceneService) sceneService.rebuildSceneFromTree();
-        treeVersion.value++;
-      }).catch((e) => {
-        console.warn('[Constructor] preResolveBinaryRefs failed:', e);
-      });
-      // Сразу ставим пустую сцену пока IDB резолвится; новая заменит её.
-      modelApp.value!.getModelManager().setTree(new GroupNode());
-    } catch (e) {
-      console.warn('[Constructor] Failed to load scene:', e);
-      modelApp.value!.getModelManager().setTree(new GroupNode());
-    }
-  } else {
-    modelApp.value!.getModelManager().setTree(new GroupNode());
-  }
+  // Пустой слот → чистая сцена.
+  modelApp.value!.getModelManager().setTree(new GroupNode());
   setSelection([]);
   treeVersion.value++;
   if (sceneService) sceneService.rebuildSceneFromTree();
 }
 
 function clearScene() {
-  withHistory(() => {
-    const r = modelApp.value!.getModelManager().getTree();
-    if (r instanceof GroupNode) r.children = [];
+  if (!sceneService) return;
+  withFeatureDocHistory((doc) => {
+    const rootId = doc.rootIds[0];
+    if (!rootId) return;
+    const root = doc.graph.get(rootId);
+    if (root && (root.type === 'group' || root.type === 'boolean')) {
+      doc.updateInputs(rootId, []);
+    }
   });
-  setSelection([]);
-  if (sceneService) sceneService.rebuildSceneFromTree();
+  setSelectionByIds([]);
 }
 
 // ─── Selection ─────────────────────────────────────────────────────────────
 
-function setSelection(nodes: ModelNode[]) {
-  selectedNodes.value = nodes.length ? [...nodes] : [];
-  selectedNode.value = nodes.length ? nodes[nodes.length - 1] : null;
-  if (selectedNode.value) syncFormFromNode(selectedNode.value);
-  if (!nodes.length && mirrorModeActive.value) {
+/**
+ * Primary selection API — featureId-based. ModelNode-tree деривируется,
+ * gizmo/glow обновляются через sceneService.setSelection (legacy-side).
+ */
+function setSelectionByIds(ids: readonly string[]): void {
+  selectedFeatureIdsRaw.value = ids.length ? [...ids] : [];
+  selectedFeatureId.value = ids.length ? ids[ids.length - 1] : null;
+  if (!ids.length && mirrorModeActive.value) {
     mirrorModeActive.value = false;
     if (sceneService) sceneService.setMirrorMode(false);
   }
-  if (sceneService) sceneService.setSelection(selectedNodes.value, selectedNode.value);
-}
-
-function onSelectNode(node: ModelNode, shiftKey = false) {
-  const rawNode = toRaw(node);
-  const list = selectedNodes.value;
-  if (shiftKey) {
-    const idx = list.indexOf(rawNode);
-    if (idx !== -1) {
-      setSelection(list.filter((_, i) => i !== idx));
-    } else {
-      setSelection([...list, rawNode]);
-    }
-  } else {
-    setSelection([rawNode]);
+  if (sceneService) {
+    sceneService.setSelection(selectedNodes.value, selectedNode.value);
   }
 }
 
-function onSelectNodeFromList(ev: any) {
-  onSelectNode(ev.node, ev.shiftKey);
+/** Backward-compat: ModelNode-based setSelection — резолвит nodes → featureIds. */
+function setSelection(nodes: ModelNode[]): void {
+  if (!sceneService) {
+    setSelectionByIds([]);
+    return;
+  }
+  const ids: string[] = [];
+  for (const n of nodes) {
+    const fid = sceneService.getFeatureIdByNode(n);
+    if (fid) ids.push(fid);
+  }
+  setSelectionByIds(ids);
+}
+
+function onSelectFeature(featureId: string, shiftKey = false): void {
+  const list = selectedFeatureIdsRaw.value;
+  if (shiftKey) {
+    const idx = list.indexOf(featureId);
+    if (idx !== -1) {
+      setSelectionByIds(list.filter((_, i) => i !== idx));
+    } else {
+      setSelectionByIds([...list, featureId]);
+    }
+  } else {
+    setSelectionByIds([featureId]);
+  }
+}
+
+/** Legacy wrapper — резолвит ModelNode → featureId, делегирует onSelectFeature. */
+function onSelectNode(node: ModelNode, shiftKey = false): void {
+  const fid = sceneService?.getFeatureIdByNode(toRaw(node));
+  if (fid) onSelectFeature(fid, shiftKey);
 }
 
 // ─── Primitives & groups ───────────────────────────────────────────────────
 
 function addPrimitiveOfType(type: PrimitiveType) {
-  if (addCooldown.value || !sceneOps) return;
-  const node = sceneOps.addPrimitive(type);
-  if (!node) return;
-  onSelectNode(node);
+  if (addCooldown.value || !sceneService) return;
+  const fd = sceneService.getFeatureDocument();
+  if (!fd || fd.rootIds.length !== 1) return;
+  const rootFeature = fd.graph.get(fd.rootIds[0]);
+  if (!rootFeature || (rootFeature.type !== 'group' && rootFeature.type !== 'boolean')) return;
 
-  // 3-second cooldown
+  const { feature, id } = primitiveFeatureFactory.create(type as never);
+  withFeatureDocHistory((doc) => {
+    doc.addFeature(feature);
+    const inputs = [...(rootFeature as { getInputs(): readonly string[] }).getInputs(), id];
+    doc.updateInputs(rootFeature.id, inputs);
+    // Сразу оборачиваем в Transform — иначе schema-form не покажет
+    // isHole/color/position до первого drag'а (где обёртка создаётся лениво).
+    ensureTransformWrapper(doc, id);
+  });
+  const newNode = sceneService.getModelNodeByFeatureId(id);
+  if (newNode) onSelectNode(newNode);
+
   addCooldown.value = true;
   setTimeout(() => { addCooldown.value = false; }, 3000);
 }
@@ -1491,30 +1436,55 @@ function addPrimitiveOfType(type: PrimitiveType) {
  * After the user modifies the clone (position/scale/rotation), subsequent
  * Ctrl+D duplicates the last clone and applies the same delta again.
  */
+type Vec3 = [number, number, number];
 const smartDup = {
-  /** The node that was last created via duplication. */
-  lastClone: null as ModelNode | null,
-  /** Snapshot of clone params right after creation — used to detect user changes. */
-  snapshotParams: null as Record<string, any> | null,
-  /** Remembered delta from the last duplication (reused when user doesn't modify). */
-  lastDelta: null as { pos: {x:number,y:number,z:number}, scale: {x:number,y:number,z:number}, rot: {x:number,y:number,z:number} } | null,
+  /** Source feature-id, последняя дублированная (для smart-delta). */
+  lastCloneId: null as string | null,
+  /** Snapshot params Transform-обёртки сразу после клонирования. */
+  snapshotParams: null as { position: Vec3; rotation: Vec3; scale: Vec3 } | null,
+  /** Remembered delta. Если пользователь не двигал клон — переиспользуется. */
+  lastDelta: null as { pos: Vec3; scale: Vec3; rot: Vec3 } | null,
 };
 
 function duplicateSelected(shrink: boolean = false) {
   const node = selectedNode.value;
-  const r = modelApp.value!.getModelManager().getTree();
-  if (!node || !r) return;
-  const nodeUuid = node.uuidMesh;
-  if (nodeUuid && r.uuidMesh === nodeUuid) return;
-  const parent = sceneService ? sceneService.getParentOf(node) : null;
-  if (!parent || !(parent instanceof GroupNode)) return;
+  if (!node || !sceneService) return;
+  const featureId = sceneService.getFeatureIdByNode(node);
+  const fd = sceneService.getFeatureDocument();
+  if (!featureId || !fd) return;
 
-  // Клонируем через factory — он навешивает свежий uuid сразу.
-  const cloned = featureFactory.cloneNode(node);
-  cloned.params = cloned.params || {};
+  // Root scene-group дублировать нельзя.
+  if (fd.rootIds.includes(featureId) && fd.rootIds.length === 1) {
+    const target = fd.graph.get(featureId);
+    if (target?.type === 'group') return;
+  }
 
-  if (shrink && snapStep.value > 0 && sceneService) {
-    const obj = sceneService.findObject3DByNode(node);
+  // Найти место (parent.inputs либо rootIds), чтобы вставить клон после
+  // оригинала.
+  const parent = findParent(fd, featureId);
+  if (!parent && !fd.rootIds.includes(featureId)) return;
+
+  // Smart-duplicate delta: если последняя дубликация была из этого же
+  // featureId и пользователь сдвинул клон — повторяем смещение.
+  let delta: { pos: Vec3; scale: Vec3; rot: Vec3 } | null = null;
+  const target = fd.graph.get(featureId);
+  if (smartDup.lastCloneId === featureId && smartDup.snapshotParams && target?.type === 'transform') {
+    const cur = (target as TransformFeature).params;
+    const snap = smartDup.snapshotParams;
+    const dp: Vec3 = [cur.position[0] - snap.position[0], cur.position[1] - snap.position[1], cur.position[2] - snap.position[2]];
+    const ds: Vec3 = [cur.scale[0] / snap.scale[0], cur.scale[1] / snap.scale[1], cur.scale[2] / snap.scale[2]];
+    const dr: Vec3 = [cur.rotation[0] - snap.rotation[0], cur.rotation[1] - snap.rotation[1], cur.rotation[2] - snap.rotation[2]];
+    const hasChange = dp.some((v) => v !== 0) || ds.some((v) => v !== 1) || dr.some((v) => v !== 0);
+    if (hasChange) smartDup.lastDelta = { pos: dp, scale: ds, rot: dr };
+    delta = smartDup.lastDelta;
+  } else {
+    smartDup.lastDelta = null;
+  }
+
+  // Shrink: рассчитываем уменьшение scale через bbox исходного меша.
+  let shrinkFactor: Vec3 | null = null;
+  if (shrink && snapStep.value > 0) {
+    const obj = sceneService.findObject3DByFeatureId(featureId);
     if (obj) {
       const box = new THREE.Box3().setFromObject(obj);
       const size = new THREE.Vector3();
@@ -1524,95 +1494,80 @@ function duplicateSelected(shrink: boolean = false) {
       const fx = size.x > step + EPS ? (size.x - step) / size.x : EPS;
       const fy = size.y > step + EPS ? (size.y - step) / size.y : EPS;
       const fz = size.z > step + EPS ? (size.z - step) / size.z : EPS;
-      const cs = cloned.params.scale || { x: 1, y: 1, z: 1 };
-      cloned.params.scale = { x: cs.x * fx, y: cs.y * fy, z: cs.z * fz };
+      shrinkFactor = [fx, fy, fz];
     }
     smartDup.lastDelta = null;
-
-    withHistory(() => { parent.children.push(cloned); });
-    smartDup.lastClone = cloned;
-    smartDup.snapshotParams = {
-      position: cloned.params.position ? { ...cloned.params.position } : undefined,
-      scale: cloned.params.scale ? { ...cloned.params.scale } : undefined,
-      rotation: cloned.params.rotation ? { ...cloned.params.rotation } : undefined,
-    };
-    if (sceneService) sceneService.rebuildSceneFromTree();
-    onSelectNode(cloned);
-    return;
+    delta = null;
   }
 
-  // If duplicating the previous clone, compute or reuse delta
-  if (smartDup.lastClone && toRaw(node) === toRaw(smartDup.lastClone) && smartDup.snapshotParams) {
-    const snap = smartDup.snapshotParams;
-    const cur = node.params || {};
+  let newRootId: string | null = null;
+  withFeatureDocHistory((doc) => {
+    const { rootId } = cloneFeatureSubgraph(doc, featureId);
+    newRootId = rootId;
 
-    // Compute fresh delta from user modifications
-    const dp = {
-      x: (cur.position?.x ?? 0) - (snap.position?.x ?? 0),
-      y: (cur.position?.y ?? 0) - (snap.position?.y ?? 0),
-      z: (cur.position?.z ?? 0) - (snap.position?.z ?? 0),
-    };
-    const ds = {
-      x: (cur.scale?.x ?? 1) / (snap.scale?.x ?? 1),
-      y: (cur.scale?.y ?? 1) / (snap.scale?.y ?? 1),
-      z: (cur.scale?.z ?? 1) / (snap.scale?.z ?? 1),
-    };
-    const dr = {
-      x: (cur.rotation?.x ?? 0) - (snap.rotation?.x ?? 0),
-      y: (cur.rotation?.y ?? 0) - (snap.rotation?.y ?? 0),
-      z: (cur.rotation?.z ?? 0) - (snap.rotation?.z ?? 0),
-    };
-
-    const hasChange = dp.x || dp.y || dp.z
-      || ds.x !== 1 || ds.y !== 1 || ds.z !== 1
-      || dr.x || dr.y || dr.z;
-
-    // If user modified the clone, save new delta; otherwise reuse previous
-    if (hasChange) {
-      smartDup.lastDelta = { pos: dp, scale: ds, rot: dr };
-    }
-
-    const delta = smartDup.lastDelta;
+    // Гарантируем Transform-обёртку на корне клона — нужно для shrink/delta
+    // и для последующего smartDup сравнения.
+    const transformId = ensureTransformWrapper(doc, rootId);
+    const transform = doc.graph.get(transformId) as TransformFeature;
+    const cur = transform.params;
+    let nextPos: Vec3 = [...cur.position];
+    let nextScale: Vec3 = [...cur.scale];
+    let nextRot: Vec3 = [...cur.rotation];
     if (delta) {
-      cloned.params.position = {
-        x: (cur.position?.x ?? 0) + delta.pos.x,
-        y: (cur.position?.y ?? 0) + delta.pos.y,
-        z: (cur.position?.z ?? 0) + delta.pos.z,
-      };
-      if (delta.scale.x !== 1 || delta.scale.y !== 1 || delta.scale.z !== 1) {
-        cloned.params.scale = {
-          x: (cur.scale?.x ?? 1) * delta.scale.x,
-          y: (cur.scale?.y ?? 1) * delta.scale.y,
-          z: (cur.scale?.z ?? 1) * delta.scale.z,
-        };
+      nextPos = [nextPos[0] + delta.pos[0], nextPos[1] + delta.pos[1], nextPos[2] + delta.pos[2]];
+      if (delta.scale.some((v) => v !== 1)) {
+        nextScale = [nextScale[0] * delta.scale[0], nextScale[1] * delta.scale[1], nextScale[2] * delta.scale[2]];
       }
-      if (delta.rot.x || delta.rot.y || delta.rot.z) {
-        cloned.params.rotation = {
-          x: (cur.rotation?.x ?? 0) + delta.rot.x,
-          y: (cur.rotation?.y ?? 0) + delta.rot.y,
-          z: (cur.rotation?.z ?? 0) + delta.rot.z,
-        };
+      if (delta.rot.some((v) => v !== 0)) {
+        nextRot = [nextRot[0] + delta.rot[0], nextRot[1] + delta.rot[1], nextRot[2] + delta.rot[2]];
       }
     }
-  } else {
-    // First duplicate of a new source — reset delta
-    smartDup.lastDelta = null;
-  }
+    if (shrinkFactor) {
+      nextScale = [nextScale[0] * shrinkFactor[0], nextScale[1] * shrinkFactor[1], nextScale[2] * shrinkFactor[2]];
+    }
+    doc.updateParams<{ position: Vec3; scale: Vec3; rotation: Vec3 }>(transformId, {
+      position: nextPos, scale: nextScale, rotation: nextRot,
+    });
+    newRootId = transformId;
 
-  withHistory(() => {
-    parent.children.push(cloned);
+    // Подключаем клон к parent сразу после оригинала. Если parent — composite,
+    // вставляем в inputs; иначе — в rootIds.
+    if (parent) {
+      const parentFeature = doc.graph.get(parent.parentId);
+      if (parentFeature && 'getInputs' in parentFeature) {
+        const inputs = [...(parentFeature as { getInputs(): readonly string[] }).getInputs()];
+        const idx = inputs.indexOf(featureId);
+        if (idx !== -1) inputs.splice(idx + 1, 0, transformId);
+        else inputs.push(transformId);
+        doc.updateInputs(parent.parentId, inputs);
+      }
+    } else {
+      const nextRoots = [...doc.rootIds];
+      const idx = nextRoots.indexOf(featureId);
+      if (idx !== -1) nextRoots.splice(idx + 1, 0, transformId);
+      else nextRoots.push(transformId);
+      doc.setRootIds(nextRoots);
+    }
   });
 
-  // Snapshot the clone's params at creation time
-  smartDup.lastClone = cloned;
-  smartDup.snapshotParams = {
-    position: cloned.params.position ? { ...cloned.params.position } : undefined,
-    scale: cloned.params.scale ? { ...cloned.params.scale } : undefined,
-    rotation: cloned.params.rotation ? { ...cloned.params.rotation } : undefined,
-  };
+  if (!newRootId) return;
 
-  if (sceneService) sceneService.rebuildSceneFromTree();
-  onSelectNode(cloned);
+  smartDup.lastCloneId = newRootId;
+  const fd2 = sceneService.getFeatureDocument();
+  const clonedTransform = fd2?.graph.get(newRootId);
+  if (clonedTransform?.type === 'transform') {
+    const p = (clonedTransform as TransformFeature).params;
+    smartDup.snapshotParams = {
+      position: [...p.position] as Vec3,
+      scale: [...p.scale] as Vec3,
+      rotation: [...p.rotation] as Vec3,
+    };
+  } else {
+    smartDup.snapshotParams = null;
+  }
+
+  const newNode = sceneService.getModelNodeByFeatureId(newRootId);
+  if (newNode) onSelectNode(newNode);
 }
 
 function toggleMirrorMode() {
@@ -1679,6 +1634,80 @@ function toggleChamferMode() {
   }
 }
 
+/**
+ * Featuredoc-путь chamfer-операции. Возвращает true если operation выполнена,
+ * false если нужен fallback (target не найден, инвалидный inputs у Transform'а).
+ *
+ * Стратегия:
+ *  1. ensureTransformWrapper(target) — гарантируем Transform над target'ом
+ *     (он держит position/rotation/scale).
+ *  2. Получаем innerPrimitiveId = transform.inputs[0].
+ *  3. Создаём новую GroupFeature[innerPrimitiveId, chamferRootId] и
+ *     заменяем transform.inputs на [newGroupId]. После этого target =
+ *     transform → group → {primitive, chamfer} — оба ребёнка в одной
+ *     local-системе, что даёт корректный subtract.
+ *  4. Если target уже composite (group/boolean) — просто добавляем chamfer
+ *     в его inputs.
+ */
+function _applyChamferToFeature(
+  featureId: string,
+  edge: Record<string, any>,
+  settings: { radius: number; profile: 'convex' | 'concave' | 'flat' },
+): boolean {
+  if (!sceneService) return false;
+  const fd = sceneService.getFeatureDocument();
+  if (!fd) return false;
+  const target = fd.graph.get(featureId);
+  if (!target) return false;
+
+  const r = settings.radius;
+  const spec: EdgeSpec = edge.kind === 'circular'
+    ? {
+        kind: 'circular',
+        localMid: (edge.localMid as THREE.Vector3).clone(),
+        radius: edge.radius as number,
+        isTopRim: edge.isTopRim === true,
+      }
+    : {
+        kind: 'linear',
+        axis: edge.axis as 'x' | 'y' | 'z',
+        localMid: (edge.localMid as THREE.Vector3).clone(),
+        length: (edge.localStart as THREE.Vector3).distanceTo(edge.localEnd as THREE.Vector3),
+        perpDirX: edge.perpDirX as number,
+        perpDirZ: edge.perpDirZ as number,
+      };
+  const chamfer = ChamferFeatureBuilder.build(spec, r);
+
+  withFeatureDocHistory((doc) => {
+    for (const f of chamfer.features) doc.addFeature(f);
+
+    const t = doc.graph.get(featureId);
+    if (!t) return;
+    if (t.type === 'group' || t.type === 'boolean') {
+      const inputs = [...(t as { getInputs(): readonly string[] }).getInputs(), chamfer.rootId];
+      doc.updateInputs(featureId, inputs);
+      return;
+    }
+    if (t.type === 'transform') {
+      const inner = (t as { getInputs(): readonly string[] }).getInputs();
+      if (inner.length !== 1) return;
+      const innerId = inner[0];
+      const wrapId = nextP2FeatureId('chamfer_target_group');
+      const wrap = new GroupFeature(wrapId, {}, [innerId, chamfer.rootId]);
+      doc.addFeature(wrap);
+      doc.updateInputs(featureId, [wrapId]);
+      return;
+    }
+    // Leaf (примитив без Transform): обернём в Transform, потом тот же путь.
+    const transformId = ensureTransformWrapper(doc, featureId);
+    const wrapId = nextP2FeatureId('chamfer_target_group');
+    const wrap = new GroupFeature(wrapId, {}, [featureId, chamfer.rootId]);
+    doc.addFeature(wrap);
+    doc.updateInputs(transformId, [wrapId]);
+  });
+  return true;
+}
+
 function applyChamferToEdge(
   obj: THREE.Object3D,
   edge: Record<string, any>,
@@ -1687,474 +1716,134 @@ function applyChamferToEdge(
   if (!sceneService || !modelApp.value) return;
   const node = (obj.userData as { node?: ModelNode }).node;
   if (!node) return;
-
-  const parent = sceneService.getParentOf(node);
-  if (!parent || !(parent instanceof GroupNode)) return;
-
-  const r = settings.radius;
-
-  const chamferGroup = edge.kind === 'circular'
-    ? buildCircularChamfer(edge, r, node)
-    : buildLinearChamfer(edge, r, settings.profile, node);
-
-  withHistory(() => {
-    if (node instanceof GroupNode) {
-      node.children.push(chamferGroup);
-    } else {
-      // Primitive: wrap original + chamfer in a new group for CSG.
-      //
-      // Цель: после оборачивания мировая матрица примитива должна остаться
-      // ровно такой, как была без оборачивания. У не-обёрнутого примитива:
-      //   world = T(p.position.xy, p.position.z + halfH) ∘ R(p.rotation) ∘ S(p.scale) ∘ Geom
-      // (см. Primitive.applyParamsToMesh: +halfHeight добавляется к mesh.position
-      //  СНАРУЖИ rotation/scale.)
-      //
-      // Эквивалентная вложенная форма:
-      //   world = T(p.position.xy, p.position.z + halfH) ∘ R ∘ S ∘ T(0,0,0) ∘ Geom
-      // — так что обёртка берёт (p.position + halfHeight, R, S), а внутри
-      // примитив сидит так, чтобы applyParamsToMesh дал mesh.position=(0,0,0):
-      // primitive.params.position.z = -halfHeight, остальные трансформации
-      // обнуляются. Без этой компенсации повёрнутый/масштабированный примитив
-      // получает либо двойной scale/rotation (если их оставить на нём), либо
-      // вращение вокруг неправильного pivot'a (если обнулить params целиком).
-      const idx = parent.children.indexOf(node);
-      if (idx === -1) return;
-      const halfH = node.getHalfHeight();
-      const oldPos = node.params?.position ?? { x: 0, y: 0, z: 0 };
-      const wrapper = new GroupNode();
-      wrapper.operation = 'union';
-      wrapper.name = node.name || 'Группа';
-      wrapper.params = {
-        position: { x: oldPos.x, y: oldPos.y, z: (oldPos.z ?? 0) + halfH },
-        scale: node.params?.scale ? { ...node.params.scale } : undefined,
-        rotation: node.params?.rotation ? { ...node.params.rotation } : undefined,
-        color: node.params?.color,
-        isHole: node.params?.isHole,
-      };
-      node.params = {
-        position: { x: 0, y: 0, z: -halfH },
-      };
-      wrapper.children.push(node, chamferGroup);
-      parent.children[idx] = wrapper;
-    }
-  });
-
-  sceneService!.rebuildSceneFromTree();
-  treeVersion.value++;
-  _saveToLocalStorage();
-}
-
-/**
- * Build chamfer group for a linear edge — convex rounding.
- *
- * In chamfer-local space Y is always the edge axis. perpDirX/Z point
- * from the edge toward the bbox center. We place a box (size r×h×r)
- * and a cylinder (radius r, height h) offset so they form a quarter-
- * cylinder at the corner. The cylinder is subtracted from the box
- * (isHole), leaving a concave cutout. When the whole group (also isHole)
- * is subtracted from the object, the corner becomes convex-rounded.
- */
-function buildLinearChamfer(
-  edge: Record<string, any>,
-  r: number,
-  _profile: 'convex' | 'concave' | 'flat',
-  node: ModelNode,
-): GroupNode {
-  const edgeLen = (edge.localStart as THREE.Vector3).distanceTo(edge.localEnd as THREE.Vector3);
-  const lm = (edge.localMid as THREE.Vector3).clone();
-  // halfHeight-сдвиг здесь не нужен: при оборачивании примитива в wrapper его
-  // mesh.position устанавливается в (0,0,0) (через primitive.params.position.z
-  // = -halfHeight), и геометрия центрируется в wrapper-local. Геометрия-локальные
-  // координаты ребра уже корректны.
-  void node;
-
-  // Z-up: длинная ось chamfer-local = Z. Поля perpDirX/perpDirZ были
-  // откалиброваны под старую Y-up конвенцию (chamfer-Y = edge axis), где
-  // perpDirX → +Y или +X (в зависимости от оси ребра), а perpDirZ → +Z или -Y.
-  // После замены вращений chamfer-group мапинги chamfer-axes → mesh-axes
-  // изменились, поэтому пересчитываем dx/dy под edge.axis.
-  let dx: number; // знак вдоль chamfer-local X
-  let dy: number; // знак вдоль chamfer-local Y
-  if (edge.axis === 'x') {
-    // chamfer-X → mesh -Z, chamfer-Y → mesh +Y. perpDirX (OLD: +Y) → dy. perpDirZ (OLD: +Z) → -dx.
-    dy = edge.perpDirX;
-    dx = -edge.perpDirZ;
-  } else {
-    // 'y' и 'z': chamfer-X → mesh +X в обоих случаях. perpDirX → dx без изменений.
-    // perpDirZ (OLD: +Z для 'y' или -Y для 'z') → -dy в обоих случаях.
-    dx = edge.perpDirX;
-    dy = -edge.perpDirZ;
+  const featureId = sceneService.getFeatureIdByNode(node);
+  if (!featureId) {
+    console.warn('[Constructor.applyChamferToEdge] нет featureId mapping — операция пропущена');
+    return;
   }
-  const h = edgeLen + 0.2;
-
-  const chamferGroup = new GroupNode();
-  chamferGroup.operation = 'union';
-  chamferGroup.name = 'Скругление';
-
-  // Box r×r×h, длинной осью по Z, сдвинут на half-r в X и Y к центру.
-  const box = new Primitive('box', { width: r, height: h, depth: r });
-  box.params = { position: { x: dx * r / 2, y: dy * r / 2, z: -h / 2 } };
-
-  // Cylinder во внутреннем углу box (полный r-сдвиг от ребра в X и Y).
-  const cyl = new Primitive('cylinder', {
-    radiusTop: r, radiusBottom: r, height: h, segments: 32,
-  });
-  cyl.params = { position: { x: dx * r, y: dy * r, z: -h / 2 }, isHole: true };
-
-  chamferGroup.children.push(box, cyl);
-
-  chamferGroup.params = {
-    position: { x: lm.x, y: lm.y, z: lm.z },
-    isHole: true,
-  };
-
-  // Поворот chamfer-group, чтобы его длинная ось (chamfer-local Z) совпала с
-  // mesh-local направлением ребра.
-  if (edge.axis === 'x') {
-    // Z → X: поворот вокруг Y на π/2 (z → x, x → -z).
-    chamferGroup.params.rotation = { x: 0, y: Math.PI / 2, z: 0 };
-  } else if (edge.axis === 'y') {
-    // Z → Y: поворот вокруг X на -π/2 (z → y, y → -z).
-    chamferGroup.params.rotation = { x: -Math.PI / 2, y: 0, z: 0 };
+  if (_applyChamferToFeature(featureId, edge, settings)) {
+    treeVersion.value++;
   }
-  // axis === 'z' — длинная ось chamfer уже совпадает с edge axis, без ротации.
-
-  return chamferGroup;
 }
-
-/**
- * Build chamfer group for a cylinder rim (circular edge) — concave fillet.
- *
- * Subtracting this group (isHole) from the cylinder yields a rounded outer rim.
- * The group's effective volume is (annulus − fillet_torus):
- *   outer_cyl(R, r)  −  inner_cyl(R−r, r+eps)  −  torus(R−r, r)
- * (Group CSG: solids combined, then holes subtracted — so all three primitives
- * collapse into that single expression in one CSG pass.)
- *
- * Canonical orientation builds the chamfer for the BOTTOM rim; the top rim is
- * handled by translating to y=h and flipping with rotation.x = π (axially
- * symmetric around Y, so the Z flip is harmless).
- */
-function buildCircularChamfer(
-  edge: Record<string, any>,
-  r: number,
-  node: ModelNode,
-): GroupNode {
-  const R = Math.max(0.01, edge.radius as number);
-  const fillet = Math.min(r, R * 0.99);
-  const isTopRim = edge.isTopRim === true;
-  const lm = (edge.localMid as THREE.Vector3).clone();
-  // halfHeight-сдвиг здесь не нужен: см. комментарий в buildLinearChamfer.
-  void node;
-
-  const eps = 0.05;
-  const chamferGroup = new GroupNode();
-  chamferGroup.operation = 'union';
-  chamferGroup.name = 'Скругление';
-
-  // Annulus outer wall — radius R, height r, bottom face at group-local y=0.
-  const outerCyl = new Primitive('cylinder', {
-    radiusTop: R, radiusBottom: R, height: fillet, segments: 64,
-  });
-  outerCyl.params = { position: { x: 0, y: 0, z: 0 } };
-
-  // Z-up: вертикаль = Z. Inner cylinder сдвигаем по Z (раньше — по Y),
-  // чтобы избежать коплоскостных граней с outerCyl.
-  const innerCyl = new Primitive('cylinder', {
-    radiusTop: R - fillet,
-    radiusBottom: R - fillet,
-    height: fillet + eps,
-    segments: 64,
-  });
-  innerCyl.params = { position: { x: 0, y: 0, z: -eps / 2 }, isHole: true };
-
-  // Z-up: TorusGeometry уже лежит в XY (плоскость перпендикулярна цилиндру),
-  // дополнительной ротации не нужно.
-  const torus = new Primitive('torus', {
-    radius: R - fillet,
-    tube: fillet,
-    segments: 48,
-  });
-  torus.params = {
-    position: { x: 0, y: 0, z: 0 },
-    isHole: true,
-  };
-
-  chamferGroup.children.push(outerCyl, innerCyl, torus);
-
-  chamferGroup.params = {
-    position: { x: lm.x, y: lm.y, z: lm.z },
-    isHole: true,
-  };
-
-  if (isTopRim) {
-    chamferGroup.params.rotation = { x: Math.PI, y: 0, z: 0 };
-  }
-
-  return chamferGroup;
-}
-
-
-type AlignMode = 'minX' | 'centerX' | 'maxX' | 'minY' | 'centerY' | 'maxY' | 'minZ' | 'centerZ' | 'maxZ';
 
 function alignNodes(mode: AlignMode) {
   const nodes = selectedNodes.value;
   if (nodes.length < 2 || !sceneService) return;
+  const featureIds = nodes
+    .map((n) => sceneService!.getFeatureIdByNode(n))
+    .filter((id): id is string => !!id);
+  if (featureIds.length < 2) return;
 
-  // Collect bounding boxes for each node via its 3D object
-  const entries: { node: ModelNode; box: THREE.Box3 }[] = [];
-  for (const node of nodes) {
-    const obj = sceneService.findObject3DByNode(node);
-    if (!obj) continue;
-    const box = new THREE.Box3().setFromObject(obj);
-    entries.push({ node, box });
-  }
-  if (entries.length < 2) return;
-
-  // Compute target value from the first selected node (anchor)
-  const anchor = entries[0].box;
-  let target: number;
-  switch (mode) {
-    case 'minX':    target = anchor.min.x; break;
-    case 'maxX':    target = anchor.max.x; break;
-    case 'centerX': target = (anchor.min.x + anchor.max.x) / 2; break;
-    case 'minY':    target = anchor.min.y; break;
-    case 'maxY':    target = anchor.max.y; break;
-    case 'centerY': target = (anchor.min.y + anchor.max.y) / 2; break;
-    case 'minZ':    target = anchor.min.z; break;
-    case 'maxZ':    target = anchor.max.z; break;
-    case 'centerZ': target = (anchor.min.z + anchor.max.z) / 2; break;
-  }
-
-  const updates: Array<{ node: ModelNode; patch: { position: { x: number; y: number; z: number } } }> = [];
-  withHistory(() => {
-    for (let i = 1; i < entries.length; i++) {
-      const { node, box } = entries[i];
-      node.params = node.params || {};
-      node.params.position = node.params.position || { x: 0, y: 0, z: 0 };
-      const p = node.params.position;
-
-      let current: number;
-      switch (mode) {
-        case 'minX':    current = box.min.x; p.x += target - current; break;
-        case 'maxX':    current = box.max.x; p.x += target - current; break;
-        case 'centerX': current = (box.min.x + box.max.x) / 2; p.x += target - current; break;
-        case 'minY':    current = box.min.y; p.y += target - current; break;
-        case 'maxY':    current = box.max.y; p.y += target - current; break;
-        case 'centerY': current = (box.min.y + box.max.y) / 2; p.y += target - current; break;
-        case 'minZ':    current = box.min.z; p.z += target - current; break;
-        case 'maxZ':    current = box.max.z; p.z += target - current; break;
-        case 'centerZ': current = (box.min.z + box.max.z) / 2; p.z += target - current; break;
-      }
-      updates.push({ node, patch: { position: { x: p.x, y: p.y, z: p.z } } });
-    }
+  const op = new AlignmentFeatureOperation({
+    computeBboxByFeatureId: (fid) => {
+      const obj = sceneService!.findObject3DByFeatureId(fid);
+      if (!obj) return null;
+      obj.updateMatrixWorld(true);
+      return new THREE.Box3().setFromObject(obj);
+    },
   });
-
-  if (sceneService) sceneService.batchUpdateNodeTransformsLive(updates);
+  withFeatureDocHistory((doc) => {
+    op.run(doc, featureIds, mode);
+  });
 }
 
 function deleteSelected() {
   const node = selectedNode.value;
-  const r = modelApp.value?.getModelManager()?.getTree();
-  if (!node || !r || !sceneOps) return;
-  // Сам root удалять нельзя.
+  if (!node || !sceneService) return;
+  const featureId = sceneService.getFeatureIdByNode(node);
+  const fd = sceneService.getFeatureDocument();
+  if (!featureId || !fd) return;
+
+  // Root scene-group удалять нельзя.
+  if (fd.rootIds.includes(featureId) && fd.rootIds.length === 1) {
+    const target = fd.graph.get(featureId);
+    if (target?.type === 'group') return;
+  }
+
   const nodeUuid = node.uuidMesh;
-  if (nodeUuid && r.uuidMesh === nodeUuid) return;
-
-  const removed = sceneOps.removeNode(node);
-  if (!removed) return;
-  // pruneEmptyGroups — отдельная side-effect логика, остаётся в Constructor.vue.
-  if (sceneService) pruneEmptyGroups(r);
-
-  setSelection(selectedNodes.value.filter((n) => (nodeUuid ? n.uuidMesh !== nodeUuid : n !== node)));
-}
-
-function pruneEmptyGroups(rootNode: any) {
-  if (!(rootNode instanceof GroupNode)) return;
-  const stack = [rootNode];
-  while (stack.length) {
-    const current = stack.pop();
-    if (!(current instanceof GroupNode)) continue;
-    for (let i = current.children.length - 1; i >= 0; i--) {
-      const child = current.children[i];
-      if (child instanceof GroupNode) {
-        if (child.children.length === 0 && child !== rootNode) {
-          current.children.splice(i, 1);
-        } else {
-          stack.push(child);
+  const removed = withFeatureDocHistory((doc) => {
+    const target = doc.graph.get(featureId);
+    if (!target) return false;
+    // 1. Detach из parent.inputs либо rootIds.
+    const parent = findParent(doc, featureId);
+    if (parent) {
+      const parentFeature = doc.graph.get(parent.parentId);
+      if (parentFeature && 'getInputs' in parentFeature) {
+        const next = (parentFeature as { getInputs(): readonly string[] }).getInputs()
+          .filter((id) => id !== featureId);
+        doc.updateInputs(parent.parentId, next);
+      }
+    } else {
+      const nextRoots = doc.rootIds.filter((id) => id !== featureId);
+      doc.setRootIds(nextRoots);
+    }
+    // 2. Garbage collect orphan-фичи sub-DAG'а (топосорт reverse): удаляем
+    //    каждую только если на неё больше никто не ссылается.
+    const visited = new Set<string>();
+    const collect = (id: string): void => {
+      if (visited.has(id)) return;
+      visited.add(id);
+      const f = doc.graph.get(id);
+      if (!f) return;
+      for (const inputId of f.getInputs()) collect(inputId);
+    };
+    collect(featureId);
+    const removalOrder = [...visited].reverse();
+    for (const id of removalOrder) {
+      const stillReferenced =
+        doc.rootIds.includes(id)
+        || [...doc.graph.values()].some((f) => f.getInputs().includes(id));
+      if (!stillReferenced && doc.graph.has(id)) {
+        const f = doc.graph.get(id);
+        if (f && 'getInputs' in f && f.getInputs().length > 0) {
+          try { doc.updateInputs(id, []); } catch { /* leaf */ }
         }
+        try { doc.removeFeature(id); } catch { /* still referenced */ }
       }
     }
-  }
+    return true;
+  });
+  if (!removed) return;
+  setSelection(selectedNodes.value.filter((n) => (nodeUuid ? n.uuidMesh !== nodeUuid : n !== node)));
 }
 
 function mergeSelected() {
   const nodes = selectedNodes.value;
-  const r = modelApp.value!.getModelManager().getTree();
-  if (!(r instanceof GroupNode) || nodes.length < 2) return;
+  if (!sceneService || nodes.length < 2) return;
+  const featureIds = nodes
+    .map((n) => sceneService!.getFeatureIdByNode(n))
+    .filter((id): id is string => !!id);
+  if (featureIds.length < 2) return;
 
-  // Always create a NEW group containing all selected nodes.
-  // Nodes with isHole=true will be auto-subtracted inside GroupNode.getMesh().
-  const entries: { parent: GroupNode; index: number; node: ModelNode }[] = [];
-  for (const node of nodes) {
-    const parent = sceneService ? sceneService.getParentOf(node) : null;
-    const nodeUuid = node.uuidMesh;
-    const sameAsParent = nodeUuid && parent && parent.uuidMesh === nodeUuid;
-    if (parent && !sameAsParent) {
-      const i = nodeUuid
-        ? parent.children.findIndex((c) => c.uuidMesh === nodeUuid)
-        : parent.children.indexOf(node);
-      if (i !== -1) entries.push({ parent, index: i, node });
-    }
-  }
-  if (entries.length < 2) return;
-  // Remove from back to front to preserve indices
-  entries.sort((a, b) => (a.parent !== b.parent ? 0 : b.index - a.index));
+  const newGroupId = withFeatureDocHistory(
+    (doc) => GroupingFeatureOperations.merge(doc, featureIds),
+  );
+  if (!newGroupId) return;
 
-  const group = new GroupNode();
-  group.operation = 'union';
-
-  withHistory(() => {
-    for (const { parent, index, node } of entries) {
-      parent.children.splice(index, 1);
-      group.children.push(node);
-    }
-    if (group.children.length === 0) return;
-    r.children.push(group);
-    pruneEmptyGroups(r);
-  });
-
-  if (group.children.length === 0) return;
-  if (sceneService) sceneService.rebuildSceneFromTree();
-  setSelection([group]);
+  const newGroupNode = sceneService.getModelNodeByFeatureId(newGroupId);
+  if (newGroupNode) setSelection([newGroupNode]);
 }
 
 function ungroupSelected() {
   const node = selectedNode.value;
-  const r = modelApp.value!.getModelManager().getTree();
-  if (!node || !r || !isGroupNode(node) || node === r) return;
-  const parent = sceneService ? sceneService.getParentOf(node) : null;
-  if (!parent || !(parent instanceof GroupNode)) return;
-  const nodeUuid = node.uuidMesh;
-  const idx = nodeUuid
-    ? parent.children.findIndex((c) => c.uuidMesh === nodeUuid)
-    : parent.children.indexOf(node);
-  if (idx === -1) return;
-
-  const children = [...node.children];
-  withHistory(() => {
-    parent.children.splice(idx, 1, ...children);
-  });
-
-  if (sceneService) sceneService.rebuildSceneFromTree();
-  setSelection(children.length ? [children[0]] : []);
-}
-
-// ─── Apply settings ────────────────────────────────────────────────────────
-
-function applyName() {
-  if (!selectedNode.value) return;
-  withHistory(() => {
-    selectedNode.value!.name = selectedName.value;
-  });
-  // No scene rebuild needed — name is UI-only
-}
-
-function applyGroupOperation() {
-  if (!selectedNode.value || !isGroupNode(selectedNode.value)) return;
-  withHistory(() => {
-    (selectedNode.value as GroupNode).operation = selectedGroupOperation.value as any;
-  });
-}
-
-function applyColor() {
-  if (!selectedNode.value) return;
-  withHistory(() => {
-    selectedNode.value!.params = selectedNode.value!.params || {};
-    selectedNode.value!.params.color = selectedColor.value;
-  });
-  if (sceneService) sceneService.rebuildSceneFromTree();
-}
-
-function resetColor() {
-  selectedColor.value = '#cccccc';
-  applyColor();
-}
-
-function applySettingsPosition() {
-  if (!selectedNode.value) return;
-  const node = selectedNode.value;
-  const next = { ...selectedPosition.value };
-  withHistory(() => {
-    node.params = node.params || {};
-    node.params.position = next;
-  });
-  if (sceneService) sceneService.updateNodeTransformLive(node, { position: next });
-}
-
-function applySettingsScale() {
-  if (!selectedNode.value) return;
-  const node = selectedNode.value;
-  const next = { ...selectedScale.value };
-  withHistory(() => {
-    node.params = node.params || {};
-    node.params.scale = next;
-  });
-  if (sceneService) sceneService.updateNodeTransformLive(node, { scale: next });
-}
-
-function applySettingsRotation() {
-  if (!selectedNode.value) return;
-  const node = selectedNode.value;
-  const next = {
-    x: selectedRotationDeg.value.x * DEG_TO_RAD,
-    y: selectedRotationDeg.value.y * DEG_TO_RAD,
-    z: selectedRotationDeg.value.z * DEG_TO_RAD,
-  };
-  withHistory(() => {
-    node.params = node.params || {};
-    node.params.rotation = next;
-  });
-  if (sceneService) sceneService.updateNodeTransformLive(node, { rotation: next });
-}
-
-function applySettingsGeometry() {
-  if (!selectedNode.value) return;
-  if (isPrimitive(selectedNode.value)) {
-    withHistory(() => {
-      (selectedNode.value as Primitive).geometryParams = { ...selectedGeometryParams.value };
-    });
-    if (sceneService) sceneService.rebuildSceneFromTree();
-  } else if (isGroupNode(selectedNode.value)) {
-    // For groups, changing geometry = scaling relative to original dimensions
-    const origDims = computeGroupDimensions(selectedNode.value);
-    const newParams = selectedGeometryParams.value as { width?: number; height?: number; depth?: number };
-    const sx = origDims.width && origDims.width > 0 ? (newParams.width ?? origDims.width) / origDims.width : 1;
-    const sy = origDims.height && origDims.height > 0 ? (newParams.height ?? origDims.height) / origDims.height : 1;
-    const sz = origDims.depth && origDims.depth > 0 ? (newParams.depth ?? origDims.depth) / origDims.depth : 1;
-    const curScale = selectedNode.value.params?.scale ?? { x: 1, y: 1, z: 1 };
-    withHistory(() => {
-      selectedNode.value!.params = selectedNode.value!.params || {};
-      selectedNode.value!.params.scale = {
-        x: curScale.x * sx,
-        y: curScale.y * sy,
-        z: curScale.z * sz,
-      };
-    });
-    selectedScale.value = { ...selectedNode.value!.params.scale! };
-    if (sceneService) sceneService.rebuildSceneFromTree();
-    // Recompute dimensions after scale change
-    selectedGeometryParams.value = computeGroupDimensions(selectedNode.value);
+  if (!node || !sceneService) return;
+  const featureId = sceneService.getFeatureIdByNode(node);
+  if (!featureId) return;
+  const fd = sceneService.getFeatureDocument();
+  if (!fd) return;
+  // Не разгруппировываем root scene-group.
+  if (fd.rootIds.includes(featureId) && fd.rootIds.length === 1) {
+    const target = fd.graph.get(featureId);
+    if (target?.type === 'group') return;
   }
-}
 
-function applyIsHole() {
-  if (!selectedNode.value) return;
-  withHistory(() => {
-    selectedNode.value!.params = selectedNode.value!.params || {};
-    selectedNode.value!.params.isHole = selectedIsHole.value;
-  });
-  if (sceneService) sceneService.rebuildSceneFromTree();
+  const extractedIds = withFeatureDocHistory(
+    (doc) => GroupingFeatureOperations.ungroup(doc, featureId),
+  );
+  if (!extractedIds || extractedIds.length === 0) return;
+
+  const firstChildNode = sceneService.getModelNodeByFeatureId(extractedIds[0]);
+  setSelection(firstChildNode ? [firstChildNode] : []);
 }
 
 // ─── Keyboard shortcuts ────────────────────────────────────────────────────
@@ -2335,13 +2024,13 @@ function triggerImportSTL() {
 async function handleImportSTL(event: Event) {
   const input = event.target as HTMLInputElement;
   const file = input.files?.[0];
-  if (!file || !modelApp.value || !sceneOps) return;
+  if (!file || !modelApp.value || !sceneService) return;
 
   const reader = new FileReader();
   reader.onload = async () => {
-    const buffer = reader.result as ArrayBuffer;
-    if (!sceneOps) return;
+    if (!sceneService) return;
 
+    const buffer = reader.result as ArrayBuffer;
     // Parse + center geometry.
     const loader = new STLLoader();
     const geometry = loader.parse(buffer);
@@ -2374,8 +2063,23 @@ async function handleImportSTL(event: Event) {
       stlBase64 = btoa(binary);
     }
 
-    const node = sceneOps.addImportedMesh(file.name, geometry, { binaryRef, stlBase64 });
-    if (node) onSelectNode(node);
+    const fd = sceneService?.getFeatureDocument();
+    if (!fd || fd.rootIds.length !== 1) return;
+    const rootFeature = fd.graph.get(fd.rootIds[0]);
+    if (!rootFeature || (rootFeature.type !== 'group' && rootFeature.type !== 'boolean')) return;
+
+    const id = nextP2FeatureId('imported');
+    const params: Record<string, unknown> = { filename: file.name, geometry };
+    if (binaryRef) params.binaryRef = binaryRef;
+    if (stlBase64) params.stlBase64 = stlBase64;
+    const feature = new ImportedMeshFeature(id, params as never);
+    withFeatureDocHistory((doc) => {
+      doc.addFeature(feature);
+      const inputs = [...(rootFeature as { getInputs(): readonly string[] }).getInputs(), id];
+      doc.updateInputs(rootFeature.id, inputs);
+    });
+    const newNode = sceneService!.getModelNodeByFeatureId(id);
+    if (newNode) onSelectNode(newNode);
   };
   reader.readAsArrayBuffer(file);
 
@@ -2397,11 +2101,17 @@ onMounted(() => {
   modelApp.value.init();
 
   sceneService = new ConstructorSceneService(modelApp.value, {
+    onSelectFeatureFromScene(featureId, { shift }) {
+      onSelectFeature(featureId, shift);
+    },
     onSelectNodeFromScene(node, { shift }) {
       onSelectNode(node, shift);
     },
     onDeselectAll() {
-      setSelection([]);
+      setSelectionByIds([]);
+    },
+    onMarqueeSelectFeatures(featureIds) {
+      setSelectionByIds(featureIds);
     },
     onMarqueeSelect(nodes) {
       setSelection(nodes);
@@ -2431,10 +2141,9 @@ onMounted(() => {
         }
       }
     },
-    onNodeParamsChanged(node) {
-      if (selectedNode.value === node || toRaw(selectedNode.value) === node) {
-        syncFormFromNode(node);
-      }
+    onNodeParamsChanged(_node) {
+      // FeatureParamsForm реактивен через `version` prop (treeVersion bump
+      // на любой mutation). Дополнительный sync формы из ModelNode не нужен.
     },
     onBeforeDrag() {
       // Снапшоты для history теперь в FeatureDocumentJSON v2-формате.
@@ -2479,80 +2188,85 @@ onMounted(() => {
   sceneService.setZoomSpeed(sceneSettings.value.zoomSpeed);
   sceneService.setGridSize(sceneSettings.value.gridWidth, sceneSettings.value.gridLength);
 
-  // Высокоуровневый facade мутаций. Инициализируется после sceneService и
-  // modelApp — они нужны как зависимости для context'а.
-  sceneOps = new SceneOperations(featureFactory, {
-    getRoot: () => modelApp.value?.getModelManager()?.getTree() ?? null,
-    getParentOf: (target) => sceneService?.getParentOf(target) ?? null,
-    rebuildSceneFromTree: () => { if (sceneService) sceneService.rebuildSceneFromTree(); },
-    withHistory: (mutate) => withHistory(mutate),
-  });
-
   // Chamfer mode: wire up edge click callback
   sceneService.getChamferMode().onEdgeClick = (obj, edge, settings) => {
     applyChamferToEdge(obj, edge, settings);
   };
 
-  // Generator mode: wire up generate callback
+  // Generator mode: featureDoc-flip путь. Создаём ThreadFeature/KnurlFeature
+  // напрямую и через sceneService.mutateFeatureDoc интегрируем в граф —
+  // featureRenderer обновит сцену через events, ModelNode-tree деривируется
+  // как side-effect для legacy paths.
   sceneService.getGeneratorMode().onGenerate = (_geometry, _height, name) => {
-    const r = modelApp.value!.getModelManager().getTree();
-    if (!(r instanceof GroupNode)) return;
+    if (!sceneService) return;
+    const fd = sceneService.getFeatureDocument();
+    if (!fd) return;
+    const rootIds = fd.rootIds;
+    if (rootIds.length !== 1) return;
+    const rootFeature = fd.graph.get(rootIds[0]);
+    if (!rootFeature) return;
 
-    const gm = sceneService!.getGeneratorMode();
-    let prim: Primitive;
-
+    const gm = sceneService.getGeneratorMode();
+    const newId = nextP2FeatureId(gm.settings.type);
+    let newFeature: ThreadFeature | KnurlFeature;
     if (gm.settings.type === 'thread') {
       const ts = gm.settings.thread;
-      prim = new Primitive('thread', {
+      newFeature = new ThreadFeature(newId, {
         outerDiameter: ts.outerDiameter,
         innerDiameter: ts.innerDiameter,
         pitch: ts.pitch,
         turns: ts.turns,
-        threadProfile: ts.profile,
-        segments: ts.segmentsPerTurn,
+        profile: ts.profile,
+        segmentsPerTurn: ts.segmentsPerTurn,
         leftHand: ts.leftHand === true,
-      }, { position: { x: 0, y: 0, z: 0 } });
+      });
     } else {
       const ks = gm.settings.knurl;
-      prim = new Primitive('knurl', {
+      newFeature = new KnurlFeature(newId, {
         outerDiameter: ks.outerDiameter,
         innerDiameter: ks.innerDiameter,
         height: ks.height,
         notchCount: ks.notchCount,
-        knurlPattern: ks.pattern,
-        knurlAngle: ks.angle,
+        pattern: ks.pattern,
+        angle: ks.angle,
         segmentsPerNotch: ks.segmentsPerNotch,
         heightSegments: ks.heightSegments,
-      }, { position: { x: 0, y: 0, z: 0 } });
+      });
     }
-    prim.name = name;
+    newFeature.name = name;
 
-    withHistory(() => {
-      r.children.push(prim);
+    withFeatureDocHistory((doc) => {
+      doc.addFeature(newFeature);
+      // Подключаем к root group: либо в inputs (если root — composite),
+      // либо в rootIds (если root — leaf, что редко).
+      if (rootFeature.type === 'group' || rootFeature.type === 'boolean') {
+        const inputs = [...rootFeature.getInputs(), newId];
+        doc.updateInputs(rootFeature.id, inputs);
+      } else {
+        doc.setRootIds([...doc.rootIds, newId]);
+      }
     });
 
-    sceneService!.rebuildSceneFromTree();
-    onSelectNode(prim);
-    treeVersion.value++;
+    // Selection: маппинг featureId → ModelNode уже актуален (после mutateFeatureDoc).
+    const newNode = sceneService.getModelNodeByFeatureId(newId);
+    if (newNode) onSelectNode(newNode);
 
-    // Deactivate generator mode
     generatorModeActive.value = false;
-    sceneService!.setGeneratorMode(false);
+    sceneService.setGeneratorMode(false);
   };
 
-  // Migrate old single-scene data to scene 0 (legacy один-сценовая схема)
-  const oldKey = 'constructor_scene_v1';
-  const oldData = localStorage.getItem(oldKey);
-  if (oldData && !localStorage.getItem(LEGACY_FALLBACK_KEYS[0])) {
-    localStorage.setItem(LEGACY_FALLBACK_KEYS[0], oldData);
-    localStorage.removeItem(oldKey);
-  }
-
-  // Restore scene from localStorage (если есть). Async — внутри pre-resolve
-  // binaryRef'ов из IndexedDB. Не ждём — onMounted остаётся синхронным.
-  loadFromLocalStorage().catch((e) => {
-    console.warn('[Constructor] initial load failed:', e);
-  });
+  // One-time legacy v1 → v2 миграция (single-scene и индексированные слоты).
+  // Идемпотентна; после первого прохода v1-ключи физически удалены из
+  // localStorage. ДО loadFromLocalStorage — иначе чтение пройдёт мимо.
+  migrateAllV1ToV2({ sceneCount: SCENE_COUNT })
+    .catch((e) => {
+      console.warn('[Constructor] v1→v2 migration failed:', e);
+    })
+    .finally(() => {
+      loadFromLocalStorage().catch((e) => {
+        console.warn('[Constructor] initial load failed:', e);
+      });
+    });
 
   window.addEventListener('keydown', handleKeydown);
   window.addEventListener('beforeunload', _flushPendingSave);

@@ -1,20 +1,20 @@
 import type * as THREE from 'three';
-import type { ModelTreeJSON } from '../../types';
-import { migrateLegacyYupToZupIfNeeded } from '../../migrations/legacyYupToZup';
 import { FeatureDocument } from '../FeatureDocument';
 import type { FeatureDocumentJSON } from '../types';
-import { migrateLegacyTreeToDocument } from '../migration/migrateLegacyTree';
 
 /**
- * Универсальный загрузчик: принимает JSON в любой версии (legacy
- * ModelTreeJSON v1 или новый FeatureDocumentJSON v2), мигрирует и
- * восстанавливает FeatureDocument.
+ * Универсальный загрузчик: принимает FeatureDocumentJSON v2 и восстанавливает
+ * FeatureDocument с резолвом binaryRef'ов импортированных мешей.
+ *
+ * Legacy v1 (ModelTreeJSON) как входной формат больше не поддерживается:
+ * пользовательские v1-сцены в localStorage один раз мигрируются на старте
+ * `Constructor.vue` через `loader/migrateV1Storage.migrateAllV1ToV2`, после
+ * чего v1-ключи удаляются. Файлы .json с диска тоже сводятся к v2 в caller-е
+ * (`loadSceneFromFile` в Constructor.vue) до вызова этого loader-а.
  *
  * Алгоритм:
  *  1. Парсим (если строка).
- *  2. Если version === 2 — это новый формат. Иначе — legacy:
- *     a. Применяем Y↔Z миграцию координат через Serializer.migrateLegacyYupToZupIfNeeded.
- *     b. Конвертируем дерево в граф через migrateLegacyTreeToDocument.
+ *  2. Валидируем что это v2.
  *  3. Резолвим бинарники импортированных мешей (binaryRef → IndexedDB → STL → BufferGeometry).
  *  4. FeatureDocument.fromJSON.
  *
@@ -22,21 +22,16 @@ import { migrateLegacyTreeToDocument } from '../migration/migrateLegacyTree';
  * не тянуть STLLoader в bundle при сценах без импортов.
  */
 export async function loadFeatureDocument(
-  rawJson: FeatureDocumentJSON | ModelTreeJSON | string,
+  rawJson: FeatureDocumentJSON | string,
 ): Promise<FeatureDocument> {
   const parsed: unknown = typeof rawJson === 'string' ? JSON.parse(rawJson) : rawJson;
 
-  let v2: FeatureDocumentJSON;
-  if (isFeatureDocumentJSON(parsed)) {
-    v2 = parsed;
-  } else {
-    const legacy = parsed as ModelTreeJSON;
-    migrateLegacyYupToZupIfNeeded(legacy);
-    v2 = migrateLegacyTreeToDocument(legacy);
+  if (!isFeatureDocumentJSON(parsed)) {
+    throw new Error('[loadFeatureDocument] ожидается FeatureDocumentJSON v2');
   }
 
-  await resolveImportedGeometries(v2);
-  return FeatureDocument.fromJSON(v2);
+  await resolveImportedGeometries(parsed);
+  return FeatureDocument.fromJSON(parsed);
 }
 
 function isFeatureDocumentJSON(x: unknown): x is FeatureDocumentJSON {

@@ -1,6 +1,5 @@
 import type * as THREE from 'three';
 import type { CSGType, NodeParams } from '../types';
-import type { ModelMemento } from '../memento/ModelMemento';
 import type { Primitive } from './Primitive';
 
 export type ExportProgressCallback = (done: number, total: number) => void;
@@ -20,7 +19,6 @@ export abstract class ModelNode {
 
   abstract clone(): ModelNode;
   abstract getMesh(): THREE.Mesh;
-  abstract getMemento(): ModelMemento;
 
   /**
    * Async version of getMesh that yields between heavy CSG operations,

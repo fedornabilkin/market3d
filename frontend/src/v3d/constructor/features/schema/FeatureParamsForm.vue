@@ -10,6 +10,13 @@ import {
 
 const props = defineProps<{
   feature: Feature;
+  /**
+   * Reactivity-trigger от родителя. `feature.params` — мутируемый non-reactive
+   * объект (Vue его не отслеживает); чтобы computed'ы пересчитывались после
+   * `featureDoc.updateParams`, родитель пробрасывает version-счётчик
+   * (treeVersion) и computed внутри его читают.
+   */
+  version?: number;
 }>();
 
 const emit = defineEmits<{
@@ -19,11 +26,54 @@ const emit = defineEmits<{
 
 const schema = computed<ParamsSchema>(() => getParamsSchema(props.feature.type));
 
-const params = computed<Record<string, unknown>>(
-  () => props.feature.params as Record<string, unknown>,
-);
+/**
+ * `props.feature.params` — мутируемый non-reactive объект (Vue не отслеживает
+ * мутации полей класса). Чтобы computed'ы пересчитывались после
+ * `featureDoc.updateParams`, читаем `props.version` (реактивный trigger от
+ * родителя) ВНУТРИ каждого computed'а. Промежуточный `params`-computed
+ * нельзя использовать: он возвращал бы тот же object ref, Vue делал бы
+ * `Object.is(old, new) === true` и НЕ инвалидировал downstream computed'ы.
+ */
+function readParams(): Record<string, unknown> {
+  void props.version;
+  return props.feature.params as Record<string, unknown>;
+}
+
+/**
+ * Для шаблона/legacy-функций (vecValue/setVecComponent/field-loop). Возвращает
+ * тот же object ref, но обёрнут в computed → каждый ре-рендер шаблона
+ * (триггерится reactive computed'ами вроде `isHoleChipValue`) читает свежие
+ * значения полей.
+ */
+const params = computed<Record<string, unknown>>(() => readParams());
 
 const isTransform = computed(() => props.feature.type === 'transform');
+
+/** Дефолтный цвет — совпадает с GroupNode.buildDefaultMaterial (teal). */
+const DEFAULT_COLOR = '#00a5a4';
+
+/** Schema содержит хотя бы color или isHole — показываем «чипы» материала. */
+const hasMaterialChips = computed(
+  () => 'color' in schema.value || 'isHole' in schema.value,
+);
+
+const colorChipValue = computed<string>(() => {
+  const c = readParams().color;
+  return typeof c === 'string' && c ? c : DEFAULT_COLOR;
+});
+
+const isHoleChipValue = computed<boolean>(() => !!readParams().isHole);
+
+function setSolid(): void {
+  if (isHoleChipValue.value) emit('update:params', { isHole: false });
+}
+
+function setHole(): void {
+  if (!isHoleChipValue.value) emit('update:params', { isHole: true });
+}
+
+/** Поля, которые рендерятся специальным «чип»-виджетом сверху, а не в общем списке. */
+const SPECIAL_CHIP_FIELDS = new Set(['color', 'isHole']);
 
 function setField(name: string, raw: unknown, kind: FieldSchema['kind']): void {
   let value: unknown = raw;
@@ -66,7 +116,8 @@ function vecValue(
 }
 
 function fieldEntries() {
-  return Object.entries(schema.value) as [string, FieldSchema][];
+  return (Object.entries(schema.value) as [string, FieldSchema][])
+    .filter(([name]) => !SPECIAL_CHIP_FIELDS.has(name));
 }
 
 const vecNames = ['position', 'rotation', 'scale'] as const;
@@ -89,6 +140,30 @@ function vecLabel(name: 'position' | 'rotation' | 'scale'): string {
         :placeholder="feature.type"
         @change="emit('update:name', $event.target.value || undefined)"
       )
+
+  .feature-params-form__chips(v-if="hasMaterialChips")
+    .chip-wrap(
+      v-if="'color' in schema"
+      :class="{ 'chip-wrap--active': !isHoleChipValue }"
+      title="Сплошной"
+    )
+      input.chip.chip--color(
+        type="color"
+        :value="colorChipValue"
+        @click="setSolid"
+        @change="setField('color', $event.target.value, 'color')"
+      )
+    .chip-wrap(
+      v-if="'isHole' in schema"
+      :class="{ 'chip-wrap--active': isHoleChipValue }"
+      role="button"
+      tabindex="0"
+      title="Отверстие (вычитать)"
+      @click="setHole"
+      @keydown.enter.prevent="setHole"
+      @keydown.space.prevent="setHole"
+    )
+      .chip.chip--zebra(:style="{ '--chip-color': colorChipValue }")
 
   template(v-if="isTransform")
     .feature-params-form__vec(v-for="vecName in vecNames" :key="vecName")
@@ -200,5 +275,51 @@ function vecLabel(name: 'position' | 'rotation' | 'scale'): string {
   padding: 0;
   background: transparent;
   cursor: pointer;
+}
+
+.feature-params-form__chips {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.feature-params-form__chips .chip-wrap {
+  width: 32px;
+  height: 32px;
+  padding: 2px;
+  border: 2px solid transparent;
+  border-radius: 5px;
+  cursor: pointer;
+  box-sizing: border-box;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.feature-params-form__chips .chip-wrap--active {
+  border-color: #4a7cff;
+  background: rgba(74, 124, 255, 0.12);
+}
+.feature-params-form__chips .chip-wrap:focus-visible {
+  outline: none;
+  border-color: #4a7cff;
+}
+.feature-params-form__chips .chip {
+  width: 100%;
+  height: 100%;
+  border: 1px solid #dbdbdb;
+  border-radius: 3px;
+  padding: 0;
+  box-sizing: border-box;
+  cursor: pointer;
+}
+.feature-params-form__chips .chip--color {
+  background: transparent;
+}
+.feature-params-form__chips .chip--zebra {
+  background-image: repeating-linear-gradient(
+    45deg,
+    var(--chip-color, #00a5a4) 0 4px,
+    #ffffff 4px 8px
+  );
 }
 </style>

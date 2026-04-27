@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 
 export interface FeatureNodeView {
   id: string;
   type: string;
   label: string;
+  color: string | null;
   hasError: boolean;
   errorText: string | null;
   children: FeatureNodeView[];
@@ -14,29 +15,32 @@ export interface FeatureNodeView {
 const props = defineProps<{
   node: FeatureNodeView;
   depth: number;
-  highlightedId?: string | null;
+  /** Все выделенные FeatureId — для multi-select подсветки. */
+  selectedIds?: readonly string[];
   badgeFn: (type: string) => string;
 }>();
 
 const emit = defineEmits<{
-  (e: 'select', id: string): void;
+  (e: 'select', payload: { id: string; shiftKey: boolean }): void;
 }>();
 
 const expanded = ref(true);
+
+const isSelected = computed(() => (props.selectedIds ?? []).includes(props.node.id));
 
 function toggle(): void {
   if (props.node.children.length > 0) expanded.value = !expanded.value;
 }
 
-function onClick(): void {
-  emit('select', props.node.id);
+function onClick(event: MouseEvent): void {
+  emit('select', { id: props.node.id, shiftKey: !!event.shiftKey });
 }
 </script>
 
 <template lang="pug">
 .ftree-node
   .ftree-row(
-    :class="{ 'ftree-row--highlighted': highlightedId === node.id, 'ftree-row--error': node.hasError }"
+    :class="{ 'ftree-row--selected': isSelected, 'ftree-row--error': node.hasError }"
     :style="{ paddingLeft: (depth * 12 + 4) + 'px' }"
     @click="onClick"
   )
@@ -45,6 +49,7 @@ function onClick(): void {
       @click.stop="toggle"
     ) {{ node.children.length === 0 ? '·' : (expanded ? '▼' : '▶') }}
     span.ftree-badge {{ badgeFn(node.type) }}
+    span.ftree-color-dot(v-if="node.color" :style="{ background: node.color }")
     span.ftree-label {{ node.label }}
     span.ftree-inner(v-if="node.innerLabel") ({{ node.innerLabel }})
     span.ftree-error(v-if="node.hasError" :title="node.errorText ?? ''") ⚠
@@ -54,9 +59,9 @@ function onClick(): void {
       :key="child.id"
       :node="child"
       :depth="depth + 1"
-      :highlighted-id="highlightedId"
+      :selected-ids="selectedIds"
       :badge-fn="badgeFn"
-      @select="(id) => emit('select', id)"
+      @select="(payload) => emit('select', payload)"
     )
 </template>
 
@@ -75,12 +80,25 @@ function onClick(): void {
 .ftree-row:hover {
   background: #f5f5f5;
 }
-.ftree-row--highlighted {
-  background: #e3f2fd;
-  font-weight: 600;
+.ftree-row--selected {
+  background: #4a7cff;
+  color: #fff;
 }
-.ftree-row--highlighted:hover {
-  background: #d0e8fb;
+.ftree-row--selected:hover {
+  background: #3666e6;
+}
+.ftree-row--selected .ftree-badge,
+.ftree-row--selected .ftree-twisty,
+.ftree-row--selected .ftree-inner {
+  color: rgba(255, 255, 255, 0.85);
+}
+.ftree-color-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  flex: 0 0 auto;
 }
 .ftree-row--error {
   background: rgba(255, 80, 80, 0.08);

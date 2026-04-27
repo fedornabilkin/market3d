@@ -23,8 +23,10 @@ export class AlignmentMode {
   private markerToLine = new Map<THREE.Mesh, THREE.Line>();
   /** Currently hovered marker. */
   private hoveredMarker: THREE.Mesh | null = null;
-  /** Ghost silhouettes shown on hover preview. */
-  private previewMeshes: THREE.Mesh[] = [];
+  /** Ghost preview объекты — клоны исходных объектов с translucent-материалом. */
+  private previewObjects: THREE.Object3D[] = [];
+  /** Edge-overlay для каждого preview clone'а — own EdgesGeometry, нужно dispose. */
+  private previewEdges: THREE.LineSegments[] = [];
   /** Objects being aligned (stored for preview computation). */
   private currentObjects: THREE.Object3D[] = [];
 
@@ -360,13 +362,13 @@ export class AlignmentMode {
       case 'centerZ': target = (anchor.min.z + anchor.max.z) / 2; break;
     }
 
-    // Show ghost for each non-anchor object at its aligned position
+    // Show ghost for each non-anchor object at its aligned position.
+    // Призрак — глубокий клон оригинального Object3D с переписанными
+    // материалами (translucent red), чтобы пользователь видел реальную форму
+    // в новой позиции, а не bbox-куб.
     for (let i = 1; i < this.currentObjects.length; i++) {
+      const original = this.currentObjects[i];
       const b = boxes[i];
-      const size = new THREE.Vector3();
-      const center = new THREE.Vector3();
-      b.getSize(size);
-      b.getCenter(center);
 
       let dx = 0, dy = 0, dz = 0;
       switch (mode) {
@@ -381,37 +383,64 @@ export class AlignmentMode {
         case 'centerZ': dz = target - (b.min.z + b.max.z) / 2; break;
       }
 
-      // Skip if object wouldn't move
       if (Math.abs(dx) < 0.01 && Math.abs(dy) < 0.01 && Math.abs(dz) < 0.01) continue;
 
-      const geo = new THREE.BoxGeometry(size.x, size.y, size.z);
-      const mesh = new THREE.Mesh(geo, this.previewMaterial!);
-      mesh.position.set(center.x + dx, center.y + dy, center.z + dz);
-      mesh.renderOrder = 2;
-      this.scene.add(mesh);
-      this.previewMeshes.push(mesh);
+      const ghost = original.clone(true);
+      // Очищаем нерелевантные подобъекты (edge-lines, raycast hooks и т.п.).
+      // Перепишем материалы только на mesh'ах; дополнительный wireframe
+      // добавим вокруг каждого Mesh для контура.
+      ghost.traverse((child) => {
+        if (child.userData?.isEdgeLine) {
+          // Edge-lines оригинального меша уберём — нарисуем свой EdgesGeometry
+          // на красной обводке поверх preview-материала.
+          child.parent?.remove(child);
+        }
+        if (child instanceof THREE.Mesh) {
+          child.material = this.previewMaterial!;
+          child.renderOrder = 2;
+          // Чтобы клон не «съедал» raycaster'ы.
+          child.raycast = () => {};
+        }
+      });
+      ghost.position.x += dx;
+      ghost.position.y += dy;
+      ghost.position.z += dz;
+      ghost.updateMatrixWorld(true);
+      this.scene.add(ghost);
+      this.previewObjects.push(ghost);
 
-      // Wireframe outline
-      const edges = new THREE.EdgesGeometry(geo);
-      const wireframe = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({
-        color: 0xdd2222, transparent: true, opacity: 0.5, depthTest: false,
-      }));
-      wireframe.position.copy(mesh.position);
-      wireframe.renderOrder = 2;
-      this.scene.add(wireframe);
-      this.previewMeshes.push(wireframe as unknown as THREE.Mesh);
+      // Edge overlay на каждом mesh ghost'а (форма-точная обводка).
+      ghost.traverse((child) => {
+        if (!(child instanceof THREE.Mesh)) return;
+        const edges = new THREE.EdgesGeometry(child.geometry, 20);
+        const lines = new THREE.LineSegments(
+          edges,
+          new THREE.LineBasicMaterial({
+            color: 0xdd2222, transparent: true, opacity: 0.6, depthTest: false,
+          }),
+        );
+        lines.renderOrder = 3;
+        lines.raycast = () => {};
+        // Совпадает с локальным трансформом меша — добавляем как ребёнка.
+        child.add(lines);
+        this.previewEdges.push(lines);
+      });
     }
   }
 
   private clearPreview(): void {
-    for (const m of this.previewMeshes) {
-      m.geometry.dispose();
-      if (m instanceof THREE.LineSegments) {
-        (m.material as THREE.Material).dispose();
-      }
-      this.scene?.remove(m);
+    for (const lines of this.previewEdges) {
+      lines.geometry.dispose();
+      (lines.material as THREE.Material).dispose();
+      lines.parent?.remove(lines);
     }
-    this.previewMeshes = [];
+    this.previewEdges = [];
+    for (const obj of this.previewObjects) {
+      // Геометрию/материалы НЕ dispose'аем — клон делит их с оригиналом
+      // (либо использует shared previewMaterial). Только убираем со сцены.
+      this.scene?.remove(obj);
+    }
+    this.previewObjects = [];
   }
 
   // ─── Cleanup ─────────────────────────────────────────────────────────────

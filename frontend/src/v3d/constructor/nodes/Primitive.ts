@@ -1,9 +1,6 @@
 import * as THREE from 'three';
 import type { PrimitiveType, PrimitiveParams, NodeParams } from '../types';
-import type { ModelMemento } from '../memento/ModelMemento';
-import type { PrimitiveNodeJSON } from '../types';
 import { ModelNode } from './ModelNode';
-import { ModelMemento as ModelMementoClass } from '../memento/ModelMemento';
 import { applyHoleStyle } from '../holeMaterial';
 import { createEntity } from '../entities/EntityFactory';
 
@@ -120,22 +117,4 @@ export class Primitive extends ModelNode {
     }
   }
 
-  getMemento(): ModelMemento {
-    const treeState: PrimitiveNodeJSON = {
-      kind: 'primitive',
-      type: this.type,
-      params: { ...this.geometryParams },
-    };
-    if (this.name) treeState.name = this.name;
-    if (this.params && Object.keys(this.params).length > 0) {
-      treeState.nodeParams = {
-        position: this.params.position && { ...this.params.position },
-        scale: this.params.scale && { ...this.params.scale },
-        rotation: this.params.rotation && { ...this.params.rotation },
-        isHole: this.params.isHole,
-        color: this.params.color,
-      };
-    }
-    return new ModelMementoClass(treeState);
-  }
 }

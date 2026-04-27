@@ -14,6 +14,19 @@ import type {
 } from '../types';
 
 /**
+ * Trace для inverse-конверсии: featureId → ModelTreeJSON, в который эта фича
+ * перетекает. Симметрично `MigrationTrace` из migrateLegacyTreeToDocument:
+ * Caller комбинирует эту таблицу с walk'ом построенного ModelNode-tree
+ * (структурно идентичного ModelTreeJSON), чтобы получить `featureId → ModelNode`
+ * без re-migrate.
+ *
+ * Для Transform-фич trace указывает на тот же узел, что и для inner-фичи
+ * (Primitive/Group/etc.) — потому что Transform "сливается" в `nodeParams`
+ * целевого ModelTreeJSON, а не имеет собственного ModelNode-аналога.
+ */
+export type InverseMigrationTrace = Map<FeatureId, ModelTreeJSON>;
+
+/**
  * Обратное преобразование: FeatureDocumentJSON v2 → ModelTreeJSON v1.
  *
  * Используется для cutover-стадии Phase 1: позволяет хранить сохранёнки в
@@ -41,8 +54,14 @@ import type {
  *  - В документе нет циклов (FeatureGraph это гарантирует).
  *
  * При нарушениях бросает ошибку — caller делает fallback на legacy-чтение.
+ *
+ * @param trace опционально — пишем сюда featureId → ModelTreeJSON для каждой
+ *              посещённой фичи. Полезно для load-flow flip (см. InverseMigrationTrace).
  */
-export function featureDocumentToLegacy(doc: FeatureDocumentJSON): ModelTreeJSON {
+export function featureDocumentToLegacy(
+  doc: FeatureDocumentJSON,
+  trace?: InverseMigrationTrace,
+): ModelTreeJSON {
   if (doc.version !== 2) {
     throw new Error(`[featureDocumentToLegacy] неподдерживаемая версия: ${doc.version}`);
   }
@@ -70,76 +89,79 @@ export function featureDocumentToLegacy(doc: FeatureDocumentJSON): ModelTreeJSON
       // фиче (см. migrateLegacyTreeToDocument). Но если по какой-то причине
       // только Transform имеет имя — пробрасываем, чтобы не потерять.
       if (f.name && !inner.name) inner.name = f.name;
+      // Transform "сливается" в nodeParams inner — указываем тот же ModelTreeJSON.
+      if (trace) trace.set(f.id, inner);
       return inner;
     }
+
+    let json: ModelTreeJSON;
 
     if (f.type === 'boolean') {
       const children = (f.inputs ?? []).map(visit);
       const operation = (f.params as { operation?: 'union' | 'subtract' | 'intersect' }).operation ?? 'union';
-      const json: GroupNodeJSON = {
+      const node: GroupNodeJSON = {
         kind: 'group',
         operation,
         children,
       };
-      if (f.name) json.name = f.name;
+      if (f.name) node.name = f.name;
       const color = (f.params as { color?: string }).color;
       if (color) {
-        json.nodeParams = json.nodeParams ?? {};
-        json.nodeParams.color = color;
+        node.nodeParams = node.nodeParams ?? {};
+        node.nodeParams.color = color;
       }
-      return json;
-    }
-
-    if (f.type === 'group') {
+      json = node;
+    } else if (f.type === 'group') {
       const children = (f.inputs ?? []).map(visit);
-      const json: GroupNodeJSON = {
+      const node: GroupNodeJSON = {
         kind: 'group',
         operation: 'union',
         children,
       };
-      if (f.name) json.name = f.name;
+      if (f.name) node.name = f.name;
       const params = f.params as { color?: string; isHole?: boolean };
       if (params.color || params.isHole) {
-        json.nodeParams = json.nodeParams ?? {};
-        if (params.color) json.nodeParams.color = params.color;
-        if (params.isHole) json.nodeParams.isHole = params.isHole;
+        node.nodeParams = node.nodeParams ?? {};
+        if (params.color) node.nodeParams.color = params.color;
+        if (params.isHole) node.nodeParams.isHole = params.isHole;
       }
-      return json;
-    }
-
-    if (f.type === 'imported') {
+      json = node;
+    } else if (f.type === 'imported') {
       const params = f.params as {
         filename?: string;
         binaryRef?: string;
         stlBase64?: string;
         color?: string;
       };
-      const json: ImportedMeshNodeJSON = {
+      const node: ImportedMeshNodeJSON = {
         kind: 'imported',
         filename: params.filename ?? '',
         stlBase64: params.stlBase64 ?? '',
       };
-      if (params.binaryRef) json.binaryRef = params.binaryRef;
-      if (f.name) json.name = f.name;
+      if (params.binaryRef) node.binaryRef = params.binaryRef;
+      if (f.name) node.name = f.name;
       if (params.color) {
-        json.nodeParams = json.nodeParams ?? {};
-        json.nodeParams.color = params.color;
+        node.nodeParams = node.nodeParams ?? {};
+        node.nodeParams.color = params.color;
       }
-      return json;
+      json = node;
+    } else {
+      // Остальные — примитивы.
+      const node: PrimitiveNodeJSON = {
+        kind: 'primitive',
+        type: f.type as PrimitiveType,
+        params: extractPrimitiveParams(f.type, f.params as Record<string, unknown>),
+      };
+      if (f.name) node.name = f.name;
+      const color = (f.params as { color?: string }).color;
+      if (color) {
+        node.nodeParams = node.nodeParams ?? {};
+        node.nodeParams.color = color;
+      }
+      json = node;
     }
 
-    // Остальные — примитивы.
-    const json: PrimitiveNodeJSON = {
-      kind: 'primitive',
-      type: f.type as PrimitiveType,
-      params: extractPrimitiveParams(f.type, f.params as Record<string, unknown>),
-    };
-    if (f.name) json.name = f.name;
-    const color = (f.params as { color?: string }).color;
-    if (color) {
-      json.nodeParams = json.nodeParams ?? {};
-      json.nodeParams.color = color;
-    }
+    if (trace) trace.set(f.id, json);
     return json;
   };
 

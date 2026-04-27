@@ -1,9 +1,6 @@
 import * as THREE from 'three';
 import type { NodeParams } from '../types';
-import type { ModelMemento } from '../memento/ModelMemento';
-import type { ImportedMeshNodeJSON } from '../types';
 import { ModelNode } from './ModelNode';
-import { ModelMemento as ModelMementoClass } from '../memento/ModelMemento';
 import { applyHoleStyle } from '../holeMaterial';
 import { ImportedMeshEntity } from '../entities/ImportedMeshEntity';
 import { ImportedMeshBuilder } from '../entities/builders/ImportedMeshBuilder';
@@ -122,24 +119,4 @@ export class ImportedMeshNode extends ModelNode {
     }
   }
 
-  getMemento(): ModelMemento {
-    const treeState: ImportedMeshNodeJSON = {
-      kind: 'imported',
-      // Если есть binaryRef — base64 не пишем (бинарник в IndexedDB).
-      stlBase64: this.binaryRef ? '' : this.entity.getStlBase64(),
-      filename: this.entity.getFilename(),
-    };
-    if (this.binaryRef) treeState.binaryRef = this.binaryRef;
-    if (this.name) treeState.name = this.name;
-    if (this.params && Object.keys(this.params).length > 0) {
-      treeState.nodeParams = {
-        position: this.params.position && { ...this.params.position },
-        scale: this.params.scale && { ...this.params.scale },
-        rotation: this.params.rotation && { ...this.params.rotation },
-        isHole: this.params.isHole,
-        color: this.params.color,
-      };
-    }
-    return new ModelMementoClass(treeState);
-  }
 }

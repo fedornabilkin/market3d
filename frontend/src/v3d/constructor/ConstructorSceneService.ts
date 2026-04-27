@@ -30,14 +30,21 @@ import {
   migrateLegacyTreeToDocument,
   type MigrationTrace,
 } from './features/migration/migrateLegacyTree';
+import {
+  featureDocumentToLegacy,
+  type InverseMigrationTrace,
+} from './features/migration/featureDocumentToLegacy';
+import type { FeatureDocumentJSON, FeatureId } from './features/types';
 import type { ModelTreeJSON } from './types';
+import { NodeFeatureMapping } from './services/NodeFeatureMapping';
 import {
   getNodeHalfHeight,
   pairTrees,
+  pairTreesByPosition,
   disposeObject3D,
   normalizeAngle,
 } from './services/sceneObjectHelpers';
-import { applyMirror as applyMirrorOp } from './modes/MirrorOperation';
+import { MirrorFeatureOperation } from './modes/MirrorFeatureOperation';
 import {
   applySelectionGlow as applyGlow,
   clearSelectionGlow as clearGlow,
@@ -64,7 +71,15 @@ export interface SceneDebugInfo {
 }
 
 export interface ConstructorSceneServiceOptions {
-  /** Called when the user clicks (not drags) an object in the scene. */
+  /**
+   * Primary selection callback — featureId, прочитанный с `userData.featureId`
+   * (FeatureRenderer). Constructor.vue резолвит его в ModelNode для legacy UI.
+   */
+  onSelectFeatureFromScene?: (featureId: string, opts: { shift: boolean }) => void;
+  /**
+   * Legacy fallback — срабатывает только если на меше нет userData.featureId
+   * (catastrophic fallback пути `buildNodeObject3D`).
+   */
   onSelectNodeFromScene?: (node: ModelNode, opts: { shift: boolean }) => void;
   /** Called when the user clicks empty space (grid) — deselect all. */
   onDeselectAll?: () => void;
@@ -82,7 +97,11 @@ export interface ConstructorSceneServiceOptions {
    * Use to push a SnapshotCommand with before/after JSON to HistoryManager.
    */
   onAfterDrag?: () => void;
-  /** Called when the user finishes a marquee (rectangle) selection on the canvas. */
+  /** Called when the user clicks an alignment marker (alignment mode). */
+  onAlignMarkerClick?: (mode: string) => void;
+  /** Primary marquee callback — featureIds. */
+  onMarqueeSelectFeatures?: (featureIds: string[]) => void;
+  /** Legacy fallback marquee callback — см. `onSelectNodeFromScene`. */
   onMarqueeSelect?: (nodes: ModelNode[]) => void;
 }
 
@@ -109,17 +128,21 @@ export class ConstructorSceneService {
   private featureRenderer: FeatureRenderer | null = null;
   private featureDocCurrent: FeatureDocument | null = null;
   /**
-   * Двунаправленные карты featureId ↔ ModelNode, заполняются на каждом
-   * rebuildSceneFromTree через trace + jsonToNode. Нужны UI'ю (Feature Tree
-   * панель, FeatureParamsForm), чтобы при клике/правке фичи находить
-   * соответствующий ModelNode без обхода 3D-сцены.
+   * Двунаправленные карты featureId ↔ ModelNode (NodeFeatureMapping). Нужны
+   * UI'ю (Feature Tree, FeatureParamsForm) и legacy mutation paths
+   * (drag/handle/mirror) — пока flip не закрыт. После полного flip'а на
+   * FeatureId-selection класс удалится.
    *
-   * Если у одного ModelNode несколько фич (например, Primitive + Transform-
-   * обёртка), `nodeByFeatureId` записывает обе фичи на один и тот же ModelNode,
-   * а `featureIdByNode` хранит «корневую» (rootmost) — обычно Transform-id.
+   * Заполняется на каждом rebuild через `setFromForwardTrace`
+   * (legacy → v2) либо `setFromInverseTrace` (v2 → legacy на load-flip пути).
    */
-  private nodeByFeatureId = new Map<string, ModelNode>();
-  private featureIdByNode = new Map<ModelNode, string>();
+  private readonly nodeFeatureMapping = new NodeFeatureMapping();
+  /**
+   * Когда true, следующий rebuildSceneFromTree пропустит ModelNode → migrate
+   * → featureDoc цепочку и просто перепроставит mapping/userData по уже
+   * корректному featureDoc (load-flip путь). Сбрасывается после rebuild'а.
+   */
+  private skipNextMigrate = false;
 
   // ─── Modes ────────────────────────────────────────────────────────────────
   private readonly mirrorMode = new MirrorMode();
@@ -294,6 +317,28 @@ export class ConstructorSceneService {
     return this.findObjectByNode(this.modelRootGroup, node);
   }
 
+  /**
+   * Find Three.js object by feature-id.
+   *
+   * `FeatureRenderer.objectsByFeatureId` индексирует только rootIds, но
+   * `userData.featureId` проставляется на КАЖДЫЙ вложенный mesh/group
+   * (Transform/Box внутри root scene-group). Сначала спрашиваем кэш, при
+   * промахе делаем traverse по сцене.
+   */
+  findObject3DByFeatureId(featureId: string): THREE.Object3D | null {
+    const cached = this.featureRenderer?.getObject3D(featureId);
+    if (cached) return cached;
+    if (!this.modelRootGroup) return null;
+    let found: THREE.Object3D | null = null;
+    this.modelRootGroup.traverse((obj) => {
+      if (found) return;
+      if ((obj.userData as { featureId?: string }).featureId === featureId) {
+        found = obj;
+      }
+    });
+    return found;
+  }
+
   /** Текущий FeatureDocument (заполняется на каждом rebuild). Для UI/debug. */
   getFeatureDocument(): FeatureDocument | null {
     return this.featureDocCurrent;
@@ -301,12 +346,12 @@ export class ConstructorSceneService {
 
   /** ModelNode, соответствующий feature-id (через trace последнего rebuild'а). */
   getModelNodeByFeatureId(featureId: string): ModelNode | null {
-    return this.nodeByFeatureId.get(featureId) ?? null;
+    return this.nodeFeatureMapping.getNode(featureId) ?? null;
   }
 
   /** Корневая (rootmost) feature-id для ModelNode. */
   getFeatureIdByNode(node: ModelNode): string | null {
-    return this.featureIdByNode.get(node) ?? null;
+    return this.nodeFeatureMapping.getFeatureId(node) ?? null;
   }
 
   /**
@@ -353,7 +398,7 @@ export class ConstructorSceneService {
     }>,
   ): void {
     for (const { node } of updates) {
-      const featureId = this.featureIdByNode.get(node);
+      const featureId = this.nodeFeatureMapping.getFeatureId(node);
       const feature = featureId ? this.featureDocCurrent?.graph.get(featureId) : null;
       if (!feature || feature.type !== 'transform') {
         this.rebuildSceneFromTree();
@@ -398,7 +443,7 @@ export class ConstructorSceneService {
       scale?: { x: number; y: number; z: number };
     },
   ): boolean {
-    const featureId = this.featureIdByNode.get(node);
+    const featureId = this.nodeFeatureMapping.getFeatureId(node);
     const feature = featureId ? this.featureDocCurrent?.graph.get(featureId) : null;
     if (!feature || feature.type !== 'transform') return false;
     const livePatch: Record<string, [number, number, number]> = {};
@@ -410,16 +455,27 @@ export class ConstructorSceneService {
   }
 
   /**
-   * Зеркалит ноду по оси axis с компенсацией визуального центра.
-   * Реализация — в `modes/MirrorOperation.applyMirror`. Этот метод —
-   * тонкий адаптер: пробрасывает контекст (findObject3DByNode/rebuild/rootGroup).
+   * Зеркалит ноду по оси axis с компенсацией визуального центра через
+   * featureDoc API (`MirrorFeatureOperation`). Мутирует featureDoc через
+   * updateParams, ModelNode-tree деривируется как side-effect.
    */
   applyMirror(node: ModelNode, axis: 'x' | 'y' | 'z'): void {
-    applyMirrorOp(node, axis, {
-      findObject3DByNode: (n) => this.findObject3DByNode(n),
-      rebuildSceneFromTree: () => this.rebuildSceneFromTree(),
+    const featureId = this.nodeFeatureMapping.getFeatureId(node);
+    if (!featureId || !this.featureDocCurrent) {
+      console.warn('[ConstructorSceneService.applyMirror] нет featureId mapping или featureDoc — операция пропущена');
+      return;
+    }
+    const op = new MirrorFeatureOperation({
+      findObject3DByFeatureId: (fid) => this.findObject3DByFeatureId(fid),
       rootGroup: this.modelRootGroup,
     });
+    const serializer = this.modelApp.getSerializer();
+    this.mutateFeatureDoc(
+      (doc) => { op.run(doc, featureId, axis); },
+      (legacyJson) => serializer.fromJSON(legacyJson),
+    );
+    // Selection re-resolve происходит на caller-стороне через computed
+    // selectedNode/selectedNodes (FeatureId стабилен через rebuild).
   }
 
   setGridVisible(visible: boolean): void {
@@ -632,105 +688,246 @@ export class ConstructorSceneService {
   /**
    * Render-cutover: пересобираем сцену через FeatureRenderer.
    *
-   *   ModelNode-tree (source-of-truth)
-   *     → toRootJSON → ModelTreeJSON v1
-   *     → migrateLegacyTreeToDocument(json, trace) → FeatureDocumentJSON v2
-   *     → инжект `params.geometry` для imported-фич из ImportedMeshNode.geometry
-   *     → FeatureDocument.fromJSON → recompute → outputs
-   *     → FeatureRenderer.bindDocument → меши + edges в modelRootGroup
-   *     → пройти меши, через trace проставить `userData.node` (для совместимости
-   *       с PointerEventController / findObject3DByNode / селекшеном).
+   * Два режима, выбираемых флагом `skipNextMigrate`:
+   *
+   * 1. **Legacy (ModelNode primary)** — поведение по умолчанию:
+   *    ```
+   *    ModelNode-tree → toRootJSON → migrate → FeatureDocumentJSON v2
+   *      → loadFromJSON в stable featureDoc
+   *      → FeatureRenderer.bindDocument реактивно обновит scene
+   *      → mapping featureId↔ModelNode через MigrationTrace
+   *    ```
+   *
+   * 2. **Load-flip (FeatureDoc primary)** — после `loadFromV2JSON`:
+   *    featureDoc уже корректный, ModelNode-tree уже derived. Достаточно
+   *    обновить mapping/userData по inverse-trace, не пересобирая featureDoc.
+   *    Это позволяет featureId выживать load (mirror/chamfer/etc. flips
+   *    могут полагаться на стабильные id'шники).
    */
   rebuildSceneFromTree(): void {
     if (!this.modelRootGroup || !this.featureRenderer) return;
 
     const rootVal = this.modelApp.getModelManager().getTree();
     if (!rootVal) {
-      // Пустая сцена: отвязываем рендер.
       this.featureRenderer.unbindDocument();
       this.featureDocCurrent = null;
+      this.nodeFeatureMapping.clear();
+      this.skipNextMigrate = false;
       this.updateGizmoTarget();
       return;
     }
 
+    if (this.skipNextMigrate && this.featureDocCurrent) {
+      this.skipNextMigrate = false;
+      try {
+        this._rebuildFromCurrentFeatureDoc(rootVal);
+        this.updateGizmoTarget();
+        return;
+      } catch (e) {
+        console.warn('[ConstructorSceneService] feature-doc rebuild failed, falling back to legacy migrate:', e);
+        // Падает в legacy путь.
+      }
+    }
+
     try {
-      const serializer = this.modelApp.getSerializer();
-      const json = serializer.toRootJSON(rootVal);
-
-      // Парный walk: ModelTreeJSON ↔ ModelNode (структурно идентичны
-      // по построению toRootJSON).
-      const jsonToNode = new Map<ModelTreeJSON, ModelNode>();
-      pairTrees(json, rootVal, jsonToNode);
-
-      // Миграция в v2 с трассировкой featureId → JSON-узел.
-      const trace: MigrationTrace = new Map();
-      const v2 = migrateLegacyTreeToDocument(json, trace);
-
-      // Инжект геометрии для imported-фич: ImportedMeshNode уже держит
-      // BufferGeometry в памяти, IDB-резолва не требуется. Без этого
-      // EvaluateVisitor.visitImportedMesh бросит «geometry не загружена».
-      for (const f of v2.features) {
-        if (f.type !== 'imported') continue;
-        const sourceJson = trace.get(f.id);
-        if (!sourceJson) continue;
-        const node = jsonToNode.get(sourceJson);
-        if (node instanceof ImportedMeshNode && node.geometry) {
-          (f.params as Record<string, unknown>).geometry = node.geometry;
-        }
-      }
-
-      const doc = FeatureDocument.fromJSON(v2);
-      this.featureDocCurrent = doc;
-      this.featureRenderer.bindDocument(doc);
-      // Глобальный доступ для debug-панели и DevTools.
-      (window as unknown as { __featureDoc?: FeatureDocument }).__featureDoc = doc;
-
-      // Перестраиваем featureId↔ModelNode карты для UI (Feature Tree, формы).
-      this.nodeByFeatureId.clear();
-      this.featureIdByNode.clear();
-      for (const [featureId, sourceJson] of trace) {
-        const node = jsonToNode.get(sourceJson);
-        if (node) this.nodeByFeatureId.set(featureId, node);
-      }
-      // featureIdByNode: ставим самую «верхнюю» в рамках общей цепочки
-      // (Transform-обёртку), если она есть. Идея: feature позже идущая в
-      // массиве features (сначала emit'ятся Box, потом Transform — Transform
-      // оказывается следом). Перезаписи делают так, что финальное значение
-      // — id самой внешней фичи, на которую ссылается `rootIds`/композит.
-      for (const f of v2.features) {
-        const node = this.nodeByFeatureId.get(f.id);
-        if (node) this.featureIdByNode.set(node, f.id);
-      }
-
-      // Протягиваем `userData.node` и uuid на меши/группы — это нужно
-      // PointerEventController.findObject3DByNode/findNodeByObject3D и
-      // updateNodeMaterial. featureId → JSON через trace, JSON → ModelNode
-      // через jsonToNode.
-      this.modelRootGroup.traverse((obj) => {
-        const featureId = (obj.userData as { featureId?: string }).featureId;
-        if (!featureId) return;
-        const sourceJson = trace.get(featureId);
-        if (!sourceJson) return;
-        const node = jsonToNode.get(sourceJson);
-        if (!node) return;
-        obj.userData.node = node;
-        // Записываем uuid в ModelNode, чтобы findObjectByNode по uuid работал.
-        node.setUuid(obj.uuid);
-      });
+      this._rebuildFromModelTree(rootVal);
     } catch (e) {
       console.warn('[ConstructorSceneService] FeatureRenderer rebuild failed; falling back to legacy build:', e);
-      // Fallback: чистим и собираем по-старому.
-      this.featureRenderer.unbindDocument();
-      this.featureDocCurrent = null;
-      disposeObject3D(this.modelRootGroup);
-      while (this.modelRootGroup.children.length) {
-        this.modelRootGroup.remove(this.modelRootGroup.children[0]);
-      }
-      const root = this.modelApp.getModelManager().getTree();
-      if (root) this.modelRootGroup.add(this.buildNodeObject3D(root, true));
+      this._rebuildLegacyFallback();
     }
 
     this.updateGizmoTarget();
+  }
+
+  /**
+   * Legacy путь: ModelNode-tree → migrate → featureDoc → mapping. Дефолтное
+   * поведение, не ломает ни одно существующее место.
+   */
+  private _rebuildFromModelTree(rootVal: ModelNode): void {
+    const serializer = this.modelApp.getSerializer();
+    const json = serializer.toRootJSON(rootVal);
+
+    const jsonToNode = new Map<ModelTreeJSON, ModelNode>();
+    pairTrees(json, rootVal, jsonToNode);
+
+    const trace: MigrationTrace = new Map();
+    const v2 = migrateLegacyTreeToDocument(json, trace);
+
+    this._injectImportedGeometriesFromTrace(v2, trace, jsonToNode);
+    this._ensureFeatureDocBound();
+    this.featureDocCurrent!.loadFromJSON(v2);
+    (window as unknown as { __featureDoc?: FeatureDocument }).__featureDoc = this.featureDocCurrent!;
+
+    this.nodeFeatureMapping.setFromForwardTrace(v2, trace, jsonToNode);
+    this._propagateUserDataNode(trace, jsonToNode);
+  }
+
+  /**
+   * Load-flip путь: featureDoc уже актуален (loadFromV2JSON только что его
+   * заполнил), ModelNode-tree derived через featureDocumentToLegacy. Делаем
+   * inverse parallel walk и обновляем mapping/userData без re-migrate.
+   */
+  private _rebuildFromCurrentFeatureDoc(rootVal: ModelNode): void {
+    const v2 = this.featureDocCurrent!.toJSON();
+    const inverseTrace: InverseMigrationTrace = new Map();
+    // Re-run featureDocumentToLegacy с trace, чтобы получить
+    // featureId → ModelTreeJSON соответствие. Сам ModelTreeJSON выбрасываем —
+    // ModelNode-tree уже построен в `loadFromV2JSON` из этого же v2.
+    featureDocumentToLegacy(v2, inverseTrace);
+
+    // Параллельный walk: derived ModelNode-tree ↔ legacyJson.
+    // Для consistency сериализуем текущий ModelNode-tree (toRootJSON) — это
+    // даёт нам ModelTreeJSON-структуру, идентичную inverseTrace.values()
+    // ПОЗИЦИОННО (потому что featureDocumentToLegacy и Serializer.toRootJSON
+    // сохраняют порядок детей одинаково для документов, прошедших round-trip).
+    const serializer = this.modelApp.getSerializer();
+    const legacyJsonFromTree = serializer.toRootJSON(rootVal);
+    const jsonToNode = new Map<ModelTreeJSON, ModelNode>();
+    pairTrees(legacyJsonFromTree, rootVal, jsonToNode);
+
+    // inverseTrace.values() и legacyJsonFromTree — два разных JSON-объекта
+    // одной структуры. Чтобы получить featureId → ModelNode, надо
+    // ассоциировать ModelTreeJSON inverseTrace с ModelTreeJSON legacyJsonFromTree
+    // позиционно. Делаем это через walk обоих деревьев параллельно.
+    const inverseJsonToTreeJson = new Map<ModelTreeJSON, ModelTreeJSON>();
+    {
+      const inverseRoot = inverseTrace.get(v2.rootIds[0]);
+      if (inverseRoot) pairTreesByPosition(inverseRoot, legacyJsonFromTree, inverseJsonToTreeJson);
+    }
+    // featureId (через inverseTrace) → inverseJson → treeJson → ModelNode.
+    const flatTrace = new Map<FeatureId, ModelTreeJSON>();
+    for (const [fid, inverseJson] of inverseTrace) {
+      const treeJson = inverseJsonToTreeJson.get(inverseJson);
+      if (treeJson) flatTrace.set(fid, treeJson);
+    }
+
+    this.nodeFeatureMapping.setFromInverseTrace(v2, flatTrace, jsonToNode);
+    this._propagateUserDataNode(flatTrace, jsonToNode);
+  }
+
+  /**
+   * Catastrophic fallback: пересобираем сцену через legacy `buildNodeObject3D`,
+   * минуя FeatureRenderer. Срабатывает только если migrate упал — это
+   * означает баг в feature-tree модели, но user не теряет сцену.
+   */
+  private _rebuildLegacyFallback(): void {
+    if (!this.modelRootGroup || !this.featureRenderer) return;
+    this.featureRenderer.unbindDocument();
+    this.featureDocCurrent = null;
+    this.nodeFeatureMapping.clear();
+    disposeObject3D(this.modelRootGroup);
+    while (this.modelRootGroup.children.length) {
+      this.modelRootGroup.remove(this.modelRootGroup.children[0]);
+    }
+    const root = this.modelApp.getModelManager().getTree();
+    if (root) this.modelRootGroup.add(this.buildNodeObject3D(root, true));
+  }
+
+  private _ensureFeatureDocBound(): void {
+    if (!this.featureRenderer) return;
+    if (!this.featureDocCurrent) {
+      this.featureDocCurrent = new FeatureDocument();
+      this.featureRenderer.bindDocument(this.featureDocCurrent);
+    }
+  }
+
+  private _injectImportedGeometriesFromTrace(
+    v2: FeatureDocumentJSON,
+    trace: MigrationTrace,
+    jsonToNode: ReadonlyMap<ModelTreeJSON, ModelNode>,
+  ): void {
+    for (const f of v2.features) {
+      if (f.type !== 'imported') continue;
+      const sourceJson = trace.get(f.id);
+      if (!sourceJson) continue;
+      const node = jsonToNode.get(sourceJson);
+      if (node instanceof ImportedMeshNode && node.geometry) {
+        (f.params as Record<string, unknown>).geometry = node.geometry;
+      }
+    }
+  }
+
+  private _propagateUserDataNode(
+    trace: ReadonlyMap<FeatureId, ModelTreeJSON>,
+    jsonToNode: ReadonlyMap<ModelTreeJSON, ModelNode>,
+  ): void {
+    if (!this.modelRootGroup) return;
+    this.modelRootGroup.traverse((obj) => {
+      const featureId = (obj.userData as { featureId?: FeatureId }).featureId;
+      if (!featureId) return;
+      const sourceJson = trace.get(featureId);
+      if (!sourceJson) return;
+      const node = jsonToNode.get(sourceJson);
+      if (!node) return;
+      obj.userData.node = node;
+      node.setUuid(obj.uuid);
+    });
+  }
+
+  /**
+   * **Load-flip API**: загружает FeatureDocumentJSON v2 напрямую в featureDoc,
+   * минуя ModelNode-round-trip. ModelNode-tree деривируется через
+   * `featureDocumentToLegacy` для legacy mutation paths (drag/handle/mirror,
+   * пока flip не закрыт).
+   *
+   * Дальнейший `rebuildSceneFromTree` пропустит migrate-шаг (skipNextMigrate
+   * флаг), сохранив featureId'шки v2-документа — это критично для
+   * mirror/chamfer/etc. flip'ов, где caller добавляет фичи в featureDoc и
+   * полагается на их id.
+   *
+   * Caller должен передать v2 со всеми резолвенными бинарниками (geometry в
+   * params для imported-фич). См. `loader/loadFeatureDocument` для async-варианта.
+   */
+  loadFromV2JSON(v2: FeatureDocumentJSON, deriveModelTree: (legacyJson: ModelTreeJSON) => ModelNode): void {
+    if (!this.featureRenderer) {
+      throw new Error('[ConstructorSceneService.loadFromV2JSON] не примонтировано');
+    }
+    this._ensureFeatureDocBound();
+    this.featureDocCurrent!.loadFromJSON(v2);
+    (window as unknown as { __featureDoc?: FeatureDocument }).__featureDoc = this.featureDocCurrent!;
+
+    // Derive ModelNode-tree из v2 → legacyJson → caller fromJSON.
+    const legacyJson = featureDocumentToLegacy(v2);
+    const newRoot = deriveModelTree(legacyJson);
+    this.modelApp.getModelManager().setTree(newRoot);
+
+    // Следующий rebuild пропустит migrate (см. _rebuildFromCurrentFeatureDoc).
+    this.skipNextMigrate = true;
+    this.rebuildSceneFromTree();
+  }
+
+  /**
+   * **Mutation flip API** (Template Method): обёртка для операций, мутирующих
+   * featureDoc напрямую (mirror/merge/chamfer/generator после flip'а). Делает:
+   *
+   *  1. Запускает `mutate()` — caller вызывает featureDoc.addFeature/
+   *     updateParams/updateInputs/setRootIds. featureRenderer реактивно
+   *     обновит сцену через подписку.
+   *  2. Derive ModelNode-tree из новой версии featureDoc (через
+   *     featureDocumentToLegacy + caller `deriveModelTree`) — нужен legacy
+   *     mutation paths (drag/handle/applyMirror в их текущем виде).
+   *  3. Помечает skipNextMigrate = true и вызывает rebuildSceneFromTree —
+   *     тот пройдёт inverse-mapping путь, не теряя featureId'шек после
+   *     мутации.
+   *
+   * Caller отвечает только за featureDoc-мутацию и за фабрику ModelNode'а из
+   * legacyJson (обычно `serializer.fromJSON`). Ни featureDoc, ни ModelNode-tree
+   * напрямую не трогает.
+   */
+  mutateFeatureDoc(
+    mutate: (doc: FeatureDocument) => void,
+    deriveModelTree: (legacyJson: ModelTreeJSON) => ModelNode,
+  ): void {
+    if (!this.featureDocCurrent) {
+      throw new Error('[ConstructorSceneService.mutateFeatureDoc] featureDoc не инициализирован — вызовите rebuildSceneFromTree до первой мутации');
+    }
+    mutate(this.featureDocCurrent);
+    const v2 = this.featureDocCurrent.toJSON();
+    const legacyJson = featureDocumentToLegacy(v2);
+    const newRoot = deriveModelTree(legacyJson);
+    this.modelApp.getModelManager().setTree(newRoot);
+    this.skipNextMigrate = true;
+    this.rebuildSceneFromTree();
   }
 
   /**
@@ -1136,6 +1333,10 @@ export class ConstructorSceneService {
       obj.position.set(p.x, p.y, (p.z ?? 0) + halfH);
     }
 
+    // Синхронизируем featureDoc — иначе любая последующая mutateFeatureDoc
+    // (merge/mirror/etc.) перепишет ModelNode-tree из stale featureDoc
+    // и keyboard-move будет потерян.
+    this.syncNodeTransformLive(node);
     this.showYZeroIndicatorIfNeeded(node);
     this.options.onNodeParamsChanged?.(node);
   }

@@ -127,7 +127,7 @@ defineEmits<{
         | active scene: {{ activeSceneIndex + 1 }} / {{ sceneCount }}
         template(v-for="(stat, idx) in storage" :key="idx")
           br
-          | s{{ idx + 1 }}: v2={{ stat.v2 }} legacy={{ stat.v1 }}
+          | s{{ idx + 1 }}: v2={{ stat.v2 }}
     .debug-section.debug-section--logs
       .debug-title
         | Logs ({{ logs.length }})

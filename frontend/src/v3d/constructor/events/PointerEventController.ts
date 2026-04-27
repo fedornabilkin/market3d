@@ -168,12 +168,26 @@ export interface PointerEventHost {
 
   // ─── Lifecycle callbacks ───────────────────────────────────────────────────
   options: {
+    /**
+     * Primary selection callback — приходит featureId, прочитанный с
+     * `userData.featureId` (FeatureRenderer). Constructor.vue резолвит его в
+     * ModelNode для legacy UI consumers (selection refactor: Phase 2 prep).
+     */
+    onSelectFeatureFromScene?: (featureId: string, opts: { shift: boolean }) => void;
+    /**
+     * Legacy fallback — срабатывает только в catastrophic legacy fallback
+     * пути (`buildNodeObject3D`), где меши не имеют userData.featureId.
+     * После полного удаления `nodes/` и legacy fallback'а — будет удалено.
+     */
     onSelectNodeFromScene?: (node: ModelNode, opts: { shift: boolean }) => void;
     onDeselectAll?: () => void;
     onNodeParamsChanged?: (node: ModelNode) => void;
     onBeforeDrag?: () => void;
     onAfterDrag?: () => void;
     onAlignMarkerClick?: (mode: string) => void;
+    /** Primary marquee callback — featureIds, см. `onSelectFeatureFromScene`. */
+    onMarqueeSelectFeatures?: (featureIds: string[]) => void;
+    /** Legacy fallback marquee callback — см. `onSelectNodeFromScene`. */
     onMarqueeSelect?: (nodes: ModelNode[]) => void;
   };
 
@@ -836,9 +850,14 @@ export class PointerEventController {
         host.pointerDownHandle = null;
       } else if (host.pointerDownHit && isClick) {
         const target = resolveSelectableTarget(host.pointerDownHit.object);
-        const node = (target.userData as { node?: ModelNode }).node;
-        if (node && host.options.onSelectNodeFromScene) {
-          host.options.onSelectNodeFromScene(node, { shift: host.pointerDownShift });
+        const featureId = (target.userData as { featureId?: string }).featureId;
+        if (featureId && host.options.onSelectFeatureFromScene) {
+          host.options.onSelectFeatureFromScene(featureId, { shift: host.pointerDownShift });
+        } else {
+          const node = (target.userData as { node?: ModelNode }).node;
+          if (node && host.options.onSelectNodeFromScene) {
+            host.options.onSelectNodeFromScene(node, { shift: host.pointerDownShift });
+          }
         }
       } else if (!host.pointerDownHit && isClick) {
         host.options.onDeselectAll?.();
@@ -901,7 +920,8 @@ export class PointerEventController {
     const w = rect.width;
     const h = rect.height;
 
-    const selected: ModelNode[] = [];
+    const selectedNodes: ModelNode[] = [];
+    const selectedFeatureIds: string[] = [];
     const wp = new THREE.Vector3();
 
     for (const mesh of meshes) {
@@ -915,15 +935,21 @@ export class PointerEventController {
       const sy = (-wp.y * 0.5 + 0.5) * h;
 
       if (sx >= mx1 && sx <= mx2 && sy >= my1 && sy <= my2) {
-        const node = (mesh.userData as { node?: ModelNode }).node;
-        if (node && !selected.includes(node)) {
-          selected.push(node);
+        const target = resolveSelectableTarget(mesh);
+        const featureId = (target.userData as { featureId?: string }).featureId;
+        if (featureId) {
+          if (!selectedFeatureIds.includes(featureId)) selectedFeatureIds.push(featureId);
+        } else {
+          const node = (target.userData as { node?: ModelNode }).node;
+          if (node && !selectedNodes.includes(node)) selectedNodes.push(node);
         }
       }
     }
 
-    if (selected.length > 0) {
-      host.options.onMarqueeSelect?.(selected);
+    if (selectedFeatureIds.length > 0 && host.options.onMarqueeSelectFeatures) {
+      host.options.onMarqueeSelectFeatures(selectedFeatureIds);
+    } else if (selectedNodes.length > 0) {
+      host.options.onMarqueeSelect?.(selectedNodes);
     } else {
       host.options.onDeselectAll?.();
     }

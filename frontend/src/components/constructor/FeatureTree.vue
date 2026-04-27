@@ -7,6 +7,7 @@ interface FeatureNodeView {
   id: FeatureId;
   type: string;
   label: string;
+  color: string | null;
   hasError: boolean;
   errorText: string | null;
   children: FeatureNodeView[];
@@ -20,12 +21,12 @@ const props = defineProps<{
    * (передавайте reactive ref от Constructor.vue / sceneService).
    */
   doc: FeatureDocument | null;
-  /** Подсветить эту фичу (rootmost feature-id выделенного ModelNode). */
-  highlightedId?: string | null;
+  /** Все выделенные FeatureId (multi-select). */
+  selectedIds?: readonly string[];
 }>();
 
 const emit = defineEmits<{
-  (e: 'select', id: FeatureId): void;
+  (e: 'select', payload: { id: FeatureId; shiftKey: boolean }): void;
 }>();
 
 /**
@@ -79,10 +80,13 @@ const tree = computed<FeatureNodeView[]>(() => {
     if (f.type === 'transform' && children.length === 1) {
       innerLabel = children[0].label !== children[0].type ? children[0].label : null;
     }
+    const params = f.params as Record<string, unknown> | undefined;
+    const colorRaw = params && typeof params.color === 'string' ? params.color : null;
     return {
       id: f.id,
       type: f.type,
       label: baseLabel,
+      color: colorRaw,
       hasError: !!f.error,
       errorText: f.error ?? null,
       children,
@@ -114,9 +118,9 @@ const totalCount = computed(() => {
       :key="root.id"
       :node="root"
       :depth="0"
-      :highlighted-id="highlightedId"
+      :selected-ids="selectedIds"
       :badge-fn="badge"
-      @select="(id) => emit('select', id)"
+      @select="(payload) => emit('select', payload)"
     )
 </template>
 
