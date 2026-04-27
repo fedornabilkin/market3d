@@ -315,7 +315,8 @@ export class ModificationGizmo {
   private group: THREE.Group;
   private handles: HandleMesh[] = [];
   private target: THREE.Object3D | null = null;
-  private node: ModelNodeLike | null = null;
+  /** Феатура-id выделенного объекта (rootmost Transform, обычно). */
+  private featureId: string | null = null;
   private box: THREE.Box3;
   private boxSize: THREE.Vector3;
   private boxCenter: THREE.Vector3;
@@ -383,7 +384,7 @@ export class ModificationGizmo {
     this.group.visible = false;
   }
 
-  setTarget(object3D: THREE.Object3D | null, node: ModelNodeLike): void {
+  setTarget(object3D: THREE.Object3D | null, featureId: string | null): void {
     this.setHovered(null);
     // Если target — пустая группа (например, root пустой сцены), bbox.isEmpty()
     // даст Infinity-extents → весь pipeline (positions, drag-handles) даёт
@@ -396,14 +397,14 @@ export class ModificationGizmo {
       }
     }
     this.target = object3D;
-    this.node = node;
+    this.featureId = featureId;
     this.group.visible = true;
   }
 
   clearTarget(): void {
     this.setHovered(null);
     this.target = null;
-    this.node = null;
+    this.featureId = null;
     this.group.visible = false;
   }
 
@@ -415,8 +416,8 @@ export class ModificationGizmo {
     return this.target;
   }
 
-  getNode(): ModelNodeLike | null {
-    return this.node;
+  getFeatureId(): string | null {
+    return this.featureId;
   }
 
   getDebugInfo(): {
@@ -628,8 +629,10 @@ export class ModificationGizmo {
         handle.scale.setScalar(scaleFactor);
       });
 
-      // Position and scale protractor rings — centered on object, oriented per axis
-      const rot = this.node?.params?.rotation;
+      // Position and scale protractor rings — centered on object, oriented per axis.
+      // Поворот для pointer'а читаем из live `target.rotation` — это Euler от
+      // quaternion, обновляется FeatureRenderer'ом на каждый updateParamsLive.
+      const rot = this.target?.rotation;
       const ringRadius = this.fixedRingRadius > 0 ? this.fixedRingRadius : this.boxSize.length() * 1.0;
       this.rotationRings.forEach((ring, type) => {
         if (!ring.visible) return;
@@ -682,7 +685,7 @@ export class ModificationGizmo {
   }
 
   private getDimensionLabel(type: HandleType): string | null {
-    if (!this.node) return null;
+    if (!this.target) return null;
 
     // Z-up convention: width = X, depth = Y, height = Z. AABB-размеры берём
     // напрямую — единообразно покрывают примитивы (включая cylinder с разным
@@ -714,15 +717,15 @@ export class ModificationGizmo {
         // Z-up: вертикальная ручка показывает нижнюю грань bbox по Z.
         return `Z: ${bottomZ}`;
       case 'rotateX': {
-        const deg = +((this.node.params?.rotation?.x ?? 0) * (180 / Math.PI)).toFixed(1);
+        const deg = +((this.target.rotation?.x ?? 0) * (180 / Math.PI)).toFixed(1);
         return `X: ${deg}°`;
       }
       case 'rotateY': {
-        const deg = +((this.node.params?.rotation?.y ?? 0) * (180 / Math.PI)).toFixed(1);
+        const deg = +((this.target.rotation?.y ?? 0) * (180 / Math.PI)).toFixed(1);
         return `Y: ${deg}°`;
       }
       case 'rotateZ': {
-        const deg = +((this.node.params?.rotation?.z ?? 0) * (180 / Math.PI)).toFixed(1);
+        const deg = +((this.target.rotation?.z ?? 0) * (180 / Math.PI)).toFixed(1);
         return `Z: ${deg}°`;
       }
       default:
@@ -870,13 +873,3 @@ export class ModificationGizmo {
   }
 }
 
-type ModelNodeLike = {
-  params?: {
-    position?: { x: number; y: number; z: number };
-    scale?: { x: number; y: number; z: number };
-    rotation?: { x: number; y: number; z: number; order?: string };
-  };
-  geometryParams?: { width?: number; height?: number; depth?: number; radius?: number; tube?: number; innerRadius?: number; outerRadius?: number; radiusTop?: number; radiusBottom?: number };
-  type?: string;
-  [key: string]: unknown;
-};

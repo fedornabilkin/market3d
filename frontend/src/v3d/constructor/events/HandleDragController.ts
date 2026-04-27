@@ -1,56 +1,74 @@
 import * as THREE from 'three';
-import type { ModelNode } from '../nodes/ModelNode';
 import type { HandleDragState } from './PointerEventController';
+import type { FeatureDocument } from '../features/FeatureDocument';
+import type { FeatureId } from '../features/types';
+import { TransformFeature } from '../features/composite/TransformFeature';
 import { remapAxisForRotatedGroup } from '../primitiveTransforms';
-import { getNodeHalfHeight, normalizeAngle } from '../services/sceneObjectHelpers';
+import { normalizeAngle } from '../services/sceneObjectHelpers';
 
 /**
  * Host-интерфейс для HandleDragController. ConstructorSceneService отдаёт
  * себя через cast `this as unknown as HandleDragHost`, чтобы поля читались
- * fresh на каждом drag-frame'е (selectedObject3D, snapStep и т.д. — meaningful
- * только в момент вызова).
+ * fresh на каждом drag-frame'е.
  */
 export interface HandleDragHost {
   selectedObject3D: THREE.Object3D | null;
   handleDragState: HandleDragState | null;
   snapStep: number;
-  options: { onNodeParamsChanged?: (node: ModelNode) => void };
-  showYZeroIndicatorIfNeeded(node: ModelNode): void;
-  /**
-   * Зеркалит свежие node.params.{position,rotation,scale} в FeatureDocument
-   * через updateParamsLive (без полного rebuild'а). Вызывается каждый
-   * drag-frame после мутации params. No-op, если Transform-обёртки ещё нет —
-   * полная sync-резолюция произойдёт в onAfterDrag.
-   */
-  syncNodeTransformLive(node: ModelNode): void;
+  /** Текущий FeatureDocument — primary source-of-truth для transform params. */
+  getFeatureDocument(): FeatureDocument | null;
+  options: { onNodeParamsChanged?: () => void };
+  /** Показать индикатор Z=0 если объект сидит на сетке. Вызывается каждый frame. */
+  showYZeroIndicatorIfNeeded(featureId: FeatureId | null): void;
+}
+
+/** Mutable scratch-params, мутируемые drag-математикой по фрейму. */
+interface ScratchParams {
+  position: { x: number; y: number; z: number };
+  rotation: { x: number; y: number; z: number };
+  scale: { x: number; y: number; z: number };
 }
 
 /**
- * Применяет дельту с handle-ручки к ноде: edge/corner-resize, height-stretch,
- * vertical translate, rotation X/Y/Z. Каждый handle-тип имеет свой кейс
- * в switch'е и набор побочных эффектов (drift-компенсация позиции для
- * сохранения фиксированной грани, snap к сетке для offsetY и т.д.).
+ * Применяет дельту с handle-ручки к Transform-feature: edge/corner-resize,
+ * height-stretch, vertical translate, rotation X/Y/Z. Каждый handle-тип имеет
+ * свой кейс в switch'е и набор побочных эффектов (drift-компенсация позиции
+ * для сохранения фиксированной грани, snap к сетке для offsetY и т.д.).
  *
- * Извлечено из `ConstructorSceneService.applyHandleDragDelta`. Логика и
- * математика без изменений.
+ * После flip'а оперирует НАПРЯМУЮ через FeatureDocument.updateParamsLive —
+ * никакого ModelNode runtime'а не задействовано.
  */
 export class HandleDragController {
   constructor(private readonly host: HandleDragHost) {}
 
   applyDragDelta(
-    node: ModelNode | null,
+    featureId: FeatureId | null,
     handleType: string,
     dx: number,
     dy: number,
   ): void {
-    if (!node) return;
+    if (!featureId) return;
+    const doc = this.host.getFeatureDocument();
+    if (!doc) return;
+    const transform = doc.graph.get(featureId);
+    if (!(transform instanceof TransformFeature)) return;
 
-    node.params = node.params || {};
-    const params = node.params;
-    params.position = params.position || { x: 0, y: 0, z: 0 };
-    params.scale = params.scale || { x: 1, y: 1, z: 1 };
-    const p = params.position!;
-    const s = params.scale!;
+    // Scratch params — копия текущих params, мутируется математикой ниже.
+    // Tuple [x,y,z] из featureDoc → {x,y,z} вид (исторический контракт math'а).
+    const tp = transform.params;
+    const params: ScratchParams = {
+      position: { x: tp.position[0], y: tp.position[1], z: tp.position[2] },
+      rotation: { x: tp.rotation[0], y: tp.rotation[1], z: tp.rotation[2] },
+      scale: { x: tp.scale[0], y: tp.scale[1], z: tp.scale[2] },
+    };
+    const p = params.position;
+    const s = params.scale;
+
+    // halfHeight примитива внутри Transform — для bottom-anchor sync 3D-объекта
+    // во время drift compensation. visitTransform пробрасывает bottomAnchorOffsetZ
+    // из inner-leaf'а, поэтому достаточно output этого Transform'а.
+    const out = doc.getOutput(featureId);
+    const halfH = (out && out.kind === 'leaf') ? (out.bottomAnchorOffsetZ ?? 0) : 0;
 
     // AABB и unrotated-bbox для scale-операций. Нужно для групп
     // (без geometryParams) и для примитивов где geomKey отсутствует
@@ -70,9 +88,7 @@ export class HandleDragController {
     }
 
     const remapAxis = (worldAxis: 'x' | 'y' | 'z'): 'x' | 'y' | 'z' => {
-      const rot = params.rotation;
-      if (!rot) return worldAxis;
-      return remapAxisForRotatedGroup(rot, worldAxis);
+      return remapAxisForRotatedGroup(params.rotation, worldAxis);
     };
 
     /**
@@ -110,7 +126,6 @@ export class HandleDragController {
         p[posAxis] -= drift;
 
         // Sync 3D obj position для следующего growDim вызова (corners — 2 раза).
-        const halfH = getNodeHalfHeight(node);
         obj.position.set(p.x, p.y, (p.z ?? 0) + halfH);
         obj.updateMatrixWorld(true);
         objBox = new THREE.Box3().setFromObject(obj);
@@ -156,9 +171,8 @@ export class HandleDragController {
             (c as THREE.LineSegments).geometry?.dispose();
             hObj.remove(c);
           }
-          const halfH = getNodeHalfHeight(node);
           hObj.position.set(p.x, p.y, (p.z ?? 0) + halfH);
-          if (params.scale) hObj.scale.set(params.scale.x, params.scale.y, params.scale.z);
+          hObj.scale.set(s.x, s.y, s.z);
           hObj.updateMatrixWorld(true);
           const drift = new THREE.Box3().setFromObject(hObj).min.z - bottomBefore;
           if (Math.abs(drift) > 0.0001) p.z -= drift;
@@ -175,7 +189,6 @@ export class HandleDragController {
       case 'rotateX':
       case 'rotateY':
       case 'rotateZ': {
-        params.rotation = params.rotation || { x: 0, y: 0, z: 0 };
         const ds = this.host.handleDragState;
         if (ds?.startQuaternion && ds.rotationWorldAxis) {
           const startRot = ds.startRotation ?? 0;
@@ -198,51 +211,50 @@ export class HandleDragController {
     // growDim сдвигает p.z, чтобы bbox.min.z остался на месте). Снэп-на-p.z
     // в этом случае промахивается мимо сетки на halfH*(1-scale.z).
     if (this.host.snapStep > 0 && handleType === 'offsetY') {
-      const halfH = getNodeHalfHeight(node);
-      const scaleZ = Math.abs(params.scale?.z ?? 1);
+      const scaleZ = Math.abs(s.z);
       const offset = halfH * (1 - scaleZ);
-      const bottom = (p.z ?? 0) + offset;
+      const bottom = p.z + offset;
       const snappedBottom = Math.round(bottom / this.host.snapStep) * this.host.snapStep;
       p.z = snappedBottom - offset;
     }
 
-    // Apply mutated params на 3D-объект.
+    // Apply scratch params → 3D-объект для немедленного visual feedback.
+    // FeatureRenderer на updateParamsLive повторно выставит трансформ, но
+    // совпадающие значения дают тот же результат — без visible flicker'а.
     const obj = this.host.selectedObject3D;
     if (obj) {
-      const halfH = getNodeHalfHeight(node);
-      if (params.position) {
-        obj.position.set(params.position.x, params.position.y, (params.position.z ?? 0) + halfH);
-      }
-      if (params.scale) obj.scale.set(params.scale.x, params.scale.y, params.scale.z);
-      if (params.rotation) {
-        const ds = this.host.handleDragState;
-        if (ds?.groupPivotWorld && ds?.groupPivotLocal) {
-          const pivotWorld = ds.groupPivotWorld;
-          const pivotLocal = ds.groupPivotLocal;
+      obj.position.set(p.x, p.y, p.z + halfH);
+      obj.scale.set(s.x, s.y, s.z);
+      const ds = this.host.handleDragState;
+      if (ds?.groupPivotWorld && ds?.groupPivotLocal) {
+        const pivotWorld = ds.groupPivotWorld;
+        const pivotLocal = ds.groupPivotLocal;
 
-          obj.rotation.set(params.rotation.x, params.rotation.y, params.rotation.z);
-          obj.updateMatrixWorld(true);
+        obj.rotation.set(params.rotation.x, params.rotation.y, params.rotation.z);
+        obj.updateMatrixWorld(true);
 
-          // Rotation вокруг pivot'а (= world bbox-центр на момент начала drag'а):
-          // localToWorld = R*v + P. Сохраняем визуальный центр объекта на месте,
-          // не якорим нижнюю грань к сетке — пользователь явно просил вращение
-          // вокруг центра.
-          const rotatedOffset = obj.localToWorld(pivotLocal.clone()).sub(obj.position);
-          obj.position.copy(pivotWorld).sub(rotatedOffset);
-          obj.updateMatrixWorld(true);
+        // Rotation вокруг pivot'а (= world bbox-центр на момент начала drag'а):
+        // localToWorld = R*v + P. Сохраняем визуальный центр объекта на месте.
+        const rotatedOffset = obj.localToWorld(pivotLocal.clone()).sub(obj.position);
+        obj.position.copy(pivotWorld).sub(rotatedOffset);
+        obj.updateMatrixWorld(true);
 
-          params.position = params.position || { x: 0, y: 0, z: 0 };
-          params.position.x = obj.position.x;
-          params.position.y = obj.position.y;
-          params.position.z = obj.position.z - halfH;
-        } else {
-          obj.rotation.set(params.rotation.x, params.rotation.y, params.rotation.z);
-        }
+        params.position.x = obj.position.x;
+        params.position.y = obj.position.y;
+        params.position.z = obj.position.z - halfH;
+      } else {
+        obj.rotation.set(params.rotation.x, params.rotation.y, params.rotation.z);
       }
     }
 
-    this.host.showYZeroIndicatorIfNeeded(node);
-    this.host.syncNodeTransformLive(node);
-    this.host.options.onNodeParamsChanged?.(node);
+    // Sync scratch → featureDoc.updateParamsLive (single-feature targeted).
+    doc.updateParamsLive(featureId, {
+      position: [params.position.x, params.position.y, params.position.z],
+      rotation: [params.rotation.x, params.rotation.y, params.rotation.z],
+      scale: [params.scale.x, params.scale.y, params.scale.z],
+    });
+
+    this.host.showYZeroIndicatorIfNeeded(featureId);
+    this.host.options.onNodeParamsChanged?.();
   }
 }

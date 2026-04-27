@@ -84,7 +84,8 @@ function rotationPlaneAxes(
 
 export interface HandleDragState {
   handleType: string;
-  node: ModelNode | null;
+  /** Rootmost feature-id (Transform-обёртка) выделенного объекта. */
+  featureId: string | null;
   plane: THREE.Plane;
   startWorldPoint: THREE.Vector3;
   worldAxis: THREE.Vector3;
@@ -181,7 +182,7 @@ export interface PointerEventHost {
      */
     onSelectNodeFromScene?: (node: ModelNode, opts: { shift: boolean }) => void;
     onDeselectAll?: () => void;
-    onNodeParamsChanged?: (node: ModelNode) => void;
+    onNodeParamsChanged?: () => void;
     onBeforeDrag?: () => void;
     onAfterDrag?: () => void;
     onAlignMarkerClick?: (mode: string) => void;
@@ -194,8 +195,9 @@ export interface PointerEventHost {
   // ─── Methods the handlers call back into ───────────────────────────────────
   getSelectableMeshes(): THREE.Mesh[];
   computeHandleConstraintPlane(handleType: string): ConstraintPlaneInfo;
-  applyHandleDragDelta(node: ModelNode | null, handleType: string, dx: number, dy: number): void;
-  bakeRotationIntoDimensions(node: ModelNode): void;
+  applyHandleDragDelta(featureId: string | null, handleType: string, dx: number, dy: number): void;
+  bakeRotationIntoDimensions(featureId: string | null): void;
+  getFeatureDocument(): import('../features/FeatureDocument').FeatureDocument | null;
   collectNeighborEdges(exclude: THREE.Object3D): { xs: number[]; zs: number[] };
   applyCruiseSnap(
     target: THREE.Object3D,
@@ -281,7 +283,7 @@ export class PointerEventController {
           host.options.onBeforeDrag?.();
           const node = host.selectedNode;
           host.applyMirror(node, axis);
-          host.options.onNodeParamsChanged?.(node);
+          host.options.onNodeParamsChanged?.();
           host.options.onAfterDrag?.();
         }
         return;
@@ -455,7 +457,7 @@ export class PointerEventController {
           host.handleDragState.rotationPrevTarget = host.handleDragState.rotationLastTarget;
 
           // Pass absolute angle
-          host.applyHandleDragDelta(host.handleDragState.node, host.handleDragState.handleType, snappedTarget, 0);
+          host.applyHandleDragDelta(host.handleDragState.featureId, host.handleDragState.handleType, snappedTarget, 0);
 
           host.handleDragState.rotationLastSnapDeg = snapDeg;
           host.handleDragState.rotationLastTarget = snappedTarget;
@@ -511,7 +513,7 @@ export class PointerEventController {
 
       if (deltaXToApply !== 0 || deltaYToApply !== 0) {
         host.applyHandleDragDelta(
-          host.handleDragState.node,
+          host.handleDragState.featureId,
           host.handleDragState.handleType,
           deltaXToApply,
           deltaYToApply
@@ -572,13 +574,29 @@ export class PointerEventController {
           host.dragTarget.position.y = targetPoint.y;
         }
 
-        // Update node params
-        const node = (host.dragTarget.userData as { node?: ModelNode }).node;
-        if (node?.params) {
-          node.params.position = node.params.position || { x: 0, y: 0, z: 0 };
-          node.params.position.x = host.dragTarget.position.x;
-          node.params.position.y = host.dragTarget.position.y;
-          host.options.onNodeParamsChanged?.(node);
+        // Update Transform.params через featureDoc — primary path. Legacy
+        // ModelNode.params оставлен как fallback на случай catastrophic
+        // legacy fallback пути (buildNodeObject3D без featureId).
+        const featureId = (host.dragTarget.userData as { featureId?: string }).featureId;
+        const doc = host.getFeatureDocument?.();
+        if (featureId && doc) {
+          const transform = doc.graph.get(featureId);
+          if (transform) {
+            const cur = (transform.params as { position?: [number, number, number] }).position
+              ?? [0, 0, 0];
+            doc.updateParamsLive(featureId, {
+              position: [host.dragTarget.position.x, host.dragTarget.position.y, cur[2]],
+            });
+          }
+          host.options.onNodeParamsChanged?.();
+        } else {
+          const node = (host.dragTarget.userData as { node?: ModelNode }).node;
+          if (node?.params) {
+            node.params.position = node.params.position || { x: 0, y: 0, z: 0 };
+            node.params.position.x = host.dragTarget.position.x;
+            node.params.position.y = host.dragTarget.position.y;
+            host.options.onNodeParamsChanged?.();
+          }
         }
       }
       return;
@@ -592,7 +610,7 @@ export class PointerEventController {
         host.isHandleDragging = true;
         if (host.controls) host.controls.enabled = false;
         host.options.onBeforeDrag?.();
-        const node = host.modificationGizmo?.getNode() as ModelNode | null;
+        const featureId = host.modificationGizmo?.getFeatureId() ?? null;
         const handleType = (host.pointerDownHandle.userData as { type: string }).type;
 
         const { plane, worldAxis, isVertical, isCorner, localAxisX, localAxisZ } =
@@ -603,7 +621,7 @@ export class PointerEventController {
 
         host.handleDragState = {
           handleType,
-          node,
+          featureId,
           plane,
           startWorldPoint,
           worldAxis,
@@ -641,7 +659,10 @@ export class PointerEventController {
             host.handleDragState.rotationTangentU = tangentU;
             host.handleDragState.rotationTangentV = tangentV;
             host.handleDragState.startPlaneAngle = startAngle;
-            host.handleDragState.startRotation = host.handleDragState.node?.params?.rotation?.[axisKey] ?? 0;
+            // startRotation читаем напрямую с THREE-объекта — его rotation
+            // (Euler из quaternion) синхронизирован с Transform.params.rotation
+            // через FeatureRenderer.applyLiveUpdate.
+            host.handleDragState.startRotation = obj.rotation[axisKey] ?? 0;
             host.handleDragState.startQuaternion = obj.quaternion.clone();
             host.handleDragState.rotationWorldAxis = normal.clone();
 
@@ -790,7 +811,7 @@ export class PointerEventController {
     if (host.isHandleDragging) {
       const ds = host.handleDragState;
       const wasRotation = ds?.handleType?.startsWith('rotate');
-      const rotNode = ds?.node ?? null;
+      const rotFeatureId = ds?.featureId ?? null;
       // Hide rotation sector
       if (wasRotation && host.modificationGizmo && ds?.handleType) {
         host.modificationGizmo.hideRotationSector(
@@ -802,20 +823,20 @@ export class PointerEventController {
       // схлопнуть накрученный угол в 0. Применяем предпоследний target —
       // то значение, которое пользователь видел перед отпусканием.
       if (
-        wasRotation && rotNode && ds &&
+        wasRotation && rotFeatureId && ds &&
         ds.rotationLastSnapDeg !== undefined &&
         ds.rotationPrevSnapDeg !== undefined &&
         ds.rotationPrevTarget !== undefined &&
         ds.rotationLastSnapDeg > ds.rotationPrevSnapDeg
       ) {
-        host.applyHandleDragDelta(rotNode, ds.handleType, ds.rotationPrevTarget, 0);
+        host.applyHandleDragDelta(rotFeatureId, ds.handleType, ds.rotationPrevTarget, 0);
       }
       host.isHandleDragging = false;
       host.handleDragState = null;
       host.pointerDownHandle = null;
       if (host.controls) host.controls.enabled = true;
-      if (wasRotation && rotNode) {
-        host.bakeRotationIntoDimensions(rotNode);
+      if (wasRotation && rotFeatureId) {
+        host.bakeRotationIntoDimensions(rotFeatureId);
       }
       host.options.onAfterDrag?.();
       return;

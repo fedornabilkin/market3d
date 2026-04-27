@@ -26,6 +26,7 @@ import { computeHandleConstraintPlane as computeHandleConstraintPlaneFn } from '
 import { bakeRotationIntoDimensions as bakeRotationOnDrag } from './events/bakeRotationOnDrag';
 import { FeatureRenderer } from './features/rendering/FeatureRenderer';
 import { FeatureDocument } from './features/FeatureDocument';
+import { TransformFeature } from './features/composite/TransformFeature';
 import {
   migrateLegacyTreeToDocument,
   type MigrationTrace,
@@ -85,8 +86,8 @@ export interface ConstructorSceneServiceOptions {
   onDeselectAll?: () => void;
   /** Called every ~30 frames with scene diagnostic data. */
   onDebugInfoUpdate?: (info: SceneDebugInfo) => void;
-  /** Called when a node's transform / geometry params change due to drag. */
-  onNodeParamsChanged?: (node: ModelNode) => void;
+  /** Called when an object's transform / geometry params change due to drag. */
+  onNodeParamsChanged?: () => void;
   /**
    * Called the moment a drag begins (threshold exceeded).
    * Use to snapshot the "before" state for undo/redo.
@@ -352,106 +353,6 @@ export class ConstructorSceneService {
   /** Корневая (rootmost) feature-id для ModelNode. */
   getFeatureIdByNode(node: ModelNode): string | null {
     return this.nodeFeatureMapping.getFeatureId(node) ?? null;
-  }
-
-  /**
-   * Live-апдейт transform у ноды через FeatureDocument.updateParamsLive
-   * (без полной пересборки сцены). Caller обязан УЖЕ обновить
-   * node.params.{position|rotation|scale} (legacy source-of-truth Phase 1).
-   *
-   * Если у ноды есть Transform-обёртка в featureDoc — точечно обновляет её
-   * params, FeatureRenderer применит targeted-decompose к мешу.
-   * Иначе (нода с тривиальными nodeParams — Transform ещё не создан) →
-   * fallback на rebuildSceneFromTree, который создаст обёртку при следующем
-   * проходе migrateLegacyTreeToDocument; последующие вызовы пойдут по
-   * быстрому пути.
-   */
-  updateNodeTransformLive(
-    node: ModelNode,
-    patch: {
-      position?: { x: number; y: number; z: number };
-      rotation?: { x: number; y: number; z: number };
-      scale?: { x: number; y: number; z: number };
-    },
-  ): void {
-    if (!this.applyLiveTransform(node, patch)) {
-      this.rebuildSceneFromTree();
-    }
-  }
-
-  /**
-   * Batch live-update transform'ов нескольких нод (alignment / formation).
-   * "Все или ничего": если у любой ноды нет Transform-обёртки в featureDoc,
-   * делаем один полный rebuildSceneFromTree (он создаст недостающие обёртки).
-   * Иначе — N точечных updateParamsLive подряд, без rebuild'а.
-   *
-   * Caller обязан УЖЕ обновить node.params (legacy source-of-truth).
-   */
-  batchUpdateNodeTransformsLive(
-    updates: Array<{
-      node: ModelNode;
-      patch: {
-        position?: { x: number; y: number; z: number };
-        rotation?: { x: number; y: number; z: number };
-        scale?: { x: number; y: number; z: number };
-      };
-    }>,
-  ): void {
-    for (const { node } of updates) {
-      const featureId = this.nodeFeatureMapping.getFeatureId(node);
-      const feature = featureId ? this.featureDocCurrent?.graph.get(featureId) : null;
-      if (!feature || feature.type !== 'transform') {
-        this.rebuildSceneFromTree();
-        return;
-      }
-    }
-    for (const { node, patch } of updates) {
-      this.applyLiveTransform(node, patch);
-    }
-  }
-
-  /**
-   * Drag-frame путь: silent-sync `node.params.{position,rotation,scale}` →
-   * featureDoc через updateParamsLive. Без rebuild-fallback'а — на drag-frame'ах
-   * полный rebuild был бы катастрофически дорог. Если Transform-обёртки ещё
-   * нет, no-op: featureDoc останется stale до `onAfterDrag`-rebuild'а, где
-   * каноническая пересборка создаст обёртку и приведёт документ в соответствие.
-   *
-   * Сама сцена (three.js) во время драга обновляется напрямую в
-   * HandleDragController через obj.position/rotation/scale, поэтому отсутствие
-   * featureDoc-sync на frame'е не влияет на визуал.
-   */
-  syncNodeTransformLive(node: ModelNode): void {
-    const params = node.params;
-    if (!params) return;
-    const patch: {
-      position?: { x: number; y: number; z: number };
-      rotation?: { x: number; y: number; z: number };
-      scale?: { x: number; y: number; z: number };
-    } = {};
-    if (params.position) patch.position = params.position;
-    if (params.rotation) patch.rotation = params.rotation;
-    if (params.scale) patch.scale = params.scale;
-    this.applyLiveTransform(node, patch);
-  }
-
-  private applyLiveTransform(
-    node: ModelNode,
-    patch: {
-      position?: { x: number; y: number; z: number };
-      rotation?: { x: number; y: number; z: number };
-      scale?: { x: number; y: number; z: number };
-    },
-  ): boolean {
-    const featureId = this.nodeFeatureMapping.getFeatureId(node);
-    const feature = featureId ? this.featureDocCurrent?.graph.get(featureId) : null;
-    if (!feature || feature.type !== 'transform') return false;
-    const livePatch: Record<string, [number, number, number]> = {};
-    if (patch.position) livePatch.position = [patch.position.x, patch.position.y, patch.position.z];
-    if (patch.rotation) livePatch.rotation = [patch.rotation.x, patch.rotation.y, patch.rotation.z];
-    if (patch.scale) livePatch.scale = [patch.scale.x, patch.scale.y, patch.scale.z];
-    this.featureDocCurrent!.updateParamsLive(featureId!, livePatch);
-    return true;
   }
 
   /**
@@ -1145,7 +1046,8 @@ export class ConstructorSceneService {
     if (obj && this.selectedNode) {
       // Don't show modification gizmo when alignment mode is active
       if (!this.alignmentMode.isActive() && !this.chamferMode.isActive()) {
-        this.modificationGizmo.setTarget(obj, this.selectedNode as unknown as Parameters<ModificationGizmo['setTarget']>[1]);
+        const fid = this.nodeFeatureMapping.getFeatureId(this.selectedNode) ?? null;
+        this.modificationGizmo.setTarget(obj, fid);
       }
       this.mirrorMode.syncWithSelection(obj);
       // Apply glow to all selected objects
@@ -1210,22 +1112,22 @@ export class ConstructorSceneService {
    * совместимости с `PointerEventHost` интерфейсом.
    */
   private applyHandleDragDelta(
-    node: ModelNode | null,
+    featureId: string | null,
     handleType: string,
     dx: number,
     dy: number,
   ): void {
-    this.handleDrag.applyDragDelta(node, handleType, dx, dy);
+    this.handleDrag.applyDragDelta(featureId, handleType, dx, dy);
   }
 
   /**
    * После rotation-drag'а: бейкаем rotation в размеры (для box при 90°).
    * Реализация — в `events/bakeRotationOnDrag.ts`.
    */
-  private bakeRotationIntoDimensions(node: ModelNode): void {
-    bakeRotationOnDrag(node, {
+  private bakeRotationIntoDimensions(featureId: string | null): void {
+    if (!featureId || !this.featureDocCurrent) return;
+    bakeRotationOnDrag(featureId, this.featureDocCurrent, {
       selectedObject3D: this.selectedObject3D,
-      updatePrimitiveGeometryInPlace: (prim, mesh) => this.updatePrimitiveGeometryInPlace(prim, mesh),
       updateGizmoTarget: () => this.updateGizmoTarget(),
       options: this.options,
     });
@@ -1244,14 +1146,20 @@ export class ConstructorSceneService {
   ): void {
     const node = this.selectedNode;
     if (!node) return;
-    node.params = node.params || {};
-    node.params.position = node.params.position || { x: 0, y: 0, z: 0 };
+    const featureId = this.nodeFeatureMapping.getFeatureId(node) ?? null;
+    if (!featureId || !this.featureDocCurrent) return;
+    const transform = this.featureDocCurrent.graph.get(featureId);
+    if (!(transform instanceof TransformFeature)) return;
+
+    // Scratch position-копия из Transform.params (tuple → {x,y,z}).
+    const tp = transform.params;
+    const p = { x: tp.position[0], y: tp.position[1], z: tp.position[2] };
+
     const baseStep = this.snapStep > 0 ? this.snapStep : 1;
     const step = baseStep * (multiplier > 0 ? multiplier : 1);
-    const p = node.params.position;
 
     if (direction === 'up' || direction === 'down') {
-      p.z = (p.z ?? 0) + step * (direction === 'up' ? 1 : -1);
+      p.z += step * (direction === 'up' ? 1 : -1);
       p.z = Math.round(p.z / step) * step;
     } else {
       // Camera-relative направление, snapped к доминантной оси в XY-плоскости.
@@ -1278,27 +1186,21 @@ export class ConstructorSceneService {
       const offMinY = bbox && objForBox ? bbox.min.y - objForBox.position.y : 0;
 
       if (Math.abs(moveDir.x) >= Math.abs(moveDir.y)) {
-        p.x = (p.x ?? 0) + Math.sign(moveDir.x) * step;
+        p.x += Math.sign(moveDir.x) * step;
         p.x = Math.round((p.x + offMinX) / step) * step - offMinX;
       } else {
-        p.y = (p.y ?? 0) + Math.sign(moveDir.y) * step;
+        p.y += Math.sign(moveDir.y) * step;
         p.y = Math.round((p.y + offMinY) / step) * step - offMinY;
       }
     }
 
-    // Update mesh
-    const obj = this.selectedObject3D;
-    if (obj) {
-      const halfH = getNodeHalfHeight(node);
-      obj.position.set(p.x, p.y, (p.z ?? 0) + halfH);
-    }
+    // Mutate Transform.params через featureDoc — FeatureRenderer обновит mesh.
+    this.featureDocCurrent.updateParamsLive(featureId, {
+      position: [p.x, p.y, p.z],
+    });
 
-    // Синхронизируем featureDoc — иначе любая последующая mutateFeatureDoc
-    // (merge/mirror/etc.) перепишет ModelNode-tree из stale featureDoc
-    // и keyboard-move будет потерян.
-    this.syncNodeTransformLive(node);
-    this.showYZeroIndicatorIfNeeded(node);
-    this.options.onNodeParamsChanged?.(node);
+    this.showYZeroIndicatorIfNeeded(featureId);
+    this.options.onNodeParamsChanged?.();
   }
 
   /**
@@ -1316,8 +1218,8 @@ export class ConstructorSceneService {
   // Логика и lifecycle самого индикатора живут в `services/YZeroIndicator.ts`.
   // Здесь — мост: компьютим world-AABB ноды и передаём в YZeroIndicator.
 
-  private showYZeroIndicatorIfNeeded(node: ModelNode): void {
-    const obj = this.modelRootGroup ? this.findObjectByNode(this.modelRootGroup, node) : null;
+  private showYZeroIndicatorIfNeeded(featureId: string | null): void {
+    const obj = featureId ? this.findObject3DByFeatureId(featureId) : null;
     const box = obj ? new THREE.Box3().setFromObject(obj) : null;
     this.yZeroIndicator.showIfOnGrid(box);
   }

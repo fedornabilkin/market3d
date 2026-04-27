@@ -1,67 +1,70 @@
 import * as THREE from 'three';
-import type { ModelNode } from '../nodes/ModelNode';
-import { Primitive } from '../nodes/Primitive';
+import type { FeatureDocument } from '../features/FeatureDocument';
+import type { FeatureId } from '../features/types';
+import { TransformFeature } from '../features/composite/TransformFeature';
+import { BoxFeature } from '../features/primitives/BoxFeature';
 import { bakeRotation } from '../primitiveTransforms';
 
 export interface BakeRotationHost {
   selectedObject3D: THREE.Object3D | null;
-  /**
-   * Перестраивает геометрию примитива in-place (после смены geometryParams).
-   * Передан как колбэк, чтобы не тащить сюда зависимости edge-lines / addEdgeLines.
-   */
-  updatePrimitiveGeometryInPlace(prim: Primitive, mesh: THREE.Mesh): void;
   /** Перевыставляет target гизмо после изменения размеров. */
   updateGizmoTarget(): void;
-  /** Hook для уведомления Constructor.vue о мутации (для history). */
-  options: { onNodeParamsChanged?: (node: ModelNode) => void };
+  /** Hook для уведомления Constructor.vue (для history snapshot). */
+  options: { onNodeParamsChanged?: () => void };
 }
 
 /**
  * После завершения rotation-drag'а: если результат выровнен по 90°, печёт
- * вращение в геометрические размеры (swap width/height/depth для box) и
- * сбрасывает rotation в 0.
+ * вращение в геометрические размеры BoxFeature (swap width↔height/depth) и
+ * сбрасывает Transform.rotation в 0.
  *
  * Использует `bakeRotation()` из `primitiveTransforms` (чистая функция).
- * Этот же метод применяет результат к ноду, 3D-объекту и гизмо.
  *
- * Для группового узла или не-выровненного rotation — no-op.
- *
- * Извлечено из `ConstructorSceneService.bakeRotationIntoDimensions`.
+ * Поддерживается только Box (Cylinder/Cone имеют осевую симметрию вокруг Z —
+ * 90°-bake не имеет смысла). Для group/boolean/non-box leaf — no-op.
  */
 export function bakeRotationIntoDimensions(
-  node: ModelNode,
+  featureId: FeatureId,
+  doc: FeatureDocument,
   host: BakeRotationHost,
 ): void {
-  const rot = node.params?.rotation;
-  if (!rot) return;
+  const transform = doc.graph.get(featureId);
+  if (!(transform instanceof TransformFeature)) return;
 
-  if (!(node instanceof Primitive)) {
-    // Группы держат своё вращение — handles адаптируются. Не печём.
-    return;
-  }
+  const inner = transform.getInputs()[0];
+  if (!inner) return;
+  const innerFeature = doc.graph.get(inner);
+  if (!(innerFeature instanceof BoxFeature)) return;
 
-  const transform = {
-    position: node.params!.position || { x: 0, y: 0, z: 0 },
-    scale: node.params!.scale || { x: 1, y: 1, z: 1 },
-    rotation: { ...rot },
+  const tp = transform.params;
+  const transformView = {
+    position: { x: tp.position[0], y: tp.position[1], z: tp.position[2] },
+    scale: { x: tp.scale[0], y: tp.scale[1], z: tp.scale[2] },
+    rotation: { x: tp.rotation[0], y: tp.rotation[1], z: tp.rotation[2] },
   };
-  const result = bakeRotation(node.type, { ...node.geometryParams }, transform);
+  const boxParams = innerFeature.params;
+  const geomView = {
+    width: boxParams.width,
+    height: boxParams.height,
+    depth: boxParams.depth,
+  };
+
+  const result = bakeRotation('box', { ...geomView }, transformView);
   if (!result.baked) return;
 
-  node.geometryParams.width = result.geom.width;
-  node.geometryParams.height = result.geom.height;
-  node.geometryParams.depth = result.geom.depth;
-  node.params!.position = result.transform.position;
-  node.params!.scale = result.transform.scale;
-  rot.x = 0; rot.y = 0; rot.z = 0;
-
-  const obj = host.selectedObject3D;
-  if (obj) {
-    obj.rotation.set(0, 0, 0);
-    obj.scale.set(result.transform.scale.x, result.transform.scale.y, result.transform.scale.z);
-    host.updatePrimitiveGeometryInPlace(node, obj as THREE.Mesh);
-  }
+  // Mutate inner BoxFeature.params (width/height/depth) и Transform.params
+  // (position/scale/rotation) через featureDoc API → автоматический recompute.
+  doc.updateParams(inner, {
+    width: result.geom.width,
+    height: result.geom.height,
+    depth: result.geom.depth,
+  });
+  doc.updateParams(featureId, {
+    position: [result.transform.position.x, result.transform.position.y, result.transform.position.z],
+    scale: [result.transform.scale.x, result.transform.scale.y, result.transform.scale.z],
+    rotation: [0, 0, 0],
+  });
 
   host.updateGizmoTarget();
-  host.options.onNodeParamsChanged?.(node);
+  host.options.onNodeParamsChanged?.();
 }

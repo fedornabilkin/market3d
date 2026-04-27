@@ -2141,9 +2141,9 @@ onMounted(() => {
         }
       }
     },
-    onNodeParamsChanged(_node) {
+    onNodeParamsChanged() {
       // FeatureParamsForm реактивен через `version` prop (treeVersion bump
-      // на любой mutation). Дополнительный sync формы из ModelNode не нужен.
+      // на любой mutation). Дополнительный sync формы не нужен.
     },
     onBeforeDrag() {
       // Снапшоты для history теперь в FeatureDocumentJSON v2-формате.
