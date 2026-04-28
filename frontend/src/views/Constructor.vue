@@ -559,12 +559,10 @@ function onSelectFeatureFromTree(payload: { id: string; shiftKey: boolean }): vo
  */
 const selectedFeature = computed(() => {
   treeVersion.value;
-  if (!sceneService || !selectedNode.value) return null;
+  const fid = selectedFeatureId.value;
+  if (!sceneService || !fid) return null;
   const fd = sceneService.getFeatureDocument();
-  if (!fd) return null;
-  const fid = sceneService.getFeatureIdByNode(selectedNode.value);
-  if (!fid) return null;
-  return fd.graph.get(fid) ?? null;
+  return fd?.graph.get(fid) ?? null;
 });
 
 /**
@@ -574,9 +572,8 @@ const selectedFeature = computed(() => {
  * если у ноды нет featureId mapping (редко, до первого rebuild'а).
  */
 function onFeatureFormParamsUpdate(patch: Record<string, unknown>): void {
-  if (!sceneService || !selectedNode.value || !selectedFeature.value) return;
-  const node = selectedNode.value;
-  const featureId = sceneService.getFeatureIdByNode(node);
+  if (!sceneService || !selectedFeature.value) return;
+  const featureId = selectedFeatureId.value;
   if (!featureId) return;
   // Маршрутизируем patch: transform-params (position/rotation/scale/isHole/color)
   // идут на Transform-обёртку, геометрические — на inner primitive.
@@ -605,15 +602,8 @@ function onFeatureFormParamsUpdate(patch: Record<string, unknown>): void {
 }
 
 function onFeatureFormNameUpdate(name: string | undefined): void {
-  if (!selectedNode.value || !sceneService) return;
-  const node = selectedNode.value;
-  const featureId = sceneService.getFeatureIdByNode(node);
-  if (!featureId) {
-    withHistory(() => { node.name = name; });
-    treeVersion.value++;
-    sceneService.rebuildSceneFromTree();
-    return;
-  }
+  const featureId = selectedFeatureId.value;
+  if (!featureId || !sceneService) return;
   withFeatureDocHistory((doc) => {
     const f = doc.graph.get(featureId);
     if (f) f.name = name;
@@ -630,20 +620,33 @@ const canRedo = computed(() => {
 });
 
 const canDeleteSelected = computed(() => {
-  const node = selectedNode.value;
-  const r = rootNode.value;
-  return !!node && !!r && node !== r;
+  treeVersion.value;
+  const fid = selectedFeatureId.value;
+  if (!fid || !sceneService) return false;
+  const fd = sceneService.getFeatureDocument();
+  // Single root scene-group удалять нельзя.
+  return !!fd && !(fd.rootIds.length === 1 && fd.rootIds[0] === fid);
 });
 
 const hasSceneObjects = computed(() => {
   treeVersion.value;
-  const r = rootNode.value;
-  return r instanceof GroupNode && r.children.length > 0;
+  const fd = sceneService?.getFeatureDocument();
+  if (!fd || fd.rootIds.length === 0) return false;
+  const root = fd.graph.get(fd.rootIds[0]);
+  if (!root || !('getInputs' in root)) return false;
+  return (root as { getInputs(): readonly string[] }).getInputs().length > 0;
 });
-const canMerge = computed(() => selectedNodes.value.length >= 2);
+const canMerge = computed(() => selectedFeatureIds.value.length >= 2);
 const canUngroup = computed(() => {
-  const node = selectedNode.value;
-  return !!node && isGroupNode(node) && node !== rootNode.value;
+  treeVersion.value;
+  const fid = selectedFeatureId.value;
+  if (!fid || !sceneService) return false;
+  const fd = sceneService.getFeatureDocument();
+  if (!fd) return false;
+  // Не root scene-group и фича — composite (group или boolean).
+  if (fd.rootIds.length === 1 && fd.rootIds[0] === fid) return false;
+  const f = fd.graph.get(fid);
+  return !!f && (f.type === 'group' || f.type === 'boolean');
 });
 
 // SVG paths for shape icons (simple outlines)
@@ -1415,8 +1418,7 @@ function addPrimitiveOfType(type: PrimitiveType) {
     // isHole/color/position до первого drag'а (где обёртка создаётся лениво).
     ensureTransformWrapper(doc, id);
   });
-  const newNode = sceneService.getModelNodeByFeatureId(id);
-  if (newNode) onSelectNode(newNode);
+  setSelectionByIds([id]);
 
   addCooldown.value = true;
   setTimeout(() => { addCooldown.value = false; }, 3000);
@@ -1439,9 +1441,8 @@ const smartDup = {
 };
 
 function duplicateSelected(shrink: boolean = false) {
-  const node = selectedNode.value;
-  if (!node || !sceneService) return;
-  const featureId = sceneService.getFeatureIdByNode(node);
+  if (!sceneService) return;
+  const featureId = selectedFeatureId.value;
   const fd = sceneService.getFeatureDocument();
   if (!featureId || !fd) return;
 
@@ -1558,8 +1559,7 @@ function duplicateSelected(shrink: boolean = false) {
     smartDup.snapshotParams = null;
   }
 
-  const newNode = sceneService.getModelNodeByFeatureId(newRootId);
-  if (newNode) onSelectNode(newNode);
+  setSelectionByIds([newRootId]);
 }
 
 function toggleMirrorMode() {
@@ -1719,11 +1719,8 @@ function applyChamferToEdge(
 }
 
 function alignNodes(mode: AlignMode) {
-  const nodes = selectedNodes.value;
-  if (nodes.length < 2 || !sceneService) return;
-  const featureIds = nodes
-    .map((n) => sceneService!.getFeatureIdByNode(n))
-    .filter((id): id is string => !!id);
+  if (!sceneService) return;
+  const featureIds = [...selectedFeatureIds.value];
   if (featureIds.length < 2) return;
 
   const op = new AlignmentFeatureOperation({
@@ -1740,9 +1737,8 @@ function alignNodes(mode: AlignMode) {
 }
 
 function deleteSelected() {
-  const node = selectedNode.value;
-  if (!node || !sceneService) return;
-  const featureId = sceneService.getFeatureIdByNode(node);
+  if (!sceneService) return;
+  const featureId = selectedFeatureId.value;
   const fd = sceneService.getFeatureDocument();
   if (!featureId || !fd) return;
 
@@ -1752,7 +1748,6 @@ function deleteSelected() {
     if (target?.type === 'group') return;
   }
 
-  const nodeUuid = node.uuidMesh;
   const removed = withFeatureDocHistory((doc) => {
     const target = doc.graph.get(featureId);
     if (!target) return false;
@@ -1796,30 +1791,24 @@ function deleteSelected() {
     return true;
   });
   if (!removed) return;
-  setSelection(selectedNodes.value.filter((n) => (nodeUuid ? n.uuidMesh !== nodeUuid : n !== node)));
+  setSelectionByIds(selectedFeatureIds.value.filter((id) => id !== featureId));
 }
 
 function mergeSelected() {
-  const nodes = selectedNodes.value;
-  if (!sceneService || nodes.length < 2) return;
-  const featureIds = nodes
-    .map((n) => sceneService!.getFeatureIdByNode(n))
-    .filter((id): id is string => !!id);
+  if (!sceneService) return;
+  const featureIds = [...selectedFeatureIds.value];
   if (featureIds.length < 2) return;
 
   const newGroupId = withFeatureDocHistory(
     (doc) => GroupingFeatureOperations.merge(doc, featureIds),
   );
   if (!newGroupId) return;
-
-  const newGroupNode = sceneService.getModelNodeByFeatureId(newGroupId);
-  if (newGroupNode) setSelection([newGroupNode]);
+  setSelectionByIds([newGroupId]);
 }
 
 function ungroupSelected() {
-  const node = selectedNode.value;
-  if (!node || !sceneService) return;
-  const featureId = sceneService.getFeatureIdByNode(node);
+  if (!sceneService) return;
+  const featureId = selectedFeatureId.value;
   if (!featureId) return;
   const fd = sceneService.getFeatureDocument();
   if (!fd) return;
@@ -1833,9 +1822,7 @@ function ungroupSelected() {
     (doc) => GroupingFeatureOperations.ungroup(doc, featureId),
   );
   if (!extractedIds || extractedIds.length === 0) return;
-
-  const firstChildNode = sceneService.getModelNodeByFeatureId(extractedIds[0]);
-  setSelection(firstChildNode ? [firstChildNode] : []);
+  setSelectionByIds([extractedIds[0]]);
 }
 
 // ─── Keyboard shortcuts ────────────────────────────────────────────────────
@@ -1855,7 +1842,7 @@ function handleKeydown(event: KeyboardEvent) {
 
   // Arrow keys: move selected object relative to camera. Оборачиваем в общий
   // withHistory — он сам капчит before/after и пушит FeatureSnapshotCommand.
-  if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key) && selectedNode.value && sceneService) {
+  if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key) && selectedFeatureId.value && sceneService) {
     event.preventDefault();
     const mult = event.shiftKey ? 5 : 1;
     withHistory(() => {
@@ -1886,7 +1873,7 @@ function handleKeydown(event: KeyboardEvent) {
     return;
   }
   if (event.code === 'KeyL' && !hasCtrl) {
-    if (selectedNodes.value.length >= 2) {
+    if (selectedFeatureIds.value.length >= 2) {
       event.preventDefault();
       toggleAlignmentMode();
     }
@@ -2070,8 +2057,7 @@ async function handleImportSTL(event: Event) {
       const inputs = [...(rootFeature as { getInputs(): readonly string[] }).getInputs(), id];
       doc.updateInputs(rootFeature.id, inputs);
     });
-    const newNode = sceneService!.getModelNodeByFeatureId(id);
-    if (newNode) onSelectNode(newNode);
+    setSelectionByIds([id]);
   };
   reader.readAsArrayBuffer(file);
 
@@ -2245,9 +2231,7 @@ onMounted(() => {
       }
     });
 
-    // Selection: маппинг featureId → ModelNode уже актуален (после mutateFeatureDoc).
-    const newNode = sceneService.getModelNodeByFeatureId(newId);
-    if (newNode) onSelectNode(newNode);
+    setSelectionByIds([newId]);
 
     generatorModeActive.value = false;
     sceneService.setGeneratorMode(false);
