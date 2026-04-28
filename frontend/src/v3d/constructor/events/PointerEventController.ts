@@ -143,7 +143,6 @@ export interface PointerEventHost {
   containerEl: HTMLElement | null;
 
   // ─── Selection / gizmos ────────────────────────────────────────────────────
-  selectedNode: ModelNode | null;
   selectedObject3D: THREE.Object3D | null;
   modificationGizmo: ModificationGizmo | null;
   mirrorMode: MirrorMode;
@@ -209,7 +208,7 @@ export interface PointerEventHost {
   clearCruiseGuides(): void;
   updateGizmoTarget(prevNodes?: ModelNode[]): void;
   rebuildSceneFromTree(): void;
-  applyMirror(node: ModelNode, axis: 'x' | 'y' | 'z'): void;
+  applyMirror(featureId: string | null, axis: 'x' | 'y' | 'z'): void;
 }
 
 /**
@@ -273,7 +272,8 @@ export class PointerEventController {
 
     // Mirror handle click
     const mirrorGizmo = host.mirrorMode.getGizmo();
-    if (host.mirrorMode.isActive() && mirrorGizmo?.isVisible() && host.selectedNode) {
+    const mirrorTargetId = host.modificationGizmo?.getFeatureId() ?? null;
+    if (host.mirrorMode.isActive() && mirrorGizmo?.isVisible() && mirrorTargetId) {
       mirrorGizmo.updateMatrixWorld();
       const mirrorHits = host.raycaster.intersectObjects(mirrorGizmo.getHandles());
       if (mirrorHits.length > 0) {
@@ -281,8 +281,7 @@ export class PointerEventController {
         const axis = handle.userData?.axis;
         if (axis) {
           host.options.onBeforeDrag?.();
-          const node = host.selectedNode;
-          host.applyMirror(node, axis);
+          host.applyMirror(mirrorTargetId, axis);
           host.options.onNodeParamsChanged?.();
           host.options.onAfterDrag?.();
         }

@@ -370,10 +370,9 @@ export class ConstructorSceneService {
    * featureDoc API (`MirrorFeatureOperation`). Мутирует featureDoc через
    * updateParams, ModelNode-tree деривируется как side-effect.
    */
-  applyMirror(node: ModelNode, axis: 'x' | 'y' | 'z'): void {
-    const featureId = this.nodeFeatureMapping.getFeatureId(node);
+  applyMirror(featureId: FeatureId | null, axis: 'x' | 'y' | 'z'): void {
     if (!featureId || !this.featureDocCurrent) {
-      console.warn('[ConstructorSceneService.applyMirror] нет featureId mapping или featureDoc — операция пропущена');
+      console.warn('[ConstructorSceneService.applyMirror] нет featureId или featureDoc — операция пропущена');
       return;
     }
     const op = new MirrorFeatureOperation({
@@ -381,8 +380,6 @@ export class ConstructorSceneService {
       rootGroup: this.modelRootGroup,
     });
     this.mutateFeatureDoc((doc) => { op.run(doc, featureId, axis); });
-    // Selection re-resolve происходит на caller-стороне через computed
-    // selectedNode/selectedNodes (FeatureId стабилен через rebuild).
   }
 
   setGridVisible(visible: boolean): void {
