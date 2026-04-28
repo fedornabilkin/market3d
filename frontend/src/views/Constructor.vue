@@ -1703,11 +1703,16 @@ function applyChamferToEdge(
   settings: { radius: number; profile: 'convex' | 'concave' | 'flat' },
 ) {
   if (!sceneService || !modelApp.value) return;
-  const node = (obj.userData as { node?: ModelNode }).node;
-  if (!node) return;
-  const featureId = sceneService.getFeatureIdByNode(node);
+  // Резолвим featureId через userData.featureId (FeatureRenderer ставит на
+  // каждый mesh/group), traversing по parent для child-мешей composite-групп.
+  let featureId: string | undefined;
+  let cur: THREE.Object3D | null = obj;
+  while (cur && !featureId) {
+    featureId = (cur.userData as { featureId?: string }).featureId;
+    cur = cur.parent;
+  }
   if (!featureId) {
-    console.warn('[Constructor.applyChamferToEdge] нет featureId mapping — операция пропущена');
+    console.warn('[Constructor.applyChamferToEdge] нет featureId на userData — операция пропущена');
     return;
   }
   if (_applyChamferToFeature(featureId, edge, settings)) {
