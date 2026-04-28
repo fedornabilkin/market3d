@@ -104,6 +104,13 @@ export interface ConstructorSceneServiceOptions {
   onMarqueeSelectFeatures?: (featureIds: string[]) => void;
   /** Legacy fallback marquee callback — см. `onSelectNodeFromScene`. */
   onMarqueeSelect?: (nodes: ModelNode[]) => void;
+  /**
+   * Фабрика ModelNode-tree из legacyJson — нужна `mutateFeatureDoc` /
+   * `loadFromV2JSON` для derive ModelNode'а как side-effect (legacy-консьюмеры:
+   * selection ModelNode-вид, debug панель). Caller передаёт один раз при init.
+   * После полного удаления nodes/ слоя (Step E) — будет удалена.
+   */
+  deriveModelTree?: (legacyJson: ModelTreeJSON) => ModelNode;
 }
 
 // ─── Service ─────────────────────────────────────────────────────────────────
@@ -370,11 +377,7 @@ export class ConstructorSceneService {
       findObject3DByFeatureId: (fid) => this.findObject3DByFeatureId(fid),
       rootGroup: this.modelRootGroup,
     });
-    const serializer = this.modelApp.getSerializer();
-    this.mutateFeatureDoc(
-      (doc) => { op.run(doc, featureId, axis); },
-      (legacyJson) => serializer.fromJSON(legacyJson),
-    );
+    this.mutateFeatureDoc((doc) => { op.run(doc, featureId, axis); });
     // Selection re-resolve происходит на caller-стороне через computed
     // selectedNode/selectedNodes (FeatureId стабилен через rebuild).
   }
@@ -779,7 +782,10 @@ export class ConstructorSceneService {
    * Caller должен передать v2 со всеми резолвенными бинарниками (geometry в
    * params для imported-фич). См. `loader/loadFeatureDocument` для async-варианта.
    */
-  loadFromV2JSON(v2: FeatureDocumentJSON, deriveModelTree: (legacyJson: ModelTreeJSON) => ModelNode): void {
+  loadFromV2JSON(
+    v2: FeatureDocumentJSON,
+    overrideDerive?: (legacyJson: ModelTreeJSON) => ModelNode,
+  ): void {
     if (!this.featureRenderer) {
       throw new Error('[ConstructorSceneService.loadFromV2JSON] не примонтировано');
     }
@@ -787,10 +793,16 @@ export class ConstructorSceneService {
     this.featureDocCurrent!.loadFromJSON(v2);
     (window as unknown as { __featureDoc?: FeatureDocument }).__featureDoc = this.featureDocCurrent!;
 
-    // Derive ModelNode-tree из v2 → legacyJson → caller fromJSON.
-    const legacyJson = featureDocumentToLegacy(v2);
-    const newRoot = deriveModelTree(legacyJson);
-    this.modelApp.getModelManager().setTree(newRoot);
+    // Для load-from-disk caller передаёт override-фабрику с pre-resolved
+    // STL-binaries (см. Constructor.vue:loadV2IntoScene). Для остальных
+    // путей — дефолт через options.deriveModelTree.
+    if (overrideDerive) {
+      const legacyJson = featureDocumentToLegacy(v2);
+      const newRoot = overrideDerive(legacyJson);
+      this.modelApp.getModelManager().setTree(newRoot);
+    } else {
+      this._deriveAndSetModelTree(v2);
+    }
 
     // Следующий rebuild пропустит migrate (см. _rebuildFromCurrentFeatureDoc).
     this.skipNextMigrate = true;
@@ -815,20 +827,27 @@ export class ConstructorSceneService {
    * legacyJson (обычно `serializer.fromJSON`). Ни featureDoc, ни ModelNode-tree
    * напрямую не трогает.
    */
-  mutateFeatureDoc(
-    mutate: (doc: FeatureDocument) => void,
-    deriveModelTree: (legacyJson: ModelTreeJSON) => ModelNode,
-  ): void {
+  mutateFeatureDoc(mutate: (doc: FeatureDocument) => void): void {
     if (!this.featureDocCurrent) {
       throw new Error('[ConstructorSceneService.mutateFeatureDoc] featureDoc не инициализирован — вызовите rebuildSceneFromTree до первой мутации');
     }
     mutate(this.featureDocCurrent);
-    const v2 = this.featureDocCurrent.toJSON();
-    const legacyJson = featureDocumentToLegacy(v2);
-    const newRoot = deriveModelTree(legacyJson);
-    this.modelApp.getModelManager().setTree(newRoot);
+    this._deriveAndSetModelTree(this.featureDocCurrent.toJSON());
     this.skipNextMigrate = true;
     this.rebuildSceneFromTree();
+  }
+
+  /**
+   * Derive ModelNode-tree из featureDoc через caller-provided фабрику
+   * (`options.deriveModelTree`). Если фабрика не задана — no-op (никаких
+   * legacy-консьюмеров ModelNode'а нет).
+   */
+  private _deriveAndSetModelTree(v2: FeatureDocumentJSON): void {
+    const factory = this.options.deriveModelTree;
+    if (!factory) return;
+    const legacyJson = featureDocumentToLegacy(v2);
+    const newRoot = factory(legacyJson);
+    this.modelApp.getModelManager().setTree(newRoot);
   }
 
   /** Returns the parent GroupNode of target in the model tree (used for delete/merge). */

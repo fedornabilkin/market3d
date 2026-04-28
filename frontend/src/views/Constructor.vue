@@ -1086,17 +1086,9 @@ function withHistory(mutate: () => void) {
  */
 function withFeatureDocHistory<T>(mutate: (doc: FeatureDocument) => T): T | null {
   if (!sceneService) return null;
-  const serializer = modelApp.value!.getSerializer();
   let captured: T | null = null;
   const beforeJSON = captureFeatureDocSnapshot();
-  sceneService.mutateFeatureDoc(
-    (doc) => { captured = mutate(doc); },
-    (legacyJson) => {
-      const newRoot = serializer.fromJSON(legacyJson);
-      sanitizeRootParams(newRoot);
-      return newRoot;
-    },
-  );
+  sceneService.mutateFeatureDoc((doc) => { captured = mutate(doc); });
   // FeatureIds стабильны через rebuild; selectedNode/selectedNodes — computed
   // по featureId → derived ModelNode, ре-резолв на следующий treeVersion bump.
   // Sync gizmo/glow через sceneService.setSelection — НЕ читаем computed
@@ -2100,7 +2092,13 @@ onMounted(() => {
   modelApp.value = markRaw(new ModelApp(modelManager, historyManager, serializer));
   modelApp.value.init();
 
+  const serializerForDerive = modelApp.value.getSerializer();
   sceneService = new ConstructorSceneService(modelApp.value, {
+    deriveModelTree(legacyJson) {
+      const newRoot = serializerForDerive.fromJSON(legacyJson);
+      sanitizeRootParams(newRoot);
+      return newRoot;
+    },
     onSelectFeatureFromScene(featureId, { shift }) {
       onSelectFeature(featureId, shift);
     },
