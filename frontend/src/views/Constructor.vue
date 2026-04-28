@@ -1058,7 +1058,7 @@ function restoreFromFeatureSnapshot(json: FeatureDocumentJSON): void {
     sanitizeRootParams(newRoot);
     return newRoot;
   });
-  setSelection([]);
+  setSelectionByIds([]);
   treeVersion.value++;
   _saveToLocalStorage();
 }
@@ -1220,7 +1220,7 @@ async function loadV2IntoScene(v2: FeatureDocumentJSON): Promise<void> {
     return newRoot;
   });
 
-  setSelection([]);
+  setSelectionByIds([]);
   treeVersion.value++;
 }
 
@@ -1327,7 +1327,7 @@ async function switchScene(index: number) {
   }
   // Пустой слот → чистая сцена.
   modelApp.value!.getModelManager().setTree(new GroupNode());
-  setSelection([]);
+  setSelectionByIds([]);
   treeVersion.value++;
   if (sceneService) sceneService.rebuildSceneFromTree();
 }
