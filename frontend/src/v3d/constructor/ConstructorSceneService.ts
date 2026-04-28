@@ -179,8 +179,9 @@ export class ConstructorSceneService {
   private dragOffset = new THREE.Vector2(0, 0);
 
   // ─── Selection ─────────────────────────────────────────────────────────────
-  private selectedNodes: ModelNode[] = [];
-  private selectedNode: ModelNode | null = null;
+  /** Featured-id выделенных объектов (primary) и rootmost первичный. */
+  private selectedFeatureIds: FeatureId[] = [];
+  private selectedFeatureIdPrimary: FeatureId | null = null;
   private selectedObject3D: THREE.Object3D | null = null;
 
   // ─── Misc ──────────────────────────────────────────────────────────────────
@@ -207,7 +208,9 @@ export class ConstructorSceneService {
   ) {
     this.exporter = new ModelExporter(
       () => this.modelApp.getModelManager().getTree(),
-      () => this.selectedNode,
+      () => this.selectedFeatureIdPrimary
+        ? this.nodeFeatureMapping.getNode(this.selectedFeatureIdPrimary) ?? null
+        : null,
     );
     this.pointerController = new PointerEventController(this._host);
     this.handleDrag = new HandleDragController(this as unknown as import('./events/HandleDragController').HandleDragHost);
@@ -562,18 +565,17 @@ export class ConstructorSceneService {
 
   // ─── Scene management ──────────────────────────────────────────────────────
 
-  setSelection(nodes: ModelNode[], node: ModelNode | null): void {
-    const prevNodes = this.selectedNodes;
-    this.selectedNodes = nodes.length ? [...nodes] : [];
-    this.selectedNode = node;
-    this.updateGizmoTarget(prevNodes);
+  setSelection(featureIds: readonly FeatureId[], primaryId: FeatureId | null): void {
+    const prev = this.selectedFeatureIds;
+    this.selectedFeatureIds = featureIds.length ? [...featureIds] : [];
+    this.selectedFeatureIdPrimary = primaryId;
+    this.updateGizmoTarget(prev);
   }
 
   private getSelectedObjects3D(): THREE.Object3D[] {
-    if (!this.modelRootGroup) return [];
     const result: THREE.Object3D[] = [];
-    for (const node of this.selectedNodes) {
-      const obj = this.findObjectByNode(this.modelRootGroup, node);
+    for (const fid of this.selectedFeatureIds) {
+      const obj = this.findObject3DByFeatureId(fid);
       if (obj) result.push(obj);
     }
     return result;
@@ -1033,50 +1035,47 @@ export class ConstructorSceneService {
     return meshes;
   }
 
-  /** Снимает emissive-glow с мешей всех заданных нод (если найдены). */
-  private clearSelectionGlow(nodes: ModelNode[]): void {
-    if (!this.modelRootGroup) return;
-    for (const node of nodes) {
-      const obj = this.findObjectByNode(this.modelRootGroup, node);
-      if (obj) clearGlow(obj);
-    }
-  }
-
   /** Применяет emissive-glow ко всем мешам в obj. */
   private applySelectionGlow(obj: THREE.Object3D): void {
     applyGlow(obj);
   }
 
-  private updateGizmoTarget(prevNodes?: ModelNode[]): void {
+  private updateGizmoTarget(prevIds?: readonly FeatureId[]): void {
     if (!this.modificationGizmo || !this.modelRootGroup) return;
 
     // Clear glow from previous selection
-    this.clearSelectionGlow(prevNodes ?? this.selectedNodes);
+    this.clearSelectionGlowByIds(prevIds ?? this.selectedFeatureIds);
 
-    if (this.selectedNodes.length === 0) {
+    if (this.selectedFeatureIds.length === 0) {
       this.selectedObject3D = null;
       this.modificationGizmo.clearTarget();
       this.mirrorMode.syncWithSelection(null);
       return;
     }
-    const first = this.selectedNodes[0];
-    const obj = this.findObjectByNode(this.modelRootGroup, first);
+    const firstId = this.selectedFeatureIds[0];
+    const obj = this.findObject3DByFeatureId(firstId);
     this.selectedObject3D = obj || null;
-    if (obj && this.selectedNode) {
+    if (obj && this.selectedFeatureIdPrimary) {
       // Don't show modification gizmo when alignment mode is active
       if (!this.alignmentMode.isActive() && !this.chamferMode.isActive()) {
-        const fid = this.nodeFeatureMapping.getFeatureId(this.selectedNode) ?? null;
-        this.modificationGizmo.setTarget(obj, fid);
+        this.modificationGizmo.setTarget(obj, this.selectedFeatureIdPrimary);
       }
       this.mirrorMode.syncWithSelection(obj);
       // Apply glow to all selected objects
-      for (const node of this.selectedNodes) {
-        const selObj = this.findObjectByNode(this.modelRootGroup!, node);
+      for (const fid of this.selectedFeatureIds) {
+        const selObj = this.findObject3DByFeatureId(fid);
         if (selObj) this.applySelectionGlow(selObj);
       }
     } else {
       this.modificationGizmo.clearTarget();
       this.mirrorMode.syncWithSelection(null);
+    }
+  }
+
+  private clearSelectionGlowByIds(ids: readonly FeatureId[]): void {
+    for (const fid of ids) {
+      const obj = this.findObject3DByFeatureId(fid);
+      if (obj) clearGlow(obj);
     }
   }
 
@@ -1163,9 +1162,7 @@ export class ConstructorSceneService {
     direction: 'left' | 'right' | 'forward' | 'backward' | 'up' | 'down',
     multiplier: number = 1
   ): void {
-    const node = this.selectedNode;
-    if (!node) return;
-    const featureId = this.nodeFeatureMapping.getFeatureId(node) ?? null;
+    const featureId = this.selectedFeatureIdPrimary;
     if (!featureId || !this.featureDocCurrent) return;
     const transform = this.featureDocCurrent.graph.get(featureId);
     if (!(transform instanceof TransformFeature)) return;

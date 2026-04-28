@@ -1092,19 +1092,9 @@ function withFeatureDocHistory<T>(mutate: (doc: FeatureDocument) => T): T | null
   let captured: T | null = null;
   const beforeJSON = captureFeatureDocSnapshot();
   sceneService.mutateFeatureDoc((doc) => { captured = mutate(doc); });
-  // FeatureIds стабильны через rebuild; selectedNode/selectedNodes — computed
-  // по featureId → derived ModelNode, ре-резолв на следующий treeVersion bump.
-  // Sync gizmo/glow через sceneService.setSelection — НЕ читаем computed
-  // (его cache ещё на pre-bump value); резолвим напрямую через mapping.
-  if (sceneService) {
-    const ids = selectedFeatureIdsRaw.value;
-    const primaryFid = selectedFeatureId.value;
-    const nodes = ids
-      .map((fid) => sceneService!.getModelNodeByFeatureId(fid))
-      .filter((n): n is ModelNode => !!n);
-    const primary = primaryFid ? sceneService.getModelNodeByFeatureId(primaryFid) : null;
-    sceneService.setSelection(nodes, primary);
-  }
+  // Sync gizmo/glow через sceneService.setSelection. FeatureIds стабильны
+  // через rebuild — никакого re-resolve не нужно.
+  sceneService.setSelection(selectedFeatureIdsRaw.value, selectedFeatureId.value);
   const afterJSON = captureFeatureDocSnapshot();
   if (beforeJSON && afterJSON) {
     const cmd = new FeatureSnapshotCommand(beforeJSON, afterJSON, restoreFromFeatureSnapshot);
@@ -1362,7 +1352,7 @@ function setSelectionByIds(ids: readonly string[]): void {
     if (sceneService) sceneService.setMirrorMode(false);
   }
   if (sceneService) {
-    sceneService.setSelection(selectedNodes.value, selectedNode.value);
+    sceneService.setSelection(selectedFeatureIdsRaw.value, selectedFeatureId.value);
   }
 }
 
@@ -2165,7 +2155,7 @@ onMounted(() => {
   });
 
   sceneService.mount(containerRef.value);
-  sceneService.setSelection(selectedNodes.value, selectedNode.value);
+  sceneService.setSelection(selectedFeatureIdsRaw.value, selectedFeatureId.value);
   sceneService.setSnapStep(snapStep.value);
   sceneService.setGridVisible(sceneSettings.value.showGrid);
   sceneService.setBackgroundColor(sceneSettings.value.background);
