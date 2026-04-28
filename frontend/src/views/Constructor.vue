@@ -181,10 +181,10 @@
       ) {{ step }}
       span.snap-toolbar-unit мм
     .action-toolbar
-      span.selection-counter(v-if="selectedNodes.length" :title="`Выделено объектов: ${selectedNodes.length}`")
+      span.selection-counter(v-if="selectedFeatureIds.length" :title="`Выделено объектов: ${selectedFeatureIds.length}`")
         i.fas.fa-mouse-pointer
-        |  {{ selectedNodes.length }}
-      .toolbar-separator(v-if="selectedNodes.length")
+        |  {{ selectedFeatureIds.length }}
+      .toolbar-separator(v-if="selectedFeatureIds.length")
       button.btn-icon(@click="mergeSelected" :disabled="!canMerge" title="Группа (Ctrl+G)")
         i.fas.fa-object-group
       button.btn-icon(@click="ungroupSelected" :disabled="!canUngroup" title="Разгруппировать (Ctrl+Shift+G)")
@@ -304,7 +304,7 @@
             option(value="obj") OBJ
         .field
           label.checkbox
-            input(type="checkbox" v-model="exportOnlySelected" :disabled="!selectedNode || exporting")
+            input(type="checkbox" v-model="exportOnlySelected" :disabled="!selectedFeatureId || exporting")
             span  Только активный объект
         .export-progress(v-if="exporting")
           .export-progress-label {{ exportStatusText }}
@@ -823,16 +823,16 @@ function onDownloadDebugSnapshot(): void {
     fps: debugFps.value,
     camera: debugCamera.value,
     selection: {
-      count: selectedNodes.value.length,
-      primary: selectedNode.value
+      count: selectedFeatureIds.value.length,
+      primary: selectedFeature.value
         ? {
             type: debugNodeType.value,
-            name: selectedNode.value.name ?? null,
-            uuid: selectedNode.value.uuidMesh ?? null,
-            params: selectedNode.value.params ? JSON.parse(JSON.stringify(selectedNode.value.params)) : null,
-            geometryParams: (selectedNode.value as unknown as { geometryParams?: unknown }).geometryParams
-              ? JSON.parse(JSON.stringify((selectedNode.value as unknown as { geometryParams?: unknown }).geometryParams))
+            name: selectedFeature.value.name ?? null,
+            uuid: selectedFeature.value.id,
+            params: selectedFeature.value.params
+              ? JSON.parse(JSON.stringify(selectedFeature.value.params))
               : null,
+            geometryParams: null,
           }
         : null,
     },
@@ -874,36 +874,43 @@ function onDownloadDebugSnapshot(): void {
 }
 
 const debugNodeType = computed(() => {
-  const n = selectedNode.value;
-  if (!n) return '—';
-  if (n instanceof Primitive) return `Primitive (${(n as any).type})`;
-  if (n instanceof GroupNode) return `Group (${(n as any).operation})`;
-  if (n instanceof ImportedMeshNode) return `STL (${(n as any).filename})`;
-  return n.constructor?.name ?? 'unknown';
+  treeVersion.value;
+  const f = selectedFeature.value;
+  if (!f) return '—';
+  return `${f.type}`;
 });
 
+function readVec3(arr: unknown): [number, number, number] | null {
+  if (Array.isArray(arr) && arr.length >= 3
+      && typeof arr[0] === 'number' && typeof arr[1] === 'number' && typeof arr[2] === 'number') {
+    return [arr[0], arr[1], arr[2]];
+  }
+  return null;
+}
+
 const debugNodePos = computed(() => {
-  const p = selectedNode.value?.params?.position;
-  if (!p) return '—';
-  return `${p.x.toFixed(1)}, ${p.y.toFixed(1)}, ${p.z.toFixed(1)}`;
+  treeVersion.value;
+  const p = readVec3((selectedFeature.value?.params as Record<string, unknown> | undefined)?.position);
+  return p ? `${p[0].toFixed(1)}, ${p[1].toFixed(1)}, ${p[2].toFixed(1)}` : '—';
 });
 
 const debugNodeScale = computed(() => {
-  const s = selectedNode.value?.params?.scale;
-  if (!s) return '1, 1, 1';
-  return `${s.x.toFixed(2)}, ${s.y.toFixed(2)}, ${s.z.toFixed(2)}`;
+  treeVersion.value;
+  const s = readVec3((selectedFeature.value?.params as Record<string, unknown> | undefined)?.scale);
+  return s ? `${s[0].toFixed(2)}, ${s[1].toFixed(2)}, ${s[2].toFixed(2)}` : '1, 1, 1';
 });
 
 const debugNodeRot = computed(() => {
-  const r = selectedNode.value?.params?.rotation;
-  if (!r) return '0, 0, 0';
-  return `${(r.x * RAD_TO_DEG).toFixed(1)}°, ${(r.y * RAD_TO_DEG).toFixed(1)}°, ${(r.z * RAD_TO_DEG).toFixed(1)}°`;
+  treeVersion.value;
+  const r = readVec3((selectedFeature.value?.params as Record<string, unknown> | undefined)?.rotation);
+  return r ? `${(r[0] * RAD_TO_DEG).toFixed(1)}°, ${(r[1] * RAD_TO_DEG).toFixed(1)}°, ${(r[2] * RAD_TO_DEG).toFixed(1)}°` : '0, 0, 0';
 });
 
 const debugNodeCenter = computed(() => {
-  if (!sceneService || !selectedNode.value) return '—';
-  const obj = (sceneService as any).findObject3DByNode?.(selectedNode.value)
-    ?? (sceneService as any).selectedObject3D;
+  if (!sceneService) return '—';
+  const fid = selectedFeatureId.value;
+  if (!fid) return '—';
+  const obj = sceneService.findObject3DByFeatureId(fid);
   if (!obj) return '—';
   const box = new THREE.Box3().setFromObject(obj);
   const c = new THREE.Vector3();
@@ -913,17 +920,17 @@ const debugNodeCenter = computed(() => {
 
 /** Объединённый объект selection для DebugPanel.vue. */
 const debugSelection = computed(() => {
-  const n = selectedNode.value;
-  if (!n) return null;
+  const f = selectedFeature.value;
+  if (!f) return null;
   return {
     type: debugNodeType.value,
-    name: n.name ?? null,
-    uuid: n.uuidMesh ?? null,
+    name: f.name ?? null,
+    uuid: f.id,
     pos: debugNodePos.value,
     scale: debugNodeScale.value,
     rot: debugNodeRot.value,
     center: debugNodeCenter.value,
-    totalCount: selectedNodes.value.length,
+    totalCount: selectedFeatureIds.value.length,
   };
 });
 
