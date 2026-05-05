@@ -55,7 +55,7 @@ async function resolveImportedGeometries(json: FeatureDocumentJSON): Promise<voi
 
   const [{ BinaryStorage, base64ToArrayBuffer }, { STLLoader }] = await Promise.all([
     import('../../services/BinaryStorage'),
-    import('three/examples/jsm/loaders/STLLoader'),
+    import('three/examples/jsm/loaders/STLLoader.js'),
   ]);
   const loader = new STLLoader();
 

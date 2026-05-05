@@ -4,7 +4,7 @@ interface ISymbol {
 }
 
 class Alphabet {
-  symbols: ISymbol[]
+  symbols: ISymbol[] = []
 
   getSymbols(): ISymbol[] {
     return this.symbols

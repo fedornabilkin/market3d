@@ -11,7 +11,7 @@ import type {
 import { Primitive } from './nodes/Primitive';
 import { GroupNode } from './nodes/GroupNode';
 import { ImportedMeshNode } from './nodes/ImportedMeshNode';
-import { STLLoader } from 'three/examples/jsm/loaders/STLLoader';
+import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js';
 import { migrateLegacyYupToZupIfNeeded as _migrateYupToZup } from './migrations/legacyYupToZup';
 
 /**

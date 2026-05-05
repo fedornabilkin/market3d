@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
+import type { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import type { ModelNode } from '../nodes/ModelNode';
 import type { ModificationGizmo, HandleMesh } from '../modes/ModificationGizmo';
 import type { MirrorHandleMesh } from '../modes/MirrorGizmo';
@@ -464,7 +464,7 @@ export class PointerEventController {
           // Update sector visualization
           if (host.modificationGizmo) {
             host.modificationGizmo.updateRotationSector(
-              host.handleDragState.handleType as import('../ModificationGizmo').HandleType,
+              host.handleDragState.handleType as import('../modes/ModificationGizmo').HandleType,
               startRot,
               snappedTarget
             );
@@ -814,7 +814,7 @@ export class PointerEventController {
       // Hide rotation sector
       if (wasRotation && host.modificationGizmo && ds?.handleType) {
         host.modificationGizmo.hideRotationSector(
-          ds.handleType as import('../ModificationGizmo').HandleType
+          ds.handleType as import('../modes/ModificationGizmo').HandleType
         );
       }
       // Откат «дрифта отпускания»: если в последний кадр snap стал крупнее

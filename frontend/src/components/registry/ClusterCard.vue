@@ -46,7 +46,7 @@ el-card.cluster-card(:class="{ 'my-cluster': isMine }" style="margin-bottom: 20p
 import { computed } from 'vue';
 import { useRouter } from 'vue-router';
 import { User } from '@element-plus/icons-vue';
-import type { Cluster } from '../types/cluster';
+import type { Cluster } from '@/types/cluster';
 
 interface Props {
   cluster: Cluster & {

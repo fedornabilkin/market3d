@@ -1,7 +1,7 @@
 import * as THREE from 'three';
-import { Font } from 'three/examples/jsm/loaders/FontLoader';
-import { TextGeometry } from 'three/examples/jsm/geometries/TextGeometry';
-import { SVGLoader } from 'three/examples/jsm/loaders/SVGLoader';
+import { Font } from 'three/examples/jsm/loaders/FontLoader.js';
+import { TextGeometry } from 'three/examples/jsm/geometries/TextGeometry.js';
+import { SVGLoader } from 'three/examples/jsm/loaders/SVGLoader.js';
 import fontInterExtraBold from '@/assets/fonts/Inter_ExtraBold.json';
 import BaseGenerator, { parseHexColor } from '@/v3d/generator/base';
 

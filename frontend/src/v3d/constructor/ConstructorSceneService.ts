@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { MOUSE } from 'three';
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import type { ModelApp } from './ModelApp';
 import { ModelExporter } from './ModelExporter';
 import type { ModelNode } from './nodes/ModelNode';
@@ -454,7 +454,7 @@ export class ConstructorSceneService {
     this.controls.target.copy(gridCenter);
     this.controls.update();
     // Disable arrow key camera movement — arrows are used to move objects
-    this.controls.enableKeys = false;
+    (this.controls as unknown as { enableKeys?: boolean }).enableKeys = false;
 
     // Gizmo
     this.modificationGizmo = new ModificationGizmo(this.scene);
@@ -831,6 +831,17 @@ export class ConstructorSceneService {
       throw new Error('[ConstructorSceneService.mutateFeatureDoc] featureDoc не инициализирован — вызовите rebuildSceneFromTree до первой мутации');
     }
     mutate(this.featureDocCurrent);
+    this.syncCurrentFeatureDocToModelTree();
+  }
+
+  /**
+   * Синхронизирует текущий FeatureDocument в derived ModelNode-tree и
+   * пересобирает mapping/userData без обратной миграции ModelNode → featureDoc.
+   * Используется после undo/redo и live-drag commit'ов, где FeatureDocument уже
+   * является источником истины.
+   */
+  syncCurrentFeatureDocToModelTree(): void {
+    if (!this.featureDocCurrent) return;
     this._deriveAndSetModelTree(this.featureDocCurrent.toJSON());
     this.skipNextMigrate = true;
     this.rebuildSceneFromTree();

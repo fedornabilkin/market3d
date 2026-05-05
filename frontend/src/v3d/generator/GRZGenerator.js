@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import {Font} from 'three/examples/jsm/loaders/FontLoader';
-import {TextGeometry} from 'three/examples/jsm/geometries/TextGeometry';
+import {Font} from 'three/examples/jsm/loaders/FontLoader.js';
+import {TextGeometry} from 'three/examples/jsm/geometries/TextGeometry.js';
 import fontInterExtraBold from '@/assets/fonts/Inter_ExtraBold.json';
 import BaseGenerator, {parseHexColor} from '@/v3d/generator/base';
 import {RectangleRoundedShape} from '@/v3d/primitives/shape';

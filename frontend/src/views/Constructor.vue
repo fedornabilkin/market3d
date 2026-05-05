@@ -410,8 +410,8 @@ import {
   type FeatureDocStats,
   type StorageStat,
 } from '@/v3d/constructor/debug';
-import { STLLoader } from 'three/examples/jsm/loaders/STLLoader';
-import { dataURItoBlob } from '@/utils';
+import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js';
+import { dataURItoBlob } from '@/utils.js';
 import FeatureTree from '@/components/constructor/FeatureTree.vue';
 import DebugPanel from '@/components/constructor/DebugPanel.vue';
 import TestChecklistPanel from '@/components/constructor/TestChecklistPanel.vue';
@@ -1023,60 +1023,36 @@ function isGroupNode(node: any): node is GroupNode {
 
 // ─── History ───────────────────────────────────────────────────────────────
 
-/**
- * Снапшот текущего состояния в виде FeatureDocumentJSON v2 (canonical
- * формат). После save/load flip'а primary path: читаем из живого
- * featureDoc'а напрямую (его `toJSON()` — canonical). Fallback на legacy
- * migrate, если featureDoc по каким-то причинам ещё не инициализирован.
- */
+/** Снапшот текущего canonical FeatureDocumentJSON v2. */
 function captureFeatureDocSnapshot(): FeatureDocumentJSON | null {
-  const fd = sceneService?.getFeatureDocument();
-  if (fd) {
-    try {
-      return fd.toJSON();
-    } catch (e) {
-      console.warn('[Constructor] featureDoc.toJSON failed, falling back to legacy migrate:', e);
-    }
-  }
-  const root = modelApp.value?.getModelManager()?.getTree();
-  if (!root) return null;
-  const serializer = modelApp.value!.getSerializer();
-  const legacyJson = serializer.toRootJSON(root);
-  return migrateLegacyTreeToDocument(legacyJson);
+  return currentFeatureDoc()?.toJSON() ?? null;
 }
 
-/**
- * Restore из FeatureDocumentJSON: использует унифицированный load-flip путь
- * через sceneService.loadFromV2JSON. featureDoc восстанавливается напрямую,
- * ModelNode-tree деривируется внутри.
- */
-function restoreFromFeatureSnapshot(json: FeatureDocumentJSON): void {
+function afterFeatureHistoryRestore(): void {
   if (!sceneService) return;
-  const serializer = modelApp.value!.getSerializer();
-  sceneService.loadFromV2JSON(json, (legacyJson) => {
-    const newRoot = serializer.fromJSON(legacyJson);
-    sanitizeRootParams(newRoot);
-    return newRoot;
-  });
+  sceneService.syncCurrentFeatureDocToModelTree();
   setSelectionByIds([]);
   treeVersion.value++;
   _saveToLocalStorage();
 }
 
+function pushFeatureSnapshot(beforeJSON: FeatureDocumentJSON | null, afterJSON: FeatureDocumentJSON | null): void {
+  const fd = currentFeatureDoc();
+  if (!fd || !beforeJSON || !afterJSON) return;
+  const cmd = new FeatureSnapshotCommand(beforeJSON, afterJSON, fd);
+  modelApp.value!.getHistoryManager().push(cmd);
+}
+
 /**
  * Оборачивает мутацию before/after-снапшотами в FeatureDocumentJSON v2
- * формате и пушит FeatureSnapshotCommand. Мутация синхронно меняет
- * ModelNode-tree (текущий source-of-truth Phase 1); на undo/redo дерево
- * derive'ится обратно из снапшота через featureDocumentToLegacy.
+ * формате и пушит FeatureSnapshotCommand на текущий FeatureDocument.
  */
 function withHistory(mutate: () => void) {
   const beforeJSON = captureFeatureDocSnapshot();
   mutate();
+  sceneService?.syncCurrentFeatureDocToModelTree();
   const afterJSON = captureFeatureDocSnapshot();
-  if (beforeJSON && afterJSON) {
-    const cmd = new FeatureSnapshotCommand(beforeJSON, afterJSON, restoreFromFeatureSnapshot);
-    modelApp.value!.getHistoryManager().push(cmd);
-  }
+  pushFeatureSnapshot(beforeJSON, afterJSON);
   treeVersion.value++;
   _saveToLocalStorage();
 }
@@ -1085,7 +1061,7 @@ function withHistory(mutate: () => void) {
  * History-обёртка для feature-doc мутаций (P2-prep flip API). Объединяет:
  *  - before/after captureFeatureDocSnapshot.
  *  - sceneService.mutateFeatureDoc (Template Method из ConstructorSceneService).
- *  - push FeatureSnapshotCommand в history.
+ *  - push FeatureSnapshotCommand в history с target=current FeatureDocument.
  *  - treeVersion bump + _saveToLocalStorage.
  *
  * `mutate` получает featureDoc и возвращает произвольный T (например, id новой
@@ -1103,10 +1079,7 @@ function withFeatureDocHistory<T>(mutate: (doc: FeatureDocument) => T): T | null
   // через rebuild — никакого re-resolve не нужно.
   sceneService.setSelection(selectedFeatureIdsRaw.value, selectedFeatureId.value);
   const afterJSON = captureFeatureDocSnapshot();
-  if (beforeJSON && afterJSON) {
-    const cmd = new FeatureSnapshotCommand(beforeJSON, afterJSON, restoreFromFeatureSnapshot);
-    modelApp.value!.getHistoryManager().push(cmd);
-  }
+  pushFeatureSnapshot(beforeJSON, afterJSON);
   treeVersion.value++;
   _saveToLocalStorage();
   return captured;
@@ -1114,11 +1087,12 @@ function withFeatureDocHistory<T>(mutate: (doc: FeatureDocument) => T): T | null
 
 function undo() {
   modelApp.value!.getHistoryManager().undo();
-  // treeVersion++ and rebuildSceneFromTree happen inside restoreFromFeatureSnapshot
+  afterFeatureHistoryRestore();
 }
 
 function redo() {
   modelApp.value!.getHistoryManager().redo();
+  afterFeatureHistoryRestore();
 }
 
 // ─── localStorage ──────────────────────────────────────────────────────────
@@ -1296,10 +1270,7 @@ function loadSceneFromFile() {
         const beforeJSON = captureFeatureDocSnapshot();
         await loadV2IntoScene(v2);
         const afterJSON = captureFeatureDocSnapshot();
-        if (beforeJSON && afterJSON) {
-          const cmd = new FeatureSnapshotCommand(beforeJSON, afterJSON, restoreFromFeatureSnapshot);
-          modelApp.value!.getHistoryManager().push(cmd);
-        }
+        pushFeatureSnapshot(beforeJSON, afterJSON);
       } catch (e) {
         console.warn('[Constructor] Failed to load scene from file:', e);
       }
@@ -2142,17 +2113,11 @@ onMounted(() => {
     onAfterDrag() {
       if (!beforeDragJSON) return;
       try {
-        // Drag меняет node.params + manually obj.position/scale/rotation, минуя
-        // rebuildSceneFromTree → sceneService.featureDoc остаётся pre-drag
-        // (стейл). Чтобы _saveToLocalStorage сохранял актуальный v2, обновляем
-        // featureDoc через rebuild. Stage-B оптимизация (live-sync без полного
-        // rebuild) — отдельный шаг.
-        if (sceneService) sceneService.rebuildSceneFromTree();
+        // Drag/handle live-пути мутируют FeatureDocument напрямую. После
+        // отпускания derive'им legacy tree/mapping из текущего featureDoc.
+        if (sceneService) sceneService.syncCurrentFeatureDocToModelTree();
         const afterJSON = captureFeatureDocSnapshot();
-        if (afterJSON) {
-          const cmd = new FeatureSnapshotCommand(beforeDragJSON, afterJSON, restoreFromFeatureSnapshot);
-          modelApp.value!.getHistoryManager().push(cmd);
-        }
+        pushFeatureSnapshot(beforeDragJSON, afterJSON);
         treeVersion.value++;
         _saveToLocalStorage();
       } catch (_) {

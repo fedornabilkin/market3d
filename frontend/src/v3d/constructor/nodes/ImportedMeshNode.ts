@@ -62,6 +62,10 @@ export class ImportedMeshNode extends ModelNode {
     return this.entity.createGeometry();
   }
 
+  get geometry(): THREE.BufferGeometry {
+    return this.entity.createGeometry();
+  }
+
   clone(): ImportedMeshNode {
     const cloned = new ImportedMeshNode(
       this.entity.createGeometry().clone(),

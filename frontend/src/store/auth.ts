@@ -4,6 +4,7 @@ import api from '../service/api';
 interface User {
   id: number;
   email: string;
+  role?: string;
   name?: string;
   description?: string;
   avatarUrl?: string;
@@ -39,9 +40,10 @@ export const useAuthStore = defineStore('auth', {
           email,
           password,
         });
-        this.token = response.data.token;
+        const token = String(response.data.token);
+        this.token = token;
         this.user = response.data.user;
-        localStorage.setItem('token', this.token);
+        localStorage.setItem('token', token);
         localStorage.setItem('user', JSON.stringify(this.user));
         return response.data;
       } catch (error: any) {
@@ -60,9 +62,10 @@ export const useAuthStore = defineStore('auth', {
           email,
           password,
         });
-        this.token = response.data.token;
+        const token = String(response.data.token);
+        this.token = token;
         this.user = response.data.user;
-        localStorage.setItem('token', this.token);
+        localStorage.setItem('token', token);
         localStorage.setItem('user', JSON.stringify(this.user));
         return response.data;
       } catch (error: any) {

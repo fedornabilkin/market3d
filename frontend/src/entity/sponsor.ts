@@ -1,4 +1,4 @@
-import {DefaultEntity} from "./entity";
+import {DefaultEntity} from "./entity.js";
 
 export class Sponsor extends DefaultEntity{
   name = ''

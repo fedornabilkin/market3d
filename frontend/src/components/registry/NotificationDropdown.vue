@@ -70,7 +70,7 @@ el-dropdown(
 
 <script setup lang="ts">
 import { onMounted } from 'vue';
-import { useNotificationsStore } from '../store/notifications';
+import { useNotificationsStore } from '@/store/notifications';
 import { Bell, Check } from '@element-plus/icons-vue';
 
 const notificationsStore = useNotificationsStore();

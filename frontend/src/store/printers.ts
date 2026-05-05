@@ -198,6 +198,34 @@ export const usePrintersStore = defineStore('printers', {
         this.loading = false;
       }
     },
+
+    async addColors(printerId: number, colorIds: number[]) {
+      this.loading = true;
+      this.error = null;
+      try {
+        const response = await api.post(`/printers/${printerId}/colors`, { colorIds });
+        return response.data;
+      } catch (error: any) {
+        this.error = error.response?.data?.error || 'Failed to add colors';
+        throw error;
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    async removeColors(printerId: number, colorIds: number[]) {
+      this.loading = true;
+      this.error = null;
+      try {
+        const response = await api.delete(`/printers/${printerId}/colors`, { data: { colorIds } });
+        return response.data;
+      } catch (error: any) {
+        this.error = error.response?.data?.error || 'Failed to remove colors';
+        throw error;
+      } finally {
+        this.loading = false;
+      }
+    },
   },
 });
 

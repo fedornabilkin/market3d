@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import * as BufferGeometryUtils from 'three/examples/jsm/utils/BufferGeometryUtils';
+import * as BufferGeometryUtils from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 // @ts-ignore — shape.js is plain JS.
 import { RectangleRoundedCornerShape } from '@/v3d/primitives/shape';
 

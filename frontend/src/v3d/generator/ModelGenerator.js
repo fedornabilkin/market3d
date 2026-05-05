@@ -1,7 +1,7 @@
 import * as THREE from 'three';
-import {Font} from 'three/examples/jsm/loaders/FontLoader';
-import {TextGeometry} from 'three/examples/jsm/geometries/TextGeometry';
-import * as BufferGeometryUtils from 'three/examples/jsm/utils/BufferGeometryUtils';
+import {Font} from 'three/examples/jsm/loaders/FontLoader.js';
+import {TextGeometry} from 'three/examples/jsm/geometries/TextGeometry.js';
+import * as BufferGeometryUtils from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import {Brush, Evaluator, SUBTRACTION} from 'three-bvh-csg';
 import fontInterSemiBold from '@/assets/fonts/Inter_SemiBold.json';
 import fontInterSemiBoldItalic from '@/assets/fonts/Inter_SemiBold_Italic.json';
@@ -9,7 +9,7 @@ import fontInterExtraBold from '@/assets/fonts/Inter_ExtraBold.json';
 import fontInterExtraBoldItalic from '@/assets/fonts/Inter_ExtraBold_Italic.json';
 import BaseGenerator, {parseHexColor} from '@/v3d/generator/base';
 import {RectangleRoundedShape} from "@/v3d/primitives/shape";
-import {SVGLoader} from "three/examples/jsm/loaders/SVGLoader";
+import {SVGLoader} from "three/examples/jsm/loaders/SVGLoader.js";
 import {Magnet} from "@/v3d/entity";
 
 const lineSpacing = 2

@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia';
 import api from '../service/api';
 
-interface OrderFile {
+export interface OrderFile {
   id: number;
   orderId: number;
   fileUrl: string;

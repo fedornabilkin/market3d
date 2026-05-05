@@ -3,8 +3,8 @@ export interface Cluster {
   userId: number;
   name: string;
   description?: string;
-  regionId: number;
-  cityId: number;
+  regionId?: number | null;
+  cityId?: number | null;
   metroId?: number;
   parentClusterId?: number;
   state: 'draft' | 'active' | 'inactive' | 'archived';

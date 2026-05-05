@@ -7,8 +7,8 @@ import {
   WebGLRenderer
 } from "three";
 import * as THREE from "three";
-import {OrbitControls} from "three/examples/jsm/controls/OrbitControls";
-import * as BufferGeometryUtils from "three/examples/jsm/utils/BufferGeometryUtils";
+import {OrbitControls} from "three/examples/jsm/controls/OrbitControls.js";
+import * as BufferGeometryUtils from "three/examples/jsm/utils/BufferGeometryUtils.js";
 
 export class Box {
 

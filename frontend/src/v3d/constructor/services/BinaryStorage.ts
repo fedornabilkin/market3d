@@ -60,7 +60,11 @@ export class BinaryStorage {
         const v = req.result;
         if (v === undefined || v === null) resolve(undefined);
         else if (v instanceof ArrayBuffer) resolve(v);
-        else if (ArrayBuffer.isView(v)) resolve(v.buffer.slice(v.byteOffset, v.byteOffset + v.byteLength));
+        else if (ArrayBuffer.isView(v)) {
+          const copy = new Uint8Array(v.byteLength);
+          copy.set(new Uint8Array(v.buffer, v.byteOffset, v.byteLength));
+          resolve(copy.buffer);
+        }
         else resolve(undefined);
       };
       req.onerror = () => reject(req.error);

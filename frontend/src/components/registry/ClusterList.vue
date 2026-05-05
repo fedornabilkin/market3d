@@ -13,7 +13,7 @@ div
 
 <script setup lang="ts">
 import ClusterCard from './ClusterCard.vue';
-import type { Cluster } from '../types/cluster';
+import type { Cluster } from '@/types/cluster';
 
 interface Props {
   clusters: Array<Cluster & {

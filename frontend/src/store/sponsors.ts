@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { Sponsor } from '../entity/sponsor';
-import { SponsorBuilder } from '../entity/builder';
+import { SponsorBuilder } from '../entity/builder.js';
 
 interface SponsorsState {
   list: Sponsor[];

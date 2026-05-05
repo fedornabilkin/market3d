@@ -130,7 +130,7 @@ import SbpMoney from "@/components/monetisation/SbpMoney.vue";
 import YoomoneyWidget from "@/components/monetisation/YoomoneyWidget.vue";
 import { Share } from "@/entity/share";
 import { TooltipBuilder } from "@/entity/builder";
-import { dataURItoBlob } from '@/utils';
+import { dataURItoBlob } from '@/utils.js';
 import { useTourStore } from "@/store/tour";
 import { useTourPlacement } from "@/service/useTourPlacement";
 import { useGenerator } from "@/service/useGenerator";

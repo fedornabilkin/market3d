@@ -3,10 +3,10 @@ import { Box } from "@/v3d/box";
 import { Director } from "@/v3d/director";
 import ModelGenerator from "@/v3d/generator/ModelGenerator.js";
 import { BaseRotation } from "@/v3d/animation/baseRotation";
-import { STLExporter } from 'three/examples/jsm/exporters/STLExporter';
-import { OBJExporter } from 'three/examples/jsm/exporters/OBJExporter';
+import { STLExporter } from 'three/examples/jsm/exporters/STLExporter.js';
+import { OBJExporter } from 'three/examples/jsm/exporters/OBJExporter.js';
 import JSZip from 'jszip';
-import { save, saveAsArrayBuffer, saveAsString } from '@/utils';
+import { save, saveAsArrayBuffer, saveAsString } from '@/utils.js';
 
 /**
  * Фасад для работы с библиотекой v3d
