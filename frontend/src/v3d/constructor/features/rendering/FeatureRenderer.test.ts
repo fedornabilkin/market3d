@@ -147,6 +147,27 @@ describe('FeatureRenderer: composite output', () => {
     expect(innerObj.userData.selectAsUnit).toBe(true);
     renderer.dispose();
   });
+
+  it('root TransformFeature wrapper around GroupFeature gets selectAsUnit', () => {
+    const root = new THREE.Group();
+    const renderer = new FeatureRenderer(root);
+    const doc = new FeatureDocument();
+    doc.addFeature(new BoxFeature('b1', { width: 10, height: 10, depth: 10 }));
+    doc.addFeature(new SphereFeature('s1', { radius: 5 }));
+    doc.addFeature(new GroupFeature('g1', {}, ['b1', 's1']));
+    doc.addFeature(new TransformFeature('x1', {
+      position: [0, 0, 0],
+      rotation: [0, 0, 0],
+      scale: [1, 1, 1],
+    }, ['g1']));
+    doc.setRootIds(['x1']);
+
+    renderer.bindDocument(doc);
+    const wrapperObj = renderer.getObject3D('x1')!;
+
+    expect(wrapperObj.userData.selectAsUnit).toBe(true);
+    renderer.dispose();
+  });
 });
 
 describe('FeatureRenderer: transform', () => {

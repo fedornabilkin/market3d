@@ -1,12 +1,7 @@
 import * as THREE from 'three';
 import { MOUSE } from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import type { ModelApp } from './ModelApp';
 import { ModelExporter } from './ModelExporter';
-import type { ModelNode } from './nodes/ModelNode';
-import { GroupNode } from './nodes/GroupNode';
-import { Primitive } from './nodes/Primitive';
-import { ImportedMeshNode } from './nodes/ImportedMeshNode';
 import { ModificationGizmo, type HandleMesh } from './modes/ModificationGizmo';
 import { ViewCubeNavigator } from './services/ViewCubeNavigator';
 import { MirrorMode } from './modes/MirrorMode';
@@ -20,31 +15,14 @@ import {
   type PointerEventHost,
   type HandleDragState,
 } from './events/PointerEventController';
-import { applyHoleStyle } from './holeMaterial';
 import { HandleDragController } from './events/HandleDragController';
 import { computeHandleConstraintPlane as computeHandleConstraintPlaneFn } from './events/handleConstraintPlane';
 import { bakeRotationIntoDimensions as bakeRotationOnDrag } from './events/bakeRotationOnDrag';
 import { FeatureRenderer } from './features/rendering/FeatureRenderer';
 import { FeatureDocument } from './features/FeatureDocument';
 import { TransformFeature } from './features/composite/TransformFeature';
-import {
-  migrateLegacyTreeToDocument,
-  type MigrationTrace,
-} from './features/migration/migrateLegacyTree';
-import {
-  featureDocumentToLegacy,
-  type InverseMigrationTrace,
-} from './features/migration/featureDocumentToLegacy';
 import type { FeatureDocumentJSON, FeatureId } from './features/types';
-import type { ModelTreeJSON } from './types';
-import { NodeFeatureMapping } from './services/NodeFeatureMapping';
-import {
-  getNodeHalfHeight,
-  pairTrees,
-  pairTreesByPosition,
-  disposeObject3D,
-  normalizeAngle,
-} from './services/sceneObjectHelpers';
+import { disposeObject3D } from './services/sceneObjectHelpers';
 import { MirrorFeatureOperation } from './modes/MirrorFeatureOperation';
 import {
   applySelectionGlow as applyGlow,
@@ -81,7 +59,6 @@ export interface ConstructorSceneServiceOptions {
    * Legacy fallback — срабатывает только если на меше нет userData.featureId
    * (catastrophic fallback пути `buildNodeObject3D`).
    */
-  onSelectNodeFromScene?: (node: ModelNode, opts: { shift: boolean }) => void;
   /** Called when the user clicks empty space (grid) — deselect all. */
   onDeselectAll?: () => void;
   /** Called every ~30 frames with scene diagnostic data. */
@@ -103,14 +80,12 @@ export interface ConstructorSceneServiceOptions {
   /** Primary marquee callback — featureIds. */
   onMarqueeSelectFeatures?: (featureIds: string[]) => void;
   /** Legacy fallback marquee callback — см. `onSelectNodeFromScene`. */
-  onMarqueeSelect?: (nodes: ModelNode[]) => void;
   /**
    * Фабрика ModelNode-tree из legacyJson — нужна `mutateFeatureDoc` /
    * `loadFromV2JSON` для derive ModelNode'а как side-effect (legacy-консьюмеры:
    * selection ModelNode-вид, debug панель). Caller передаёт один раз при init.
    * После полного удаления nodes/ слоя (Step E) — будет удалена.
    */
-  deriveModelTree?: (legacyJson: ModelTreeJSON) => ModelNode;
 }
 
 // ─── Service ─────────────────────────────────────────────────────────────────
@@ -144,13 +119,11 @@ export class ConstructorSceneService {
    * Заполняется на каждом rebuild через `setFromForwardTrace`
    * (legacy → v2) либо `setFromInverseTrace` (v2 → legacy на load-flip пути).
    */
-  private readonly nodeFeatureMapping = new NodeFeatureMapping();
   /**
    * Когда true, следующий rebuildSceneFromTree пропустит ModelNode → migrate
    * → featureDoc цепочку и просто перепроставит mapping/userData по уже
    * корректному featureDoc (load-flip путь). Сбрасывается после rebuild'а.
    */
-  private skipNextMigrate = false;
 
   // ─── Modes ────────────────────────────────────────────────────────────────
   private readonly mirrorMode = new MirrorMode();
@@ -203,14 +176,13 @@ export class ConstructorSceneService {
   private readonly handleDrag: HandleDragController;
 
   constructor(
-    private readonly modelApp: ModelApp,
+    initialDocument?: FeatureDocument,
     private readonly options: ConstructorSceneServiceOptions = {}
   ) {
+    this.featureDocCurrent = initialDocument ?? new FeatureDocument();
     this.exporter = new ModelExporter(
-      () => this.modelApp.getModelManager().getTree(),
-      () => this.selectedFeatureIdPrimary
-        ? this.nodeFeatureMapping.getNode(this.selectedFeatureIdPrimary) ?? null
-        : null,
+      () => this.featureDocCurrent,
+      () => this.selectedFeatureIdPrimary,
     );
     this.pointerController = new PointerEventController(this._host);
     this.handleDrag = new HandleDragController(this as unknown as import('./events/HandleDragController').HandleDragHost);
@@ -323,11 +295,6 @@ export class ConstructorSceneService {
     }
   }
 
-  /** Find the Three.js object corresponding to a model node. */
-  findObject3DByNode(node: ModelNode): THREE.Object3D | null {
-    return this.findObjectByNode(this.modelRootGroup, node);
-  }
-
   /**
    * Find Three.js object by feature-id.
    *
@@ -356,14 +323,8 @@ export class ConstructorSceneService {
   }
 
   /** ModelNode, соответствующий feature-id (через trace последнего rebuild'а). */
-  getModelNodeByFeatureId(featureId: string): ModelNode | null {
-    return this.nodeFeatureMapping.getNode(featureId) ?? null;
-  }
 
   /** Корневая (rootmost) feature-id для ModelNode. */
-  getFeatureIdByNode(node: ModelNode): string | null {
-    return this.nodeFeatureMapping.getFeatureId(node) ?? null;
-  }
 
   /**
    * Зеркалит ноду по оси axis с компенсацией визуального центра через
@@ -483,7 +444,16 @@ export class ConstructorSceneService {
     // View cube navigator
     this.viewCube = new ViewCubeNavigator();
 
-    this.rebuildSceneFromTree();
+    this._ensureFeatureDocBound();
+    if (this.featureDocCurrent && this.featureDocCurrent.rootIds.length === 0) {
+      this.featureDocCurrent.loadFromJSON({
+        version: 2,
+        features: [{ id: 'root', type: 'group', params: {}, inputs: [], name: 'Scene' }],
+        rootIds: ['root'],
+      });
+    } else {
+      this.rebuildSceneFromTree();
+    }
 
     // Input
     this.raycaster = new THREE.Raycaster();
@@ -588,183 +558,19 @@ export class ConstructorSceneService {
     return this.mirrorMode.isActive();
   }
 
-  /**
-   * Render-cutover: пересобираем сцену через FeatureRenderer.
-   *
-   * Два режима, выбираемых флагом `skipNextMigrate`:
-   *
-   * 1. **Legacy (ModelNode primary)** — поведение по умолчанию:
-   *    ```
-   *    ModelNode-tree → toRootJSON → migrate → FeatureDocumentJSON v2
-   *      → loadFromJSON в stable featureDoc
-   *      → FeatureRenderer.bindDocument реактивно обновит scene
-   *      → mapping featureId↔ModelNode через MigrationTrace
-   *    ```
-   *
-   * 2. **Load-flip (FeatureDoc primary)** — после `loadFromV2JSON`:
-   *    featureDoc уже корректный, ModelNode-tree уже derived. Достаточно
-   *    обновить mapping/userData по inverse-trace, не пересобирая featureDoc.
-   *    Это позволяет featureId выживать load (mirror/chamfer/etc. flips
-   *    могут полагаться на стабильные id'шники).
-   */
   rebuildSceneFromTree(): void {
-    if (!this.modelRootGroup || !this.featureRenderer) return;
-
-    const rootVal = this.modelApp.getModelManager().getTree();
-    if (!rootVal) {
-      this.featureRenderer.unbindDocument();
-      this.featureDocCurrent = null;
-      this.nodeFeatureMapping.clear();
-      this.skipNextMigrate = false;
-      this.updateGizmoTarget();
-      return;
-    }
-
-    if (this.skipNextMigrate && this.featureDocCurrent) {
-      this.skipNextMigrate = false;
-      try {
-        this._rebuildFromCurrentFeatureDoc(rootVal);
-        this.updateGizmoTarget();
-        return;
-      } catch (e) {
-        console.warn('[ConstructorSceneService] feature-doc rebuild failed, falling back to legacy migrate:', e);
-        // Падает в legacy путь.
-      }
-    }
-
-    try {
-      this._rebuildFromModelTree(rootVal);
-    } catch (e) {
-      console.warn('[ConstructorSceneService] FeatureRenderer rebuild failed; falling back to legacy build:', e);
-      this._rebuildLegacyFallback();
-    }
-
-    this.updateGizmoTarget();
-  }
-
-  /**
-   * Legacy путь: ModelNode-tree → migrate → featureDoc → mapping. Дефолтное
-   * поведение, не ломает ни одно существующее место.
-   */
-  private _rebuildFromModelTree(rootVal: ModelNode): void {
-    const serializer = this.modelApp.getSerializer();
-    const json = serializer.toRootJSON(rootVal);
-
-    const jsonToNode = new Map<ModelTreeJSON, ModelNode>();
-    pairTrees(json, rootVal, jsonToNode);
-
-    const trace: MigrationTrace = new Map();
-    const v2 = migrateLegacyTreeToDocument(json, trace);
-
-    this._injectImportedGeometriesFromTrace(v2, trace, jsonToNode);
+    if (!this.modelRootGroup || !this.featureRenderer || !this.featureDocCurrent) return;
     this._ensureFeatureDocBound();
-    this.featureDocCurrent!.loadFromJSON(v2);
-    (window as unknown as { __featureDoc?: FeatureDocument }).__featureDoc = this.featureDocCurrent!;
-
-    this.nodeFeatureMapping.setFromForwardTrace(v2, trace, jsonToNode);
-    this._propagateUserDataNode(trace, jsonToNode);
-  }
-
-  /**
-   * Load-flip путь: featureDoc уже актуален (loadFromV2JSON только что его
-   * заполнил), ModelNode-tree derived через featureDocumentToLegacy. Делаем
-   * inverse parallel walk и обновляем mapping/userData без re-migrate.
-   */
-  private _rebuildFromCurrentFeatureDoc(rootVal: ModelNode): void {
-    const v2 = this.featureDocCurrent!.toJSON();
-    const inverseTrace: InverseMigrationTrace = new Map();
-    // Re-run featureDocumentToLegacy с trace, чтобы получить
-    // featureId → ModelTreeJSON соответствие. Сам ModelTreeJSON выбрасываем —
-    // ModelNode-tree уже построен в `loadFromV2JSON` из этого же v2.
-    featureDocumentToLegacy(v2, inverseTrace);
-
-    // Параллельный walk: derived ModelNode-tree ↔ legacyJson.
-    // Для consistency сериализуем текущий ModelNode-tree (toRootJSON) — это
-    // даёт нам ModelTreeJSON-структуру, идентичную inverseTrace.values()
-    // ПОЗИЦИОННО (потому что featureDocumentToLegacy и Serializer.toRootJSON
-    // сохраняют порядок детей одинаково для документов, прошедших round-trip).
-    const serializer = this.modelApp.getSerializer();
-    const legacyJsonFromTree = serializer.toRootJSON(rootVal);
-    const jsonToNode = new Map<ModelTreeJSON, ModelNode>();
-    pairTrees(legacyJsonFromTree, rootVal, jsonToNode);
-
-    // inverseTrace.values() и legacyJsonFromTree — два разных JSON-объекта
-    // одной структуры. Чтобы получить featureId → ModelNode, надо
-    // ассоциировать ModelTreeJSON inverseTrace с ModelTreeJSON legacyJsonFromTree
-    // позиционно. Делаем это через walk обоих деревьев параллельно.
-    const inverseJsonToTreeJson = new Map<ModelTreeJSON, ModelTreeJSON>();
-    {
-      const inverseRoot = inverseTrace.get(v2.rootIds[0]);
-      if (inverseRoot) pairTreesByPosition(inverseRoot, legacyJsonFromTree, inverseJsonToTreeJson);
-    }
-    // featureId (через inverseTrace) → inverseJson → treeJson → ModelNode.
-    const flatTrace = new Map<FeatureId, ModelTreeJSON>();
-    for (const [fid, inverseJson] of inverseTrace) {
-      const treeJson = inverseJsonToTreeJson.get(inverseJson);
-      if (treeJson) flatTrace.set(fid, treeJson);
-    }
-
-    this.nodeFeatureMapping.setFromInverseTrace(v2, flatTrace, jsonToNode);
-    this._propagateUserDataNode(flatTrace, jsonToNode);
-  }
-
-  /**
-   * Catastrophic fallback: пересобираем сцену через legacy `buildNodeObject3D`,
-   * минуя FeatureRenderer. Срабатывает только если migrate упал — это
-   * означает баг в feature-tree модели, но user не теряет сцену.
-   */
-  private _rebuildLegacyFallback(): void {
-    if (!this.modelRootGroup || !this.featureRenderer) return;
-    this.featureRenderer.unbindDocument();
-    this.featureDocCurrent = null;
-    this.nodeFeatureMapping.clear();
-    disposeObject3D(this.modelRootGroup);
-    while (this.modelRootGroup.children.length) {
-      this.modelRootGroup.remove(this.modelRootGroup.children[0]);
-    }
-    const root = this.modelApp.getModelManager().getTree();
-    if (root) this.modelRootGroup.add(this.buildNodeObject3D(root, true));
+    this.featureDocCurrent.loadFromJSON(this.featureDocCurrent.toJSON());
+    this.updateGizmoTarget();
   }
 
   private _ensureFeatureDocBound(): void {
     if (!this.featureRenderer) return;
     if (!this.featureDocCurrent) {
       this.featureDocCurrent = new FeatureDocument();
-      this.featureRenderer.bindDocument(this.featureDocCurrent);
     }
-  }
-
-  private _injectImportedGeometriesFromTrace(
-    v2: FeatureDocumentJSON,
-    trace: MigrationTrace,
-    jsonToNode: ReadonlyMap<ModelTreeJSON, ModelNode>,
-  ): void {
-    for (const f of v2.features) {
-      if (f.type !== 'imported') continue;
-      const sourceJson = trace.get(f.id);
-      if (!sourceJson) continue;
-      const node = jsonToNode.get(sourceJson);
-      if (node instanceof ImportedMeshNode && node.geometry) {
-        (f.params as Record<string, unknown>).geometry = node.geometry;
-      }
-    }
-  }
-
-  private _propagateUserDataNode(
-    trace: ReadonlyMap<FeatureId, ModelTreeJSON>,
-    jsonToNode: ReadonlyMap<ModelTreeJSON, ModelNode>,
-  ): void {
-    if (!this.modelRootGroup) return;
-    this.modelRootGroup.traverse((obj) => {
-      const featureId = (obj.userData as { featureId?: FeatureId }).featureId;
-      if (!featureId) return;
-      const sourceJson = trace.get(featureId);
-      if (!sourceJson) return;
-      const node = jsonToNode.get(sourceJson);
-      if (!node) return;
-      obj.userData.node = node;
-      node.setUuid(obj.uuid);
-    });
+    this.featureRenderer.bindDocument(this.featureDocCurrent);
   }
 
   /**
@@ -781,31 +587,14 @@ export class ConstructorSceneService {
    * Caller должен передать v2 со всеми резолвенными бинарниками (geometry в
    * params для imported-фич). См. `loader/loadFeatureDocument` для async-варианта.
    */
-  loadFromV2JSON(
-    v2: FeatureDocumentJSON,
-    overrideDerive?: (legacyJson: ModelTreeJSON) => ModelNode,
-  ): void {
+  loadFromV2JSON(v2: FeatureDocumentJSON): void {
     if (!this.featureRenderer) {
       throw new Error('[ConstructorSceneService.loadFromV2JSON] не примонтировано');
     }
     this._ensureFeatureDocBound();
     this.featureDocCurrent!.loadFromJSON(v2);
     (window as unknown as { __featureDoc?: FeatureDocument }).__featureDoc = this.featureDocCurrent!;
-
-    // Для load-from-disk caller передаёт override-фабрику с pre-resolved
-    // STL-binaries (см. Constructor.vue:loadV2IntoScene). Для остальных
-    // путей — дефолт через options.deriveModelTree.
-    if (overrideDerive) {
-      const legacyJson = featureDocumentToLegacy(v2);
-      const newRoot = overrideDerive(legacyJson);
-      this.modelApp.getModelManager().setTree(newRoot);
-    } else {
-      this._deriveAndSetModelTree(v2);
-    }
-
-    // Следующий rebuild пропустит migrate (см. _rebuildFromCurrentFeatureDoc).
-    this.skipNextMigrate = true;
-    this.rebuildSceneFromTree();
+    this.updateGizmoTarget();
   }
 
   /**
@@ -831,7 +620,7 @@ export class ConstructorSceneService {
       throw new Error('[ConstructorSceneService.mutateFeatureDoc] featureDoc не инициализирован — вызовите rebuildSceneFromTree до первой мутации');
     }
     mutate(this.featureDocCurrent);
-    this.syncCurrentFeatureDocToModelTree();
+    this.updateGizmoTarget();
   }
 
   /**
@@ -842,47 +631,7 @@ export class ConstructorSceneService {
    */
   syncCurrentFeatureDocToModelTree(): void {
     if (!this.featureDocCurrent) return;
-    this._deriveAndSetModelTree(this.featureDocCurrent.toJSON());
-    this.skipNextMigrate = true;
     this.rebuildSceneFromTree();
-  }
-
-  /**
-   * Derive ModelNode-tree из featureDoc через caller-provided фабрику
-   * (`options.deriveModelTree`). Если фабрика не задана — no-op (никаких
-   * legacy-консьюмеров ModelNode'а нет).
-   */
-  private _deriveAndSetModelTree(v2: FeatureDocumentJSON): void {
-    const factory = this.options.deriveModelTree;
-    if (!factory) return;
-    const legacyJson = featureDocumentToLegacy(v2);
-    const newRoot = factory(legacyJson);
-    this.modelApp.getModelManager().setTree(newRoot);
-  }
-
-  /** Returns the parent GroupNode of target in the model tree (used for delete/merge). */
-  getParentOf(target: ModelNode): GroupNode | null {
-    const root = this.modelApp.getModelManager().getTree();
-    return this.findParentOf(root, target);
-  }
-
-  // ─── Private: scene construction ──────────────────────────────────────────
-
-  private findParentOf(rootNode: ModelNode | null, target: ModelNode): GroupNode | null {
-    if (!rootNode || !target) return null;
-    const targetUuid = target.uuidMesh;
-    if (targetUuid && rootNode.uuidMesh === targetUuid) return null;
-    if (rootNode instanceof GroupNode) {
-      const idx = targetUuid
-        ? rootNode.children.findIndex((c) => c.uuidMesh === targetUuid)
-        : rootNode.children.indexOf(target);
-      if (idx !== -1) return rootNode;
-      for (const child of rootNode.children) {
-        const found = this.findParentOf(child, target);
-        if (found) return found;
-      }
-    }
-    return null;
   }
 
   private animate = (): void => {
@@ -937,108 +686,11 @@ export class ConstructorSceneService {
     }
   };
 
-  /**
-   * Builds a Three.js object from a model tree node.
-   *
-   * - Root GroupNode (isRoot=true): THREE.Group container so children are independently
-   *   selectable and draggable.
-   * - Non-root GroupNode: single CSG-merged mesh (TinkerCAD style).
-   * - Primitive: mesh from getMesh() which already applies position/scale/rotation
-   *   with the correct halfHeight offset.
-   */
-  private buildNodeObject3D(node: ModelNode, isRoot = false): THREE.Object3D {
-    if (node instanceof ImportedMeshNode) {
-      const mesh = node.getMesh();
-      node.setUuid(mesh.uuid);
-      mesh.userData.node = node;
-      // EdgesGeometry на плотной STL блокирует UI (проход по всем граням с порогом
-      // угла). Для импортированных мешей обводку не строим.
-      return mesh;
-    }
-    if (node instanceof Primitive) {
-      // getMesh() already calls applyParamsToMesh (position + halfH, scale, rotation)
-      const mesh = node.getMesh();
-      node.setUuid(mesh.uuid);
-      mesh.userData.node = node;
-      ConstructorSceneService.addEdgeLines(mesh);
-      return mesh;
-    }
-    if (node instanceof GroupNode) {
-      // Рантайм без CSG для простого union без hole-детей (mergeSelected двух
-      // STL и т.п.). CSG применяется только на экспорте (ModelExporter) и тем
-      // non-root группам, где visual без CSG был бы неверным: subtract/intersect
-      // или наличие hole-детей (чамфер).
-      const hasHoleChild = node.children.some((c) => !!c.params?.isHole);
-      const renderAsContainer = isRoot || (node.operation === 'union' && !hasHoleChild);
-
-      if (renderAsContainer) {
-        const group = new THREE.Group();
-        node.setUuid(group.uuid);
-        group.userData.node = node;
-        // Маркер для PointerEventController: клик по любому потомку выделяет
-        // эту группу целиком (как было с CSG-мешом), а не отдельный child-меш.
-        if (!isRoot) group.userData.selectAsUnit = true;
-        const { position, scale, rotation } = node.params;
-        if (position) group.position.set(position.x, position.y, position.z);
-        if (scale) group.scale.set(scale.x, scale.y, scale.z);
-        if (rotation) group.rotation.set(rotation.x, rotation.y, rotation.z);
-        node.children.forEach((child) => group.add(this.buildNodeObject3D(child, false)));
-        // Propagate group color to child meshes that don't have their own color
-        const groupColor = node.params?.color as string | undefined;
-        if (groupColor) {
-          group.traverse((child) => {
-            if (child instanceof THREE.Mesh && child.material) {
-              const childNode = (child.userData as { node?: ModelNode }).node;
-              if (!childNode?.params?.color) {
-                const mat = child.material as THREE.MeshPhongMaterial;
-                mat.color.setStyle(groupColor);
-                mat.needsUpdate = true;
-              }
-            }
-          });
-        }
-        // Hole-группа: обводим зеброй/прозрачностью все меши внутри — CSG не
-        // применяем, но визуальный сигнал «вычитается» сохраняется.
-        if (!isRoot && node.params?.isHole) {
-          group.traverse((child) => {
-            if (child instanceof THREE.Mesh && child.material) {
-              applyHoleStyle(child.material as THREE.MeshPhongMaterial);
-            }
-          });
-        }
-        return group;
-      }
-      // Non-root group c CSG: subtract/intersect или есть hole-дети (чамфер).
-      const mesh = node.getMesh();
-      node.setUuid(mesh.uuid);
-      mesh.userData.node = node;
-      ConstructorSceneService.addEdgeLines(mesh);
-      if (node.params?.isHole) {
-        applyHoleStyle(mesh.material as THREE.MeshPhongMaterial);
-      }
-      return mesh;
-    }
-    return new THREE.Group();
-  }
-
-  private findObjectByNode(group: THREE.Object3D | null, node: ModelNode | null): THREE.Object3D | null {
-    if (!group || !node) return null;
-    const nodeUuid = node.uuidMesh;
-    const stored = (group.userData as { node?: ModelNode })?.node;
-    if (nodeUuid && stored?.uuidMesh === nodeUuid) return group;
-    if (!nodeUuid && stored === node) return group;
-    for (let i = 0; i < group.children.length; i++) {
-      const found = this.findObjectByNode(group.children[i], node);
-      if (found) return found;
-    }
-    return null;
-  }
-
   private getSelectableMeshes(): THREE.Mesh[] {
     const meshes: THREE.Mesh[] = [];
     if (!this.modelRootGroup) return meshes;
     this.modelRootGroup.traverse((o) => {
-      if (o instanceof THREE.Mesh && (o.userData as { node?: unknown }).node) meshes.push(o);
+      if (o instanceof THREE.Mesh && (o.userData as { featureId?: unknown }).featureId) meshes.push(o);
     });
     return meshes;
   }
@@ -1100,43 +752,6 @@ export class ConstructorSceneService {
     opacity: 0.25,
   });
 
-  /** Adds or updates dark edge lines on a mesh */
-  private static addEdgeLines(mesh: THREE.Mesh): void {
-    // Remove existing edge lines
-    const existing = mesh.children.filter(c => c.userData.isEdgeLine);
-    existing.forEach(c => {
-      (c as THREE.LineSegments).geometry.dispose();
-      mesh.remove(c);
-    });
-    const edges = new THREE.EdgesGeometry(mesh.geometry, 20);
-    const lines = new THREE.LineSegments(edges, ConstructorSceneService.edgeLineMaterial);
-    lines.userData.isEdgeLine = true;
-    lines.raycast = () => {}; // not pickable
-    // Локальный трансформ edge-lines — identity, меняется только матрица родителя.
-    lines.matrixAutoUpdate = false;
-    lines.updateMatrix();
-    mesh.add(lines);
-  }
-
-  private updatePrimitiveGeometryInPlace(prim: Primitive, mesh: THREE.Mesh): void {
-    const oldGeo = mesh.geometry;
-    mesh.geometry = prim.createGeometry();
-    oldGeo.dispose();
-
-    // Z-up: params.position.z — нижняя грань; halfHeight по Z даёт центр меша.
-    const halfH = prim.getHalfHeight();
-    const p = prim.params.position ?? { x: 0, y: 0, z: 0 };
-    mesh.position.set(p.x, p.y, (p.z ?? 0) + halfH);
-
-    // Update edge lines
-    ConstructorSceneService.addEdgeLines(mesh);
-  }
-
-  /**
-   * Applies a delta from a handle drag. Реализация — в `HandleDragController`
-   * (`events/HandleDragController.ts`). Здесь — тонкий делегатор для
-   * совместимости с `PointerEventHost` интерфейсом.
-   */
   private applyHandleDragDelta(
     featureId: string | null,
     handleType: string,

@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import type { Feature } from '../Feature';
 import type { FeatureDocument, FeatureDocumentEvent } from '../FeatureDocument';
 import type { FeatureId, FeatureOutput, LeafOutput, CompositeOutput } from '../types';
+import { GroupFeature } from '../composite/GroupFeature';
+import { TransformFeature } from '../composite/TransformFeature';
 import { applyHoleStyle } from '../../holeMaterial';
 
 /**
@@ -245,7 +247,9 @@ export class FeatureRenderer {
     // Маркер для PointerEventController: клик по любому ребёнку выделяет
     // эту группу целиком, как у legacy union-merged групп. Для root-группы
     // НЕ выставляем — иначе клик по примитиву-ребёнку выделил бы всю сцену.
-    if (!isRoot) group.userData.selectAsUnit = true;
+    if (!isRoot || this.isRootTransformGroup(featureId)) {
+      group.userData.selectAsUnit = true;
+    }
 
     for (let i = 0; i < output.children.length; i++) {
       // Если у выхода ребёнка проставлен sourceFeatureId (визитор GroupFeature
@@ -292,6 +296,15 @@ export class FeatureRenderer {
     }
 
     return group;
+  }
+
+  private isRootTransformGroup(featureId: FeatureId): boolean {
+    if (!this.document) return false;
+    const feature = this.document.graph.get(featureId);
+    if (!(feature instanceof TransformFeature)) return false;
+    const inputId = feature.getInputs()[0];
+    if (!inputId) return false;
+    return this.document.graph.get(inputId) instanceof GroupFeature;
   }
 
   private getMaterial(color: string | undefined, isHole: boolean): THREE.MeshPhongMaterial {

@@ -1,9 +1,11 @@
+import * as THREE from 'three';
 import type { FeatureDocument } from '../features/FeatureDocument';
 import type { FeatureId } from '../features/types';
 import { CompositeFeature } from '../features/CompositeFeature';
 import type { Feature } from '../features/Feature';
 import { GroupFeature } from '../features/composite/GroupFeature';
 import { BooleanFeature } from '../features/composite/BooleanFeature';
+import { TransformFeature, type TransformFeatureParams } from '../features/composite/TransformFeature';
 import { findParent, nextP2FeatureId } from '../features/utils/dagMutations';
 
 /**
@@ -47,6 +49,16 @@ export class GroupingFeatureOperations {
     const groupFeature = hasHole
       ? new BooleanFeature(groupId, { operation: 'union' }, [...featureIds])
       : new GroupFeature(groupId, {}, [...featureIds]);
+    const wrapperId = nextP2FeatureId('xform');
+    const wrapperFeature = new TransformFeature(
+      wrapperId,
+      {
+        position: [0, 0, 0],
+        rotation: [0, 0, 0],
+        scale: [1, 1, 1],
+      },
+      [groupId],
+    );
 
     // Запоминаем текущие места участников ДО любых мутаций (findParent
     // зависит от состояния графа, а мы будем его изменять).
@@ -78,6 +90,7 @@ export class GroupingFeatureOperations {
     // 3. Добавляем сам контейнер. Все его inputs уже не висят в parent'ах —
     //    добавление безопасно.
     doc.addFeature(groupFeature);
+    doc.addFeature(wrapperFeature);
 
     // 4. Размещаем новый контейнер. Если у всех участников был общий parent
     //    (типичный кейс — все внутри root scene-group), кладём контейнер туда:
@@ -94,14 +107,14 @@ export class GroupingFeatureOperations {
     if (sharedParentId) {
       const parentFeature = doc.graph.get(sharedParentId);
       if (parentFeature instanceof CompositeFeature) {
-        const next = [...parentFeature.getInputs(), groupId];
+        const next = [...parentFeature.getInputs(), wrapperId];
         doc.updateInputs(sharedParentId, next);
-        return groupId;
+        return wrapperId;
       }
     }
-    doc.setRootIds([...nextRoots, groupId]);
+    doc.setRootIds([...nextRoots, wrapperId]);
 
-    return groupId;
+    return wrapperId;
   }
 
   /**
@@ -117,29 +130,39 @@ export class GroupingFeatureOperations {
    * разгруппировка означала бы потерять все фичи).
    */
   static ungroup(doc: FeatureDocument, groupId: FeatureId): FeatureId[] | null {
-    const group = doc.graph.get(groupId);
+    const selected = doc.graph.get(groupId);
+    const selectedInputs = selected?.getInputs() ?? [];
+    const wrappedGroupId = selected instanceof TransformFeature && selectedInputs.length === 1
+      ? selectedInputs[0]
+      : null;
+    const targetGroupId = wrappedGroupId ?? groupId;
+    const group = doc.graph.get(targetGroupId);
     if (!(group instanceof CompositeFeature)) return null;
     const childIds = [...group.getInputs()];
     if (childIds.length === 0) return null;
+    const promotedIds = selected instanceof TransformFeature
+      ? bakeTransformIntoChildren(doc, selected, childIds)
+      : childIds;
 
-    const parent = findParent(doc, groupId);
-    const rootIdx = doc.rootIds.indexOf(groupId);
+    const placementId = wrappedGroupId ? groupId : targetGroupId;
+    const parent = findParent(doc, placementId);
+    const rootIdx = doc.rootIds.indexOf(placementId);
 
     if (parent) {
       const parentFeature = doc.graph.get(parent.parentId);
       if (!(parentFeature instanceof CompositeFeature)) return null;
       const inputs = [...parentFeature.getInputs()];
-      const idx = inputs.indexOf(groupId);
+      const idx = inputs.indexOf(placementId);
       const newInputs = [
         ...inputs.slice(0, idx),
-        ...childIds,
+        ...promotedIds,
         ...inputs.slice(idx + 1),
       ];
       doc.updateInputs(parent.parentId, newInputs);
     } else if (rootIdx !== -1) {
       const nextRoots = [
         ...doc.rootIds.slice(0, rootIdx),
-        ...childIds,
+        ...promotedIds,
         ...doc.rootIds.slice(rootIdx + 1),
       ];
       doc.setRootIds(nextRoots);
@@ -149,9 +172,65 @@ export class GroupingFeatureOperations {
 
     // Перед removeFeature нужно отвязать inputs группы — иначе FeatureGraph
     // оставит группу как parent для childIds и блокирует удаление.
-    doc.updateInputs(groupId, []);
-    doc.removeFeature(groupId);
+    if (wrappedGroupId) {
+      doc.updateInputs(groupId, []);
+      doc.removeFeature(groupId);
+    }
 
-    return childIds;
+    doc.updateInputs(targetGroupId, []);
+    doc.removeFeature(targetGroupId);
+
+    return promotedIds;
   }
+}
+
+function bakeTransformIntoChildren(
+  doc: FeatureDocument,
+  wrapper: TransformFeature,
+  childIds: readonly FeatureId[],
+): FeatureId[] {
+  return childIds.map((childId) => {
+    const child = doc.graph.get(childId);
+    if (child instanceof TransformFeature) {
+      doc.updateParams<TransformFeatureParams>(
+        childId,
+        composeTransformParams(wrapper.params, child.params),
+      );
+      return childId;
+    }
+
+    const wrapperId = nextP2FeatureId('xform');
+    doc.addFeature(new TransformFeature(
+      wrapperId,
+      { ...wrapper.params },
+      [childId],
+    ));
+    return wrapperId;
+  });
+}
+
+function composeTransformParams(
+  parent: TransformFeatureParams,
+  child: TransformFeatureParams,
+): TransformFeatureParams {
+  const matrix = toMatrix(parent).multiply(toMatrix(child));
+  const position = new THREE.Vector3();
+  const quaternion = new THREE.Quaternion();
+  const scale = new THREE.Vector3();
+  matrix.decompose(position, quaternion, scale);
+  const rotation = new THREE.Euler().setFromQuaternion(quaternion);
+  return {
+    ...child,
+    position: [position.x, position.y, position.z],
+    rotation: [rotation.x, rotation.y, rotation.z],
+    scale: [scale.x, scale.y, scale.z],
+  };
+}
+
+function toMatrix(params: TransformFeatureParams): THREE.Matrix4 {
+  return new THREE.Matrix4().compose(
+    new THREE.Vector3(...params.position),
+    new THREE.Quaternion().setFromEuler(new THREE.Euler(...params.rotation)),
+    new THREE.Vector3(...params.scale),
+  );
 }

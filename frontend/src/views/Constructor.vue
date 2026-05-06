@@ -351,29 +351,22 @@
 </template>
 
 <script setup lang="ts">
-import { ref, shallowRef, computed, onMounted, onBeforeUnmount, toRaw, watch } from 'vue';
-import { markRaw } from 'vue';
+import { ref, shallowRef, computed, onMounted, onBeforeUnmount, watch } from 'vue';
 import * as THREE from 'three';
 import {
-  ModelApp,
-  ModelManager,
   HistoryManager,
-  Serializer,
-  ModelNode,
-  GroupNode,
-  Primitive,
-  ImportedMeshNode,
   ConstructorSceneService,
 } from '@/v3d/constructor';
 import type { PrimitiveType } from '@/v3d/constructor';
 import {
   FeatureDocument,
-  featureDocumentToLegacy,
   migrateLegacyTreeToDocument,
+  loadFeatureDocument,
   FeatureSnapshotCommand,
   ThreadFeature,
   KnurlFeature,
   GroupFeature,
+  BooleanFeature,
   ImportedMeshFeature,
 } from '@/v3d/constructor/features';
 // applyFeaturePatchToNode (legacy bridge) больше не используется — все формы
@@ -482,7 +475,7 @@ const containerRef = ref<HTMLDivElement | null>(null);
  */
 const selectedFeatureId = shallowRef<string | null>(null);
 const selectedFeatureIdsRaw = shallowRef<string[]>([]);
-const modelApp = shallowRef<ModelApp | null>(null);
+const historyManager = shallowRef<HistoryManager | null>(null);
 const activeSceneIndex = ref(0);
 
 /** Incremented to force FeatureTree re-render when graph structure/labels change. */
@@ -508,12 +501,6 @@ function currentFeatureDoc(): FeatureDocument | null {
 
 // ─── Computed ──────────────────────────────────────────────────────────────
 
-const rootNode = computed(() => {
-  // treeVersion as dependency: forces re-evaluation when tree structure changes
-  treeVersion.value;
-  return modelApp.value?.getModelManager()?.getTree() ?? null;
-});
-
 /** FeatureDocument из sceneService для UI-дерева. Реактивен через treeVersion. */
 const featureDocForUI = computed(() => {
   treeVersion.value;
@@ -525,28 +512,6 @@ const featureDocForUI = computed(() => {
  * Read-only computed для UI консьюмеров (FeatureTree multi-select).
  */
 const selectedFeatureIds = computed<readonly string[]>(() => selectedFeatureIdsRaw.value);
-
-/**
- * Derived ModelNode для legacy-консьюмеров. После каждого treeVersion bump'а
- * computed пересчитывается — getModelNodeByFeatureId возвращает свежий
- * ModelNode (или null если фича удалена / mapping ещё не построен).
- */
-const selectedNode = computed<ModelNode | null>(() => {
-  treeVersion.value;
-  if (!selectedFeatureId.value || !sceneService) return null;
-  return sceneService.getModelNodeByFeatureId(selectedFeatureId.value);
-});
-
-const selectedNodes = computed<ModelNode[]>(() => {
-  treeVersion.value;
-  if (!sceneService) return [];
-  const out: ModelNode[] = [];
-  for (const fid of selectedFeatureIdsRaw.value) {
-    const n = sceneService.getModelNodeByFeatureId(fid);
-    if (n) out.push(n);
-  }
-  return out;
-});
 
 /** Клик в FeatureTree → выделение по featureId (shift = multi-select). */
 function onSelectFeatureFromTree(payload: { id: string; shiftKey: boolean }): void {
@@ -612,11 +577,11 @@ function onFeatureFormNameUpdate(name: string | undefined): void {
 
 const canUndo = computed(() => {
   treeVersion.value;
-  return modelApp.value?.getHistoryManager()?.canUndo() ?? false;
+  return historyManager.value?.canUndo() ?? false;
 });
 const canRedo = computed(() => {
   treeVersion.value;
-  return modelApp.value?.getHistoryManager()?.canRedo() ?? false;
+  return historyManager.value?.canRedo() ?? false;
 });
 
 const canDeleteSelected = computed(() => {
@@ -644,10 +609,22 @@ const canUngroup = computed(() => {
   const fd = sceneService.getFeatureDocument();
   if (!fd) return false;
   // Не root scene-group и фича — composite (group или boolean).
-  if (fd.rootIds.length === 1 && fd.rootIds[0] === fid) return false;
   const f = fd.graph.get(fid);
-  return !!f && (f.type === 'group' || f.type === 'boolean');
+  if (!f) return false;
+  if (fd.rootIds.length === 1 && fd.rootIds[0] === fid) {
+    return f.type === 'transform' && isTransformWrappedGroup(fd, fid);
+  }
+  return f.type === 'group' || f.type === 'boolean' || isTransformWrappedGroup(fd, fid);
 });
+
+function isTransformWrappedGroup(fd: FeatureDocument, fid: string): boolean {
+  const f = fd.graph.get(fid);
+  if (f?.type !== 'transform') return false;
+  const inputId = f.getInputs()[0];
+  if (!inputId) return false;
+  const inner = fd.graph.get(inputId);
+  return !!inner && (inner.type === 'group' || inner.type === 'boolean');
+}
 
 // SVG paths for shape icons (simple outlines)
 const shapeButtons = [
@@ -660,6 +637,7 @@ const shapeButtons = [
 
 // ─── Node settings form ────────────────────────────────────────────────────
 
+const ADD_PRIMITIVE_COOLDOWN_MS = 1500;
 const addCooldown = ref(false);
 const mirrorModeActive = ref(false);
 const cruiseModeActive = ref(false);
@@ -855,15 +833,6 @@ function onDownloadDebugSnapshot(): void {
   });
 
   // Текущая сцена в обоих форматах.
-  try {
-    const root = modelApp.value?.getModelManager()?.getTree();
-    if (root) {
-      const serializer = modelApp.value!.getSerializer();
-      snapshot.legacyTree = serializer.toRootJSON(root);
-    }
-  } catch (e) {
-    snapshot.legacyTreeError = e instanceof Error ? e.message : String(e);
-  }
   const fd = currentFeatureDoc();
   if (fd) {
     try { snapshot.featureDocJson = fd.toJSON(); }
@@ -1013,14 +982,6 @@ const GEOMETRY_FIELDS = {
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
-function isPrimitive(node: any): node is Primitive {
-  return node instanceof Primitive;
-}
-
-function isGroupNode(node: any): node is GroupNode {
-  return node instanceof GroupNode;
-}
-
 // ─── History ───────────────────────────────────────────────────────────────
 
 /** Снапшот текущего canonical FeatureDocumentJSON v2. */
@@ -1040,7 +1001,7 @@ function pushFeatureSnapshot(beforeJSON: FeatureDocumentJSON | null, afterJSON: 
   const fd = currentFeatureDoc();
   if (!fd || !beforeJSON || !afterJSON) return;
   const cmd = new FeatureSnapshotCommand(beforeJSON, afterJSON, fd);
-  modelApp.value!.getHistoryManager().push(cmd);
+  historyManager.value!.push(cmd);
 }
 
 /**
@@ -1086,12 +1047,12 @@ function withFeatureDocHistory<T>(mutate: (doc: FeatureDocument) => T): T | null
 }
 
 function undo() {
-  modelApp.value!.getHistoryManager().undo();
+  historyManager.value!.undo();
   afterFeatureHistoryRestore();
 }
 
 function redo() {
-  modelApp.value!.getHistoryManager().redo();
+  historyManager.value!.redo();
   afterFeatureHistoryRestore();
 }
 
@@ -1173,44 +1134,12 @@ async function loadFromLocalStorage() {
  */
 async function loadV2IntoScene(v2: FeatureDocumentJSON): Promise<void> {
   if (!sceneService) return;
-  const serializer = modelApp.value!.getSerializer();
-
-  // Резолвим бинарники: для imported-фич v2 переводим в legacy, потом
-  // serializer.fromJSON на legacy умеет подгружать binaryRef'ы из IDB и
-  // кладёт BufferGeometry в ImportedMeshNode.geometry. После того как
-  // ModelNode-tree готов, его можно сериализовать обратно в v2 c уже
-  // загруженной geometry. Этот roundtrip временный — после mutation flips
-  // будем грузить geometry напрямую в v2.params.
-  const legacyForResolve = featureDocumentToLegacy(v2);
-  Serializer.migrateLegacyYupToZupIfNeeded(legacyForResolve);
-  await Serializer.preResolveBinaryRefs(legacyForResolve);
-
-  sceneService.loadFromV2JSON(v2, (legacyJson) => {
-    // Используем legacyForResolve, в котором geometry уже подгружена.
-    // Игнорируем legacyJson, который sceneService свеже-сгенерировал —
-    // его imported-фичи не имеют geometry в памяти.
-    const newRoot = serializer.fromJSON(legacyForResolve);
-    sanitizeRootParams(newRoot);
-    return newRoot;
-  });
-
+  const doc = await loadFeatureDocument(v2);
+  sceneService.loadFromV2JSON(doc.toJSON());
   setSelectionByIds([]);
   treeVersion.value++;
 }
 
-/**
- * Чистит у корневой группы position/rotation/scale: ни одна штатная операция
- * Constructor.vue не должна их выставлять, но они могли случайно «протечь»
- * (например, mirror/rotate с выделенным root). Если оставить, вся сцена
- * рендерится через эту корневую трансформацию — примитивы появляются вне
- * сетки, выравнивание/зеркалирование считают мировые bbox в смещённой системе.
- */
-function sanitizeRootParams(root: ModelNode): void {
-  if (!root.params) return;
-  if (root.params.position) delete root.params.position;
-  if (root.params.rotation) delete root.params.rotation;
-  if (root.params.scale) delete root.params.scale;
-}
 
 async function saveSceneToFile() {
   try {
@@ -1225,11 +1154,7 @@ async function saveSceneToFile() {
         console.warn('[Constructor] file export: featureDoc.toJSON failed:', e);
       }
     }
-    if (!payload) {
-      const serializer = modelApp.value!.getSerializer();
-      const root = modelApp.value!.getModelManager().getTree();
-      payload = serializer.toRootJSON(root);
-    }
+    if (!payload) return;
     const json = JSON.stringify(payload, null, 2);
     const blob = new Blob([json], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -1263,8 +1188,6 @@ function loadSceneFromFile() {
         } else {
           // Legacy v1: применяем Y↔Z миграцию и резолв binaryRef'ов до миграции в v2,
           // чтобы Serializer.fromJSON смог инжектить geometry в ImportedMeshNode.
-          Serializer.migrateLegacyYupToZupIfNeeded(parsed);
-          await Serializer.preResolveBinaryRefs(parsed);
           v2 = migrateLegacyTreeToDocument(parsed);
         }
         const beforeJSON = captureFeatureDocSnapshot();
@@ -1284,7 +1207,7 @@ async function switchScene(index: number) {
   if (index === activeSceneIndex.value) return;
   _saveToLocalStorage();
   activeSceneIndex.value = index;
-  modelApp.value!.getHistoryManager().clear();
+  historyManager.value!.clear();
 
   const v2Saved = localStorage.getItem(PRIMARY_KEYS[index]);
   if (v2Saved && sceneService) {
@@ -1297,10 +1220,13 @@ async function switchScene(index: number) {
     }
   }
   // Пустой слот → чистая сцена.
-  modelApp.value!.getModelManager().setTree(new GroupNode());
+  sceneService?.loadFromV2JSON({
+    version: 2,
+    features: [{ id: 'root', type: 'group', params: {}, inputs: [], name: 'Scene' }],
+    rootIds: ['root'],
+  });
   setSelectionByIds([]);
   treeVersion.value++;
-  if (sceneService) sceneService.rebuildSceneFromTree();
 }
 
 function clearScene() {
@@ -1334,20 +1260,6 @@ function setSelectionByIds(ids: readonly string[]): void {
   }
 }
 
-/** Backward-compat: ModelNode-based setSelection — резолвит nodes → featureIds. */
-function setSelection(nodes: ModelNode[]): void {
-  if (!sceneService) {
-    setSelectionByIds([]);
-    return;
-  }
-  const ids: string[] = [];
-  for (const n of nodes) {
-    const fid = sceneService.getFeatureIdByNode(n);
-    if (fid) ids.push(fid);
-  }
-  setSelectionByIds(ids);
-}
-
 function onSelectFeature(featureId: string, shiftKey = false): void {
   const list = selectedFeatureIdsRaw.value;
   if (shiftKey) {
@@ -1360,12 +1272,6 @@ function onSelectFeature(featureId: string, shiftKey = false): void {
   } else {
     setSelectionByIds([featureId]);
   }
-}
-
-/** Legacy wrapper — резолвит ModelNode → featureId, делегирует onSelectFeature. */
-function onSelectNode(node: ModelNode, shiftKey = false): void {
-  const fid = sceneService?.getFeatureIdByNode(toRaw(node));
-  if (fid) onSelectFeature(fid, shiftKey);
 }
 
 // ─── Primitives & groups ───────────────────────────────────────────────────
@@ -1389,7 +1295,7 @@ function addPrimitiveOfType(type: PrimitiveType) {
   setSelectionByIds([id]);
 
   addCooldown.value = true;
-  setTimeout(() => { addCooldown.value = false; }, 3000);
+  setTimeout(() => { addCooldown.value = false; }, ADD_PRIMITIVE_COOLDOWN_MS);
 }
 
 /**
@@ -1578,7 +1484,7 @@ function toggleGeneratorMode() {
 }
 
 function confirmGenerator() {
-  if (!sceneService || !modelApp.value) return;
+  if (!sceneService) return;
   const gm = sceneService.getGeneratorMode();
   gm.confirm();
 }
@@ -1621,17 +1527,19 @@ function _applyChamferToFeature(
   if (!target) return false;
 
   const r = settings.radius;
+  const localMid = (edge.localMid as THREE.Vector3).clone();
+  localMid.z += getChamferTargetBottomAnchorOffset(fd, featureId);
   const spec: EdgeSpec = edge.kind === 'circular'
     ? {
         kind: 'circular',
-        localMid: (edge.localMid as THREE.Vector3).clone(),
+        localMid,
         radius: edge.radius as number,
         isTopRim: edge.isTopRim === true,
       }
     : {
         kind: 'linear',
         axis: edge.axis as 'x' | 'y' | 'z',
-        localMid: (edge.localMid as THREE.Vector3).clone(),
+        localMid,
         length: (edge.localStart as THREE.Vector3).distanceTo(edge.localEnd as THREE.Vector3),
         perpDirX: edge.perpDirX as number,
         perpDirZ: edge.perpDirZ as number,
@@ -1653,7 +1561,7 @@ function _applyChamferToFeature(
       if (inner.length !== 1) return;
       const innerId = inner[0];
       const wrapId = nextP2FeatureId('chamfer_target_group');
-      const wrap = new GroupFeature(wrapId, {}, [innerId, chamfer.rootId]);
+      const wrap = new BooleanFeature(wrapId, { operation: 'union' }, [innerId, chamfer.rootId]);
       doc.addFeature(wrap);
       doc.updateInputs(featureId, [wrapId]);
       return;
@@ -1661,11 +1569,24 @@ function _applyChamferToFeature(
     // Leaf (примитив без Transform): обернём в Transform, потом тот же путь.
     const transformId = ensureTransformWrapper(doc, featureId);
     const wrapId = nextP2FeatureId('chamfer_target_group');
-    const wrap = new GroupFeature(wrapId, {}, [featureId, chamfer.rootId]);
+    const wrap = new BooleanFeature(wrapId, { operation: 'union' }, [featureId, chamfer.rootId]);
     doc.addFeature(wrap);
     doc.updateInputs(transformId, [wrapId]);
   });
   return true;
+}
+
+function getChamferTargetBottomAnchorOffset(fd: FeatureDocument, featureId: string): number {
+  const target = fd.graph.get(featureId);
+  if (!target) return 0;
+  if (target.type === 'transform') {
+    const inputId = target.getInputs()[0];
+    if (!inputId) return 0;
+    const output = fd.getOutput(inputId);
+    return output?.kind === 'leaf' ? (output.bottomAnchorOffsetZ ?? 0) : 0;
+  }
+  const output = fd.getOutput(featureId);
+  return output?.kind === 'leaf' ? (output.bottomAnchorOffsetZ ?? 0) : 0;
 }
 
 function applyChamferToEdge(
@@ -1673,7 +1594,7 @@ function applyChamferToEdge(
   edge: Record<string, any>,
   settings: { radius: number; profile: 'convex' | 'concave' | 'flat' },
 ) {
-  if (!sceneService || !modelApp.value) return;
+  if (!sceneService) return;
   // Резолвим featureId через userData.featureId (FeatureRenderer ставит на
   // каждый mesh/group), traversing по parent для child-мешей composite-групп.
   let featureId: string | undefined;
@@ -1902,8 +1823,7 @@ async function doExport() {
 
   const ext = exportFormat.value;
   const onlySelected = exportOnlySelected.value;
-  const root = modelApp.value?.getModelManager()?.getTree();
-  const baseName = root?.name || 'vsqr';
+  const baseName = currentFeatureDoc()?.metadata.name || 'vsqr';
   const ts = new Date().toISOString().replace(/[-:]/g, '').replace('T', '_').slice(0, 15);
   const filename = `${baseName}_${ts}.${ext}`;
 
@@ -1976,7 +1896,7 @@ function triggerImportSTL() {
 async function handleImportSTL(event: Event) {
   const input = event.target as HTMLInputElement;
   const file = input.files?.[0];
-  if (!file || !modelApp.value || !sceneService) return;
+  if (!file || !sceneService) return;
 
   const reader = new FileReader();
   reader.onload = async () => {
@@ -2043,35 +1963,23 @@ async function handleImportSTL(event: Event) {
 onMounted(() => {
   if (!containerRef.value) return;
 
-  const serializer = new Serializer();
-  const tempRoot = new GroupNode();
-  const modelManager = new ModelManager(tempRoot);
-  const historyManager = new HistoryManager();
+  historyManager.value = new HistoryManager();
+  const initialDoc = new FeatureDocument();
+  initialDoc.loadFromJSON({
+    version: 2,
+    features: [{ id: 'root', type: 'group', params: {}, inputs: [], name: 'Scene' }],
+    rootIds: ['root'],
+  });
 
-  modelApp.value = markRaw(new ModelApp(modelManager, historyManager, serializer));
-  modelApp.value.init();
-
-  const serializerForDerive = modelApp.value.getSerializer();
-  sceneService = new ConstructorSceneService(modelApp.value, {
-    deriveModelTree(legacyJson) {
-      const newRoot = serializerForDerive.fromJSON(legacyJson);
-      sanitizeRootParams(newRoot);
-      return newRoot;
-    },
+  sceneService = new ConstructorSceneService(initialDoc, {
     onSelectFeatureFromScene(featureId, { shift }) {
       onSelectFeature(featureId, shift);
-    },
-    onSelectNodeFromScene(node, { shift }) {
-      onSelectNode(node, shift);
     },
     onDeselectAll() {
       setSelectionByIds([]);
     },
     onMarqueeSelectFeatures(featureIds) {
       setSelectionByIds(featureIds);
-    },
-    onMarqueeSelect(nodes) {
-      setSelection(nodes);
     },
     onDebugInfoUpdate(info) {
       updateDebugFps();

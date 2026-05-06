@@ -2,15 +2,7 @@
  * Public API for the visual 3D constructor.
  */
 
-export { ModelApp } from './ModelApp';
-export { ModelManager } from './ModelManager';
 export { HistoryManager } from './HistoryManager';
-export { Serializer } from './Serializer';
-
-export { ModelNode } from './nodes/ModelNode';
-export { Primitive } from './nodes/Primitive';
-export { GroupNode } from './nodes/GroupNode';
-export { ImportedMeshNode } from './nodes/ImportedMeshNode';
 
 export { Command } from './commands/Command';
 // CSGOperation удалён (был stub без реализации).

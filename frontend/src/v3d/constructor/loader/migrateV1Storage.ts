@@ -1,7 +1,7 @@
 import type { ModelTreeJSON } from '../types';
 import type { FeatureDocumentJSON } from '../features';
-import { Serializer } from '../Serializer';
 import { migrateLegacyTreeToDocument } from '../features/migration/migrateLegacyTree';
+import { migrateLegacyYupToZupIfNeeded } from '../migrations/legacyYupToZup';
 
 /**
  * One-time legacy → canonical converter, запускается на старте Constructor.vue
@@ -63,8 +63,7 @@ export async function migrateAllV1ToV2(opts: MigrateV1Options): Promise<void> {
 
     try {
       const legacyJson = JSON.parse(v1Raw) as ModelTreeJSON;
-      Serializer.migrateLegacyYupToZupIfNeeded(legacyJson);
-      await Serializer.preResolveBinaryRefs(legacyJson);
+      migrateLegacyYupToZupIfNeeded(legacyJson);
       const v2: FeatureDocumentJSON = migrateLegacyTreeToDocument(legacyJson);
       localStorage.setItem(v2Key, JSON.stringify(v2));
       localStorage.removeItem(v1Key);

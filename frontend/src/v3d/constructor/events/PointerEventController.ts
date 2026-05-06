@@ -1,6 +1,5 @@
 import * as THREE from 'three';
 import type { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import type { ModelNode } from '../nodes/ModelNode';
 import type { ModificationGizmo, HandleMesh } from '../modes/ModificationGizmo';
 import type { MirrorHandleMesh } from '../modes/MirrorGizmo';
 import type { MirrorMode } from '../modes/MirrorMode';
@@ -174,12 +173,6 @@ export interface PointerEventHost {
      * ModelNode для legacy UI consumers (selection refactor: Phase 2 prep).
      */
     onSelectFeatureFromScene?: (featureId: string, opts: { shift: boolean }) => void;
-    /**
-     * Legacy fallback — срабатывает только в catastrophic legacy fallback
-     * пути (`buildNodeObject3D`), где меши не имеют userData.featureId.
-     * После полного удаления `nodes/` и legacy fallback'а — будет удалено.
-     */
-    onSelectNodeFromScene?: (node: ModelNode, opts: { shift: boolean }) => void;
     onDeselectAll?: () => void;
     onNodeParamsChanged?: () => void;
     onBeforeDrag?: () => void;
@@ -187,8 +180,6 @@ export interface PointerEventHost {
     onAlignMarkerClick?: (mode: string) => void;
     /** Primary marquee callback — featureIds, см. `onSelectFeatureFromScene`. */
     onMarqueeSelectFeatures?: (featureIds: string[]) => void;
-    /** Legacy fallback marquee callback — см. `onSelectNodeFromScene`. */
-    onMarqueeSelect?: (nodes: ModelNode[]) => void;
   };
 
   // ─── Methods the handlers call back into ───────────────────────────────────
@@ -206,7 +197,7 @@ export interface PointerEventHost {
   ): { x: number; z: number; guideXs: number[]; guideZs: number[] };
   showCruiseGuides(xs: number[], zs: number[], y: number): void;
   clearCruiseGuides(): void;
-  updateGizmoTarget(prevNodes?: ModelNode[]): void;
+  updateGizmoTarget(): void;
   rebuildSceneFromTree(): void;
   applyMirror(featureId: string | null, axis: 'x' | 'y' | 'z'): void;
 }
@@ -573,9 +564,7 @@ export class PointerEventController {
           host.dragTarget.position.y = targetPoint.y;
         }
 
-        // Update Transform.params через featureDoc — primary path. Legacy
-        // ModelNode.params оставлен как fallback на случай catastrophic
-        // legacy fallback пути (buildNodeObject3D без featureId).
+        // Update Transform.params through FeatureDocument.
         const featureId = (host.dragTarget.userData as { featureId?: string }).featureId;
         const doc = host.getFeatureDocument?.();
         if (featureId && doc) {
@@ -588,14 +577,6 @@ export class PointerEventController {
             });
           }
           host.options.onNodeParamsChanged?.();
-        } else {
-          const node = (host.dragTarget.userData as { node?: ModelNode }).node;
-          if (node?.params) {
-            node.params.position = node.params.position || { x: 0, y: 0, z: 0 };
-            node.params.position.x = host.dragTarget.position.x;
-            node.params.position.y = host.dragTarget.position.y;
-            host.options.onNodeParamsChanged?.();
-          }
         }
       }
       return;
@@ -873,11 +854,6 @@ export class PointerEventController {
         const featureId = (target.userData as { featureId?: string }).featureId;
         if (featureId && host.options.onSelectFeatureFromScene) {
           host.options.onSelectFeatureFromScene(featureId, { shift: host.pointerDownShift });
-        } else {
-          const node = (target.userData as { node?: ModelNode }).node;
-          if (node && host.options.onSelectNodeFromScene) {
-            host.options.onSelectNodeFromScene(node, { shift: host.pointerDownShift });
-          }
         }
       } else if (!host.pointerDownHit && isClick) {
         host.options.onDeselectAll?.();
@@ -940,7 +916,6 @@ export class PointerEventController {
     const w = rect.width;
     const h = rect.height;
 
-    const selectedNodes: ModelNode[] = [];
     const selectedFeatureIds: string[] = [];
     const wp = new THREE.Vector3();
 
@@ -959,17 +934,12 @@ export class PointerEventController {
         const featureId = (target.userData as { featureId?: string }).featureId;
         if (featureId) {
           if (!selectedFeatureIds.includes(featureId)) selectedFeatureIds.push(featureId);
-        } else {
-          const node = (target.userData as { node?: ModelNode }).node;
-          if (node && !selectedNodes.includes(node)) selectedNodes.push(node);
         }
       }
     }
 
     if (selectedFeatureIds.length > 0 && host.options.onMarqueeSelectFeatures) {
       host.options.onMarqueeSelectFeatures(selectedFeatureIds);
-    } else if (selectedNodes.length > 0) {
-      host.options.onMarqueeSelect?.(selectedNodes);
     } else {
       host.options.onDeselectAll?.();
     }

@@ -11,6 +11,7 @@ import { BoxFeature } from '../features/primitives/BoxFeature';
 import { SphereFeature } from '../features/primitives/SphereFeature';
 import { GroupFeature } from '../features/composite/GroupFeature';
 import { BooleanFeature } from '../features/composite/BooleanFeature';
+import { TransformFeature } from '../features/composite/TransformFeature';
 import { GroupingFeatureOperations } from './GroupingFeatureOperations';
 
 describe('GroupingFeatureOperations.merge', () => {
@@ -20,11 +21,16 @@ describe('GroupingFeatureOperations.merge', () => {
     doc.addFeature(new SphereFeature('s1', { radius: 5 }));
     doc.setRootIds(['b1', 's1']);
 
-    const groupId = GroupingFeatureOperations.merge(doc, ['b1', 's1']);
-    expect(groupId).not.toBeNull();
-    expect(doc.rootIds).toEqual([groupId]);
+    const wrapperId = GroupingFeatureOperations.merge(doc, ['b1', 's1']);
+    expect(wrapperId).not.toBeNull();
+    expect(doc.rootIds).toEqual([wrapperId]);
 
-    const group = doc.graph.get(groupId!);
+    const wrapper = doc.graph.get(wrapperId!);
+    expect(wrapper).toBeInstanceOf(TransformFeature);
+    expect((wrapper as TransformFeature).params.position).toEqual([0, 0, 0]);
+
+    const groupId = wrapper!.getInputs()[0];
+    const group = doc.graph.get(groupId);
     expect(group).toBeInstanceOf(GroupFeature);
     expect(group!.getInputs()).toEqual(['b1', 's1']);
   });
@@ -46,11 +52,12 @@ describe('GroupingFeatureOperations.merge', () => {
     doc.addFeature(new GroupFeature('root', {}, ['b1', 's1']));
     doc.setRootIds(['root']);
 
-    const groupId = GroupingFeatureOperations.merge(doc, ['b1', 's1']);
-    expect(groupId).not.toBeNull();
+    const wrapperId = GroupingFeatureOperations.merge(doc, ['b1', 's1']);
+    expect(wrapperId).not.toBeNull();
     expect(doc.rootIds).toEqual(['root']);
-    expect(doc.graph.get('root')!.getInputs()).toEqual([groupId]);
-    expect(doc.graph.get(groupId!)!.getInputs()).toEqual(['b1', 's1']);
+    expect(doc.graph.get('root')!.getInputs()).toEqual([wrapperId]);
+    const groupId = doc.graph.get(wrapperId!)!.getInputs()[0];
+    expect(doc.graph.get(groupId)!.getInputs()).toEqual(['b1', 's1']);
   });
 
   it('создаёт BooleanFeature(union) если среди участников есть hole', () => {
@@ -60,8 +67,10 @@ describe('GroupingFeatureOperations.merge', () => {
     doc.addFeature(new GroupFeature('root', {}, ['b1', 's1']));
     doc.setRootIds(['root']);
 
-    const groupId = GroupingFeatureOperations.merge(doc, ['b1', 's1']);
-    expect(groupId).not.toBeNull();
+    const wrapperId = GroupingFeatureOperations.merge(doc, ['b1', 's1']);
+    expect(wrapperId).not.toBeNull();
+    expect(doc.graph.get(wrapperId!)).toBeInstanceOf(TransformFeature);
+    const groupId = doc.graph.get(wrapperId!)!.getInputs()[0];
     const merged = doc.graph.get(groupId!);
     expect(merged).toBeInstanceOf(BooleanFeature);
     expect((merged as BooleanFeature).params.operation).toBe('union');
@@ -76,16 +85,17 @@ describe('GroupingFeatureOperations.merge', () => {
     doc.addFeature(new BoxFeature('b2', { width: 5, height: 5, depth: 5 }));
     doc.setRootIds(['g0', 'b2']);
 
-    const groupId = GroupingFeatureOperations.merge(doc, ['b1', 'b2']);
-    expect(groupId).not.toBeNull();
+    const wrapperId = GroupingFeatureOperations.merge(doc, ['b1', 'b2']);
+    expect(wrapperId).not.toBeNull();
 
     // b1 и b2 ушли из своих parent'ов / rootIds.
     expect(doc.graph.get('g0')!.getInputs()).toEqual(['s1']);
-    expect(doc.rootIds).toContain(groupId!);
+    expect(doc.rootIds).toContain(wrapperId!);
     expect(doc.rootIds).not.toContain('b2');
 
     // Новая группа содержит обоих.
-    expect(doc.graph.get(groupId!)!.getInputs()).toEqual(['b1', 'b2']);
+    const groupId = doc.graph.get(wrapperId!)!.getInputs()[0];
+    expect(doc.graph.get(groupId)!.getInputs()).toEqual(['b1', 'b2']);
   });
 });
 
@@ -136,5 +146,36 @@ describe('GroupingFeatureOperations.ungroup', () => {
     expect(childIds).toEqual(['b1', 's1']);
     expect(doc.graph.has('bool1')).toBe(false);
     expect(doc.graph.get('root')!.getInputs()).toEqual(['b1', 's1']);
+  });
+
+  it('preserves current child positions when ungrouping a moved wrapper group', () => {
+    const doc = new FeatureDocument();
+    doc.addFeature(new BoxFeature('b1', { width: 10, height: 10, depth: 10 }));
+    doc.addFeature(new SphereFeature('s1', { radius: 5 }));
+    doc.addFeature(new TransformFeature('t1', {
+      position: [5, 0, 0],
+      rotation: [0, 0, 0],
+      scale: [1, 1, 1],
+    }, ['s1']));
+    doc.addFeature(new GroupFeature('g1', {}, ['b1', 't1']));
+    doc.addFeature(new TransformFeature('x1', {
+      position: [10, 20, 0],
+      rotation: [0, 0, 0],
+      scale: [1, 1, 1],
+    }, ['g1']));
+    doc.setRootIds(['x1']);
+
+    const childIds = GroupingFeatureOperations.ungroup(doc, 'x1');
+    expect(childIds).toHaveLength(2);
+    expect(doc.rootIds).toEqual(childIds);
+
+    const wrappedBox = doc.graph.get(childIds![0]);
+    expect(wrappedBox).toBeInstanceOf(TransformFeature);
+    expect((wrappedBox as TransformFeature).params.position).toEqual([10, 20, 0]);
+
+    const movedSphere = doc.graph.get('t1') as TransformFeature;
+    expect(movedSphere.params.position).toEqual([15, 20, 0]);
+    expect(doc.graph.has('x1')).toBe(false);
+    expect(doc.graph.has('g1')).toBe(false);
   });
 });

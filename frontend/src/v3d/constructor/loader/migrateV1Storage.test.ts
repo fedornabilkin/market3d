@@ -1,20 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-// Serializer тянет nodes/* (three-bvh-csg) — в node-окружении это ломается из-за
-// circular CJS. В рамках теста миграции v1→v2 нам нужны только две статические
-// функции: координатная миграция и preResolveBinaryRefs (no-op для сцен без
-// imported-фич). Минимальный мок поверх реальных модулей даёт нужный контракт.
-vi.mock('../Serializer', async () => {
-  const { migrateLegacyYupToZupIfNeeded } = await import('../migrations/legacyYupToZup');
-  return {
-    Serializer: {
-      migrateLegacyYupToZupIfNeeded: (json: unknown) =>
-        migrateLegacyYupToZupIfNeeded(json as never),
-      preResolveBinaryRefs: async () => {},
-    },
-  };
-});
-
 import type { ModelTreeJSON } from '../types';
 import type { FeatureDocumentJSON } from '../features';
 import { migrateAllV1ToV2 } from './migrateV1Storage';

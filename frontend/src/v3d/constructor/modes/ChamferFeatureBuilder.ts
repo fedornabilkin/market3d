@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { BoxFeature } from '../features/primitives/BoxFeature';
 import { CylinderFeature } from '../features/primitives/CylinderFeature';
 import { TorusFeature } from '../features/primitives/TorusFeature';
-import { GroupFeature } from '../features/composite/GroupFeature';
+import { BooleanFeature } from '../features/composite/BooleanFeature';
 import { TransformFeature } from '../features/composite/TransformFeature';
 import type { Feature } from '../features/Feature';
 import type { FeatureId } from '../features/types';
@@ -99,7 +99,7 @@ export class ChamferFeatureBuilder {
     }, [cylId]);
 
     const groupId = nextP2FeatureId('chamfer_group');
-    const group = new GroupFeature(groupId, {}, [boxXformId, cylXformId]);
+    const group = new BooleanFeature(groupId, { operation: 'union' }, [boxXformId, cylXformId]);
     group.name = 'Скругление';
 
     const rootRotation: [number, number, number] =
@@ -160,7 +160,7 @@ export class ChamferFeatureBuilder {
     }, [torusId]);
 
     const groupId = nextP2FeatureId('chamfer_group');
-    const group = new GroupFeature(groupId, {}, [outerId, innerXformId, torusXformId]);
+    const group = new BooleanFeature(groupId, { operation: 'union' }, [outerId, innerXformId, torusXformId]);
     group.name = 'Скругление';
 
     const rootRotation: [number, number, number] = spec.isTopRim

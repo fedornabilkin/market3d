@@ -61,7 +61,6 @@ export {
 export { migrateLegacyTreeToDocument } from './migration/migrateLegacyTree';
 
 // Обратная конвертация v2 → v1 (для cutover-стадии: рендер пока через legacy)
-export { featureDocumentToLegacy } from './migration/featureDocumentToLegacy';
 
 // Универсальный загрузчик: legacy v1 / новый v2 → FeatureDocument
 export { loadFeatureDocument } from './loader/loadFeatureDocument';

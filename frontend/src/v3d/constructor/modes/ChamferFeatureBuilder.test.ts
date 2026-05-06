@@ -8,7 +8,7 @@ vi.mock('../features/csg/booleanCsg', () => ({
 
 import { ChamferFeatureBuilder } from './ChamferFeatureBuilder';
 import { TransformFeature } from '../features/composite/TransformFeature';
-import { GroupFeature } from '../features/composite/GroupFeature';
+import { BooleanFeature } from '../features/composite/BooleanFeature';
 
 describe('ChamferFeatureBuilder.build (linear)', () => {
   it('строит набор фич для linear ребра по оси Z', () => {
@@ -28,6 +28,13 @@ describe('ChamferFeatureBuilder.build (linear)', () => {
     // axis === 'z' → нет вращения root'а.
     expect((root as TransformFeature).params.rotation).toEqual([0, 0, 0]);
     expect((root as TransformFeature).params.isHole).toBe(true);
+    const group = result.features.find((f) => f instanceof BooleanFeature) as BooleanFeature;
+    expect(group.params.operation).toBe('union');
+    expect(group.getInputs().length).toBe(2);
+    const boxXform = result.features.find((f) => f.id === group.getInputs()[0]) as TransformFeature;
+    const cylXform = result.features.find((f) => f.id === group.getInputs()[1]) as TransformFeature;
+    expect(boxXform.params.position[2]).toBeCloseTo(-5.1);
+    expect(cylXform.params.position[2]).toBeCloseTo(-5.1);
   });
 
   it('axis=x задаёт вращение Y=π/2 у root', () => {
@@ -56,7 +63,8 @@ describe('ChamferFeatureBuilder.build (circular)', () => {
     const root = result.features.find((f) => f.id === result.rootId) as TransformFeature;
     expect(root.params.rotation).toEqual([0, 0, 0]);
     // GroupFeature имеет 3 inputs (outer/inner_xform/torus_xform).
-    const group = result.features.find((f) => f instanceof GroupFeature) as GroupFeature;
+    const group = result.features.find((f) => f instanceof BooleanFeature) as BooleanFeature;
+    expect(group.params.operation).toBe('union');
     expect(group.getInputs().length).toBe(3);
   });
 
