@@ -1,0 +1,178 @@
+<template lang="pug">
+.generator-page
+  .generator-layout
+    .generator-sidebar
+      .container-settings(v-if="menuVisible()")
+        BarcodeMenu(:v3dFacade="v3dFacade" :initData="shareData" @generating="generating" @exportReady="exportReady")
+
+    .generator-main
+      DonateCard
+
+      #gen-progress-target.gen-progress-target
+
+      .container-3d
+        .gen-viewport(id="container3d" :class="{ 'is-loading': isGenerating }")
+
+      ExportPanel(
+        v-if="expSettings.active"
+        v-model:multiple="expSettings.multiple"
+        v-model:ascii="expSettings.ascii"
+        @exportSTL="exportSTL"
+        @exportOBJ="exportOBJ"
+        @exportPNG="exportPNG"
+      )
+        button.button.is-small.gen-export-btn(@click="historyDownloadModalVisible=true")
+          span.icon
+            i.fa.fa-calendar-day(aria-hidden="true")
+          span.is-hidden-mobile {{$t('e.downloadHistory')}}
+          span ({{ storeExport.getCollection().length }})
+
+ExportModal(v-if="exportModalVisible" :isActive="exportModalVisible" @close="exportModalVisible=false")
+
+HistoryModal(
+  v-if="historyDownloadModalVisible"
+  :isActive="historyDownloadModalVisible"
+  :store="storeExport"
+  :title="$t('e.downloadHistory')"
+  @recovery="recoveryModel"
+  @close="historyDownloadModalVisible=false"
+)
+</template>
+
+<script>
+import BarcodeMenu from '@/components/generator/BarcodeMenu.vue';
+import DonateCard from "@/components/monetisation/DonateCard.vue";
+import ExportModal from '@/components/generator/ExportModal.vue';
+import ExportPanel from '@/components/generator/ExportPanel.vue';
+import HistoryModal from "@/components/generator/HistoryModal.vue";
+import { useGenerator } from "@/service/useGenerator";
+
+function buildFileName(options) {
+  const timestamp = new Date().getTime();
+  const o = options || {};
+  let param = '';
+  if (o.keychain?.active) param += 'key_';
+  if (o.barcode?.active) param += 'barcode_';
+  if (o.base?.active) param += `${o.base.width}x${o.base.height}x${o.base.depth}-radius${o.base.cornerRadius}_`;
+  if (o.text?.active) param += `text${o.text.size}_`;
+  if (o.magnet?.active) param += `magnet${o.magnet.size}x${o.magnet.depth}_`;
+  return `${param}${timestamp}`;
+}
+
+export default {
+  name: 'GeneratorBarcode',
+  setup() {
+    return useGenerator({ fileName: buildFileName });
+  },
+  components: {
+    BarcodeMenu,
+    DonateCard,
+    ExportModal,
+    ExportPanel,
+    HistoryModal,
+  },
+  data() {
+    return {
+      shareData: null,
+    };
+  },
+  created() {
+    this.fillExportList();
+  },
+  mounted() {
+    this.initScene();
+    this.startAnimation();
+  },
+}
+</script>
+
+<style>
+.generator-page {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+.generator-layout {
+  display: flex;
+  gap: 1.5rem;
+  align-items: flex-start;
+}
+
+.generator-sidebar {
+  flex: 1 1 55%;
+  min-width: 0;
+}
+
+.generator-main {
+  flex: 1 1 45%;
+  min-width: 0;
+  position: sticky;
+  top: 4.5rem;
+}
+
+.container-settings {
+  max-height: calc(100vh - 4rem);
+  overflow: hidden;
+  overflow-y: auto;
+  padding-right: 4px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(128, 128, 128, 0.3) transparent;
+}
+
+.container-3d {
+  position: relative;
+  z-index: 100;
+}
+
+.gen-progress-target {
+  position: sticky;
+  top: 0.5rem;
+  z-index: 200;
+  margin-bottom: 0.6rem;
+}
+
+.gen-progress-target:empty {
+  display: none;
+}
+
+#container3d {
+  width: 100%;
+  height: 480px;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.12);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  opacity: 1;
+  transition: box-shadow 0.3s ease, opacity 0.3s ease;
+}
+
+#container3d.is-loading {
+  animation: breathing 2s ease-in-out infinite;
+}
+
+@keyframes breathing {
+  0% { opacity: 0.3; }
+  50% { opacity: 1; }
+  100% { opacity: 0.3; }
+}
+
+@media screen and (max-width: 1023px) {
+  .generator-layout {
+    flex-direction: column;
+  }
+  .generator-sidebar,
+  .generator-main {
+    position: static;
+    width: 100%;
+    flex: none;
+  }
+  .container-settings {
+    max-height: none;
+    overflow: visible;
+  }
+  #container3d {
+    height: 320px;
+  }
+}
+</style>

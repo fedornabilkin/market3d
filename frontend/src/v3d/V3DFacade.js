@@ -26,6 +26,7 @@ export class V3DFacade {
     this.currentGenerator = null;
     this.entitiesData = null;
     this.qrCodeBitMask = null;
+    this.barcodePattern = null;
   }
 
   /**
@@ -106,14 +107,18 @@ export class V3DFacade {
     
     // Определяем тип модели и создаем генератор
     const hasQRCode = entities.code && entities.code.active;
+    const hasBarcode = entities.barcode && entities.barcode.active;
     
     // Для QR кода нужен битмаск
     if (hasQRCode && !this.qrCodeBitMask) {
       throw new Error('QR code bitmask is required. Call setQRCodeBitMask() first.');
     }
+    if (hasBarcode && !this.barcodePattern) {
+      throw new Error('Barcode pattern is required. Call setBarcodePattern() first.');
+    }
     
     // Создаем единый генератор с опциональным QR битмаском
-    this.currentGenerator = new ModelGenerator(entities, this.qrCodeBitMask || null);
+    this.currentGenerator = new ModelGenerator(entities, this.qrCodeBitMask || null, this.barcodePattern || null);
     
     // Настраиваем callback для прогресса перед генерацией (только для QR кода)
     let generationComplete = false;
@@ -149,6 +154,12 @@ export class V3DFacade {
         meshes.qr = this.currentGenerator.finalBlock;
       }
     }
+    if (hasBarcode) {
+      const barcodeMesh = this.currentGenerator.getBarcodeMesh();
+      if (barcodeMesh) {
+        meshes.barcode = barcodeMesh;
+      }
+    }
     if (progressCallback) {
       progressCallback(100);
     }
@@ -174,6 +185,10 @@ export class V3DFacade {
    */
   setQRCodeBitMask(bitmask) {
     this.qrCodeBitMask = bitmask;
+  }
+
+  setBarcodePattern(pattern) {
+    this.barcodePattern = pattern;
   }
 
   /**
@@ -322,6 +337,9 @@ export class V3DFacade {
     }
     if (this.entitiesData.code?.active) {
       params += 'qr_';
+    }
+    if (this.entitiesData.barcode?.active) {
+      params += 'barcode_';
     }
     if (this.entitiesData.base?.active) {
       params += `${this.entitiesData.base.width}x${this.entitiesData.base.height}x${this.entitiesData.base.depth}-radius${this.entitiesData.base.cornerRadius}_`;

@@ -19,8 +19,9 @@ export default {
     controlsHint: 'Можно вращать',
     autoRotation: 'Автоповорот',
     generateButton: 'Создать 3D модель',
-    goToGeneratorQR: 'Генератор QR',
-    goToGeneratorGRZ: 'Генератор ГРЗ',
+    goToGeneratorQR: 'QR',
+    goToGeneratorBarcode: 'Штрих-коды',
+    goToGeneratorGRZ: 'ГРЗ',
     goToGeneratorBraille: 'Брайль',
     goToGeneratorCoaster: 'Подставки',
     goToGeneratorNameTag: 'Брелоки',
@@ -159,6 +160,15 @@ export default {
         },
       },
     },
+    barcode: {
+      active: 'Штрих-код',
+      activeLabel: 'Сгенерировать 3D штрих-код.',
+      content: 'Содержимое',
+      placeholder: 'VSQR-12345',
+      asciiHelp: 'CODE128-B поддерживает латиницу, цифры и базовые ASCII-символы.',
+      format: 'Формат',
+      barRatio: 'Ширина полос',
+    },
     text: {
       active: 'Текст',
       activeLabel: 'Добавить текст.',
@@ -170,6 +180,7 @@ export default {
     border: {
       active: 'Рамка',
       activeLabel: 'Добавить рамку на основу.',
+      scanHint: 'При включенной рамке добавьте достаточный отступ от кода и проверьте результат сканером.',
     },
     keychain: {
       active: 'Брелок',

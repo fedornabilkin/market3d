@@ -1,5 +1,6 @@
 import {
   BaseBuilder,
+  BarcodeBuilder,
   BorderBuilder,
   CodeBuilder,
   IconBuilder,
@@ -13,6 +14,7 @@ export class Director {
     base: BaseBuilder,
     border: BorderBuilder,
     code: CodeBuilder,
+    barcode: BarcodeBuilder,
     text: TextBuilder,
     icon: IconBuilder,
     keychain: KeychainBuilder,

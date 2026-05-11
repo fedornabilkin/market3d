@@ -86,6 +86,41 @@ export class Code extends Entity {
   }
 }
 
+export class Barcode extends Entity {
+  format = 'CODE128'
+  content = 'VSQR-12345'
+  depth = 1
+  margin = 3
+  height = 32
+  barRatio = 100
+  invert = false
+  preview = {
+    src: undefined,
+    htmlId: 'barcode-image-preview'
+  }
+
+  constructor(config = {}) {
+    super(config)
+    Object.assign(this, config)
+  }
+
+  clearPreview() {
+    this.preview.src = undefined
+  }
+
+  eventActive() {
+    if (!this.active) {
+      this.clearPreview()
+    }
+  }
+
+  toJSON() {
+    const json = JSON.parse(JSON.stringify(Object.assign({}, this), null, 0))
+    json.preview.src = ''
+    return json
+  }
+}
+
 export class Text extends Entity {
   message = 'VSQR.RU'
   placement = 'center'

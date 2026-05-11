@@ -22,7 +22,7 @@ export default class ModelGenerator extends BaseGenerator {
   finalBlock = null
   process = (percent) => {return percent}
 
-  constructor(options, qrCodeBitMask = null) {
+  constructor(options, qrCodeBitMask = null, barcodePattern = null) {
     super();
     const defaultOptions = {
       baseColor: 0xffffff,
@@ -32,6 +32,8 @@ export default class ModelGenerator extends BaseGenerator {
     this.options = { ...defaultOptions, ...options }
     this.bitMask = qrCodeBitMask
     this.hasQRCode = qrCodeBitMask !== null && qrCodeBitMask !== undefined
+    this.barcodePattern = barcodePattern
+    this.hasBarcode = barcodePattern !== null && barcodePattern !== undefined
 
     // default material for the base
     this.materialBase = new THREE.MeshPhongMaterial({
@@ -541,6 +543,88 @@ export default class ModelGenerator extends BaseGenerator {
     return mesh
   }
 
+  getBarcodeMesh() {
+    if (!this.hasBarcode || !this.options.barcode.active) {
+      return undefined
+    }
+
+    const bars = Array.isArray(this.barcodePattern.bars) ? this.barcodePattern.bars : []
+    const totalModules = Math.max(1, this.barcodePattern.totalModules || 1)
+    if (!bars.length) {
+      return undefined
+    }
+
+    const borderWidth = this.options.border.active ? this.options.border.width : 0
+    const availableWidth = Math.max(1, this.options.base.width - 2 * borderWidth - 2 * this.options.barcode.margin)
+    const availableHeight = Math.max(1, this.options.base.height - 2 * borderWidth - 2 * this.options.barcode.margin)
+    const textHeight = this.options.text.active ? Math.max(0, this.options.text.height || this.options.text.size || 0) : 0
+    const codeAreaHeight = Math.max(1, availableHeight - textHeight)
+    const barcodeHeight = Math.min(this.options.barcode.height, codeAreaHeight)
+    const moduleWidth = availableWidth / totalModules
+    const ratio = Math.max(1, this.options.barcode.barRatio || 100) / 100
+    const barDepth = Math.max(0.1, this.options.barcode.depth || 1)
+    const baseZ = this.options.base.depth
+    const material = new THREE.MeshPhongMaterial({
+      color: parseHexColor(this.options.barcode?.color, 0x000000),
+    })
+
+    const template = new THREE.BoxGeometry(1, 1, 1)
+    template.translate(0, 0, 0.5)
+
+    const tplPos = template.attributes.position.array
+    const tplNorm = template.attributes.normal.array
+    const tplIndex = template.index ? template.index.array : null
+    const vertCount = template.attributes.position.count
+    const idxCount = tplIndex ? tplIndex.length : 0
+    const totalVerts = bars.length * vertCount
+    const totalIdx = bars.length * idxCount
+    const positions = new Float32Array(totalVerts * 3)
+    const normals = new Float32Array(totalVerts * 3)
+    const indices = tplIndex ? new Uint32Array(totalIdx) : null
+
+    const startX = -availableWidth / 2
+    const centerY = textHeight > 0 ? textHeight / 2 : 0
+
+    for (let i = 0; i < bars.length; i++) {
+      const bar = bars[i]
+      const width = Math.max(moduleWidth * 0.25, moduleWidth * bar.length * ratio)
+      const centerX = startX + moduleWidth * bar.start + (moduleWidth * bar.length) / 2
+      const baseV = i * vertCount
+      const posOffset = baseV * 3
+
+      for (let v = 0; v < vertCount; v++) {
+        const src = v * 3
+        const dst = posOffset + src
+        positions[dst] = tplPos[src] * width + centerX
+        positions[dst + 1] = tplPos[src + 1] * barcodeHeight + centerY
+        positions[dst + 2] = tplPos[src + 2] * barDepth + baseZ
+        normals[dst] = tplNorm[src]
+        normals[dst + 1] = tplNorm[src + 1]
+        normals[dst + 2] = tplNorm[src + 2]
+      }
+
+      if (indices) {
+        const idxOffset = i * idxCount
+        for (let k = 0; k < idxCount; k++) {
+          indices[idxOffset + k] = tplIndex[k] + baseV
+        }
+      }
+    }
+
+    template.dispose()
+
+    const mergedGeometry = new THREE.BufferGeometry()
+    mergedGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+    mergedGeometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3))
+    if (indices) {
+      mergedGeometry.setIndex(new THREE.BufferAttribute(indices, 1))
+    }
+    mergedGeometry.computeBoundingBox()
+    mergedGeometry.computeBoundingSphere()
+
+    return new THREE.Mesh(mergedGeometry, material)
+  }
+
   /**
    * @param width {number}
    * @param countPosition {number}
@@ -598,6 +682,9 @@ export default class ModelGenerator extends BaseGenerator {
     if (this.hasQRCode && this.options.code.active) {
       this.getQRCodeMesh()
       meshes.qr = this.finalBlock
+    }
+    if (this.hasBarcode && this.options.barcode.active) {
+      meshes.barcode = this.getBarcodeMesh()
     }
 
     return meshes

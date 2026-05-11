@@ -19,8 +19,9 @@ export default {
     controlsHint: 'Can be rotated',
     autoRotation: 'Auto-rotate',
     generateButton: 'Create 3D model',
-    goToGeneratorQR: 'QR Generator',
-    goToGeneratorGRZ: 'License Plate Generator',
+    goToGeneratorQR: 'QR',
+    goToGeneratorBarcode: 'Barcodes',
+    goToGeneratorGRZ: 'License plates',
     goToGeneratorBraille: 'Braille',
     goToGeneratorCoaster: 'Coasters',
     goToGeneratorNameTag: 'Name tags',
@@ -159,6 +160,15 @@ export default {
         },
       },
     },
+    barcode: {
+      active: 'Barcode',
+      activeLabel: 'Generate a 3D barcode.',
+      content: 'Content',
+      placeholder: 'VSQR-12345',
+      asciiHelp: 'CODE128-B supports Latin letters, digits and common ASCII symbols.',
+      format: 'Format',
+      barRatio: 'Bar width',
+    },
     text: {
       active: 'Text',
       activeLabel: 'Add text.',
@@ -170,6 +180,7 @@ export default {
     border: {
       active: 'Frame',
       activeLabel: 'Add a frame to the base.',
+      scanHint: 'When the frame is enabled, add enough margin around the code and verify the result with a scanner.',
     },
     keychain: {
       active: 'Keychain',

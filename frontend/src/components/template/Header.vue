@@ -34,6 +34,11 @@ nav.navbar(role='navigation' aria-label='main navigation')
             i.fa.fa-qrcode
           span.is-hidden-mobile {{ $t('g.goToGeneratorQR') }}
       .navbar-item
+        router-link.button.is-small.gen-nav-btn(:to="{ name: 'GeneratorBarcode' }" :title="$t('g.goToGeneratorBarcode')")
+          span.icon
+            i.fa.fa-barcode
+          span.is-hidden-mobile {{ $t('g.goToGeneratorBarcode') }}
+      .navbar-item
         router-link.button.is-small.gen-nav-btn(:to="{ name: 'GeneratorGRZ' }" :title="$t('g.goToGeneratorGRZ')")
           span.icon
             i.fa.fa-car
@@ -146,17 +151,29 @@ nav.navbar(role='navigation' aria-label='main navigation')
 .gen-nav-btn {
   border-radius: 8px;
   font-weight: 500;
-  transition: all 0.15s ease;
+  border-color: rgba(0, 165, 164, 0.35);
+  background: rgba(0, 165, 164, 0.08);
+  color: #007a79;
+  box-shadow: inset 0 0 0 1px rgba(0, 165, 164, 0.08);
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+}
+.gen-nav-btn:hover {
+  background: rgba(0, 165, 164, 0.16);
+  border-color: rgba(0, 165, 164, 0.65);
+  color: #005f5e;
+  box-shadow: 0 0 0 2px rgba(0, 165, 164, 0.16), inset 0 0 0 1px rgba(0, 165, 164, 0.12);
 }
 .gen-nav-btn.router-link-active {
   background: #00a5a4;
   border-color: #00a5a4;
   color: #fff;
+  box-shadow: 0 0 0 2px rgba(0, 165, 164, 0.22), 0 3px 10px rgba(0, 165, 164, 0.25);
 }
 .gen-nav-btn.router-link-active:hover {
   background: #008a89;
   border-color: #008a89;
   color: #fff;
+  box-shadow: 0 0 0 2px rgba(0, 138, 137, 0.24), 0 3px 10px rgba(0, 138, 137, 0.28);
 }
 
 /* Bulma по умолчанию прячет .navbar-menu ниже desktop-breakpoint (<1024px).

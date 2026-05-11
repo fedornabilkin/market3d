@@ -1,4 +1,4 @@
-import {Base, Border, Code, Entity, Icon, Keychain, Magnet, Text} from "@/v3d/entity";
+import {Base, Barcode, Border, Code, Entity, Icon, Keychain, Magnet, Text} from "@/v3d/entity";
 import {DefaultBuilder} from "@/entity/builder";
 
 class MainBuilder extends DefaultBuilder{
@@ -67,6 +67,26 @@ export class CodeBuilder extends MainBuilder {
     this.entity.errorCorrectionLevel = data.errorCorrectionLevel
     this.entity.invert = data.invert
     this.entity.block = data.block
+    this.entity.preview = data.preview
+    if (data.color !== undefined) this.entity.color = data.color
+  }
+}
+
+export class BarcodeBuilder extends MainBuilder {
+
+  createEntity() {
+    return new Barcode(this.data)
+  }
+
+  build(data) {
+    super.build(data)
+    this.entity.format = data.format
+    this.entity.content = data.content
+    this.entity.depth = data.depth
+    this.entity.margin = data.margin
+    this.entity.height = data.height
+    this.entity.barRatio = data.barRatio
+    this.entity.invert = data.invert
     this.entity.preview = data.preview
     if (data.color !== undefined) this.entity.color = data.color
   }

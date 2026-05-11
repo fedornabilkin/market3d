@@ -17,6 +17,10 @@ const props = defineProps(['options', 'unit'])
             | {{ $t('form.border.activeLabel') }}
 
 .box.form-bg-diff.form-bg--border(v-if="props.options.border.active")
+  .notification.is-warning.is-light.is-size-7.py-2.px-3.mb-3
+    span.icon.is-small
+      i.fa.fa-exclamation-triangle
+    span {{ $t('form.border.scanHint') }}
   .columns.is-multiline
     .column
       .field.is-horizontal

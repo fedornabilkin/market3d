@@ -68,15 +68,6 @@ const props = defineProps(['options', 'unit'])
             p.control
               a.button.is-static.is-small {{ unit }}
       .field.is-horizontal
-        .field-label.is-small
-          label.label {{$t('form.margin')}}
-        .field-body
-          .field.has-addons
-            .control
-              input.input.is-small(type='number' v-model.number='props.options.text.margin')
-            p.control
-              a.button.is-static.is-small {{unit}}
-      .field.is-horizontal
         .field-body
           OffsetField(
             axis='x'
