@@ -2,6 +2,40 @@ import {fileURLToPath, URL} from 'node:url'
 import {defineConfig, loadEnv} from "vite";
 import vue from "@vitejs/plugin-vue";
 
+const manualChunkGroups: Record<string, string[]> = {
+  core: [
+    'vue',
+    'vue-i18n',
+    'vue-router',
+  ],
+  tree: [
+    'three',
+    'three-csg-ts',
+  ],
+  utils: [
+    'jszip',
+    'vue-qrcode-reader',
+    'vcards-js',
+    'qrcode',
+    'path-that-svg',
+    'deepmerge',
+    'deep-object-diff',
+  ],
+}
+
+function manualChunks(id: string): string | undefined {
+  if (!id.includes('node_modules')) return undefined
+
+  const normalized = id.replace(/\\/g, '/')
+  for (const [chunkName, packages] of Object.entries(manualChunkGroups)) {
+    if (packages.some((name) => normalized.includes(`/node_modules/${name}/`))) {
+      return chunkName
+    }
+  }
+
+  return undefined
+}
+
 export default defineConfig(({mode}) => {
 
   const env = loadEnv(mode, process.cwd(), 'VITE_');
@@ -23,41 +57,7 @@ export default defineConfig(({mode}) => {
         rollupOptions: {
           // https://rollupjs.org/configuration-options/
           output: {
-            manualChunks: {
-              core: [
-                'vue',
-                'vue-i18n',
-                'vue-router',
-              ],
-              tree:
-                [
-                  'three',
-                  'three-csg-ts',
-                ],
-              network:
-                [
-                  // 'yandex-metrika-vue3',
-                ],
-              utils:
-                [
-                  'jszip',
-                  'vue-qrcode-reader',
-                  'vcards-js',
-                  'qrcode',
-                  'path-that-svg',
-                  'deepmerge',
-                  'deep-object-diff',
-                ],
-              ui:
-                [
-                  // 'bulma',
-                  // 'sass-embedded',
-                ],
-              icons:
-                [
-                  // '@fortawesome/fontawesome-free',
-                ],
-            },
+            manualChunks,
           },
         },
     },
