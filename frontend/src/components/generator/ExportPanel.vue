@@ -23,6 +23,11 @@
           i.fa.fa-cube
         span {{$t('e.buttonObj')}}
 
+      button.button.is-small.gen-export-btn.is-link(@click="$emit('export3MF')")
+        span.icon
+          i.fa.fa-cubes
+        span {{$t('e.button3mf')}}
+
       button.button.is-small.gen-export-btn.is-warning(@click="$emit('exportPNG')")
         span.icon
           i.fa.fa-image
@@ -44,7 +49,7 @@ export default {
       default: false,
     },
   },
-  emits: ['exportSTL', 'exportOBJ', 'exportPNG', 'update:multiple', 'update:ascii'],
+  emits: ['exportSTL', 'exportOBJ', 'export3MF', 'exportPNG', 'update:multiple', 'update:ascii'],
 }
 </script>
 

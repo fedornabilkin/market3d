@@ -72,6 +72,7 @@
         v-model:ascii="expSettings.ascii"
         @exportSTL="exportSTL"
         @exportOBJ="exportOBJ"
+        @export3MF="export3MF"
         @exportPNG="exportPNG"
       )
         button.button.is-small.gen-export-btn(@click="historyDownloadModalVisible=true")

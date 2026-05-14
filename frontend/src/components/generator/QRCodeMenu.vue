@@ -66,6 +66,7 @@ import Border from "@/components/forms/Border.vue";
 import Keychain from "@/components/forms/Keychain.vue";
 import Icon from "@/components/forms/Icon.vue";
 import Magnet from "@/components/forms/Magnet.vue";
+import { buildGeneratorSettingsFileName, buildGeneratorSettingsPayload } from "@/service/generatorSettingsFileName";
 import {
   Base as BaseEntity,
   Border as BorderEntity,
@@ -431,13 +432,13 @@ export default {
       }
     },
     exportSettingsAsJson() {
-      const payload = this.exportOptions()
+      const payload = buildGeneratorSettingsPayload(this.exportOptions())
       const json = JSON.stringify(payload, null, 2)
       const blob = new Blob([json], { type: 'application/json' })
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `model-settings-${Date.now()}.json`
+      a.download = buildGeneratorSettingsFileName('qr', this.options)
       a.click()
       URL.revokeObjectURL(url)
     },

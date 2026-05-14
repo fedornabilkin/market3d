@@ -36,6 +36,7 @@ import { markRaw } from 'vue';
 import NameTagForm from '@/components/forms/NameTagForm.vue';
 import NameTagGenerator from '@/v3d/generator/NameTagGenerator';
 import { NameTag } from '@/v3d/entity';
+import { buildGeneratorSettingsFileName, buildGeneratorSettingsPayload } from '@/service/generatorSettingsFileName';
 
 const defaultOptions = {
   nametag: new NameTag({ active: true }),
@@ -167,12 +168,12 @@ export default {
       }
     },
     exportSettingsAsJson() {
-      const json = JSON.stringify(this.options, null, 2);
+      const json = JSON.stringify(buildGeneratorSettingsPayload(this.options), null, 2);
       const blob = new Blob([json], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `nametag-settings-${Date.now()}.json`;
+      a.download = buildGeneratorSettingsFileName('nametag', this.options);
       a.click();
       URL.revokeObjectURL(url);
     },

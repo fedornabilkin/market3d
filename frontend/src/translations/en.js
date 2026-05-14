@@ -337,6 +337,7 @@ export default {
     title: 'Export settings',
     buttonStl: 'Download STL',
     buttonObj: 'Download OBJ',
+    button3mf: '3MF',
     buttonPng: 'PNG',
     downloadHistory: 'Download history',
     downloadAll: 'Download all',
@@ -406,16 +407,16 @@ export default {
 
   seo: {
     main: {
-      title: '3D STL Generator — keychains, QR, license plates, Braille, coasters, name tags',
-      description: 'Free online 3D model generators for printing: QR codes, license plates, Braille, coasters, keychain name tags, plus a visual 3D constructor. Export to STL and OBJ.',
-      keywords: '3d generator, stl file, 3d printing, online constructor, 3d printer models, stl generator',
+      title: '3D STL Generator — QR codes, keychains, cards and printable models | vsqr',
+      description: 'Free online 3D model generators for printing: QR code STL files, keychains, QR business cards, license plates, Braille, coasters, 3D lettering and a visual constructor. Export STL, OBJ and 3MF.',
+      keywords: '3d generator, stl file, 3d printing, stl qr generator, 3d qr code, qr code generator 3d printable model, keychain stl generator, 3d keychain generator, online stl constructor',
       h1: 'Online 3D model generators for printing',
       subtitle: 'Build STL files in your browser — QR codes, license plates, Braille, coasters, 3D lettering and freeform assemblies.',
     },
     example: {
-      title: 'STL model examples — keychains, QR codes, tags | vsqr',
-      description: 'Gallery of ready-made 3D models: QR codes, keychains with icons and text, name tags. Each example ships with presets — open it in the generator with one click.',
-      keywords: 'stl examples, 3d models, qr code 3d, keychain stl, ready-made 3d printing models',
+      title: 'STL model examples — QR codes, keychains and printable cards | vsqr',
+      description: 'Gallery of ready-made 3D models: QR code STL files, text keychains, tags and printable QR cards. Each example includes presets — open it in the generator with one click.',
+      keywords: 'stl examples, 3d models, qr code 3d, keychain stl, ready-made 3d printing models, make qr stl, 3d printable qr code, printable qr business card',
       h1: 'STL model examples for 3D printing',
       subtitle: 'A showcase of models built with our generators — pick one and open it in the editor.',
       constructorBlock: {
@@ -423,6 +424,20 @@ export default {
         text: 'If the generators feel limiting, open the 3D constructor. A scene with primitives (box, sphere, cylinder, torus, 3D text), grid-snap movement, boolean operations and STL import. Projects are saved in your browser, so you can return later. Export the finished build to STL or OBJ for 3D printing.',
         button: 'Open 3D Constructor',
       },
+    },
+    generatorQr: {
+      title: '3D QR Code Generator — STL QR code for 3D printing | vsqr',
+      description: 'Generate a 3D QR code online for a link, text, Wi‑Fi, email, contact or SMS. Tune size, frame, keychain loop and label, then download STL, OBJ or 3MF for your 3D printer.',
+      keywords: '3d qr code, stl qr generator, qr code generator 3d printable model, make qr stl, generate qr code stl, print qr code, 3d printable qr code, qr stl online',
+      h1: '3D QR Code Generator for printing',
+      subtitle: 'Create QR code STL models for links, text, Wi‑Fi and contacts — with frame, keychain loop and 3D export.',
+    },
+    generatorBarcode: {
+      title: '3D Barcode Generator — Code 128 STL for printing | vsqr',
+      description: 'Create a 3D Code 128 barcode online: enter content, tune bar height, frame and text label, then download STL, OBJ or 3MF for 3D printing.',
+      keywords: '3d barcode generator, barcode stl, code 128 stl, 3d printable barcode, barcode 3d printing, printable barcode model',
+      h1: '3D Barcode Generator',
+      subtitle: 'Code 128 as a 3D model for tags, labels and printed marking.',
     },
     generatorGrz: {
       title: 'License Plate 3D Generator — STL for 3D printing | vsqr',
@@ -446,9 +461,9 @@ export default {
       subtitle: 'Round or square coasters with text and icon — exported as STL.',
     },
     generatorNametag: {
-      title: '3D Lettering & Name Tag Generator — STL text | vsqr',
-      description: 'Build 3D lettering: pick a font, set letter height, add a bevel, backing plate or hollow letters. Ready-made signs or a keychain with a name — as STL.',
-      keywords: 'text 3d, 3d lettering stl, name keychain, text 3d print, 3d font, sign generator',
+      title: '3D Keychain & Lettering Generator — STL text | vsqr',
+      description: 'Build a 3D word, name keychain or raised lettering: choose a font, set letter height, add bevels, backing or hollow letters. Download the finished STL for 3D printing.',
+      keywords: 'text 3d, 3d lettering stl, name keychain, text 3d print, 3d font, sign generator, 3d keychain generator, keychain stl generator, word keychain stl, custom name keychain stl',
       h1: '3D Lettering & Name Tag Generator',
       subtitle: '3D text with bevel, backing plate and hollow letters — ready for 3D printing.',
     },

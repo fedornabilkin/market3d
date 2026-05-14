@@ -35,6 +35,7 @@ Teleport(to="#gen-progress-target" v-if="teleportReady")
 import {markRaw} from 'vue';
 import GRZ from '@/components/forms/GRZ.vue';
 import GRZGenerator from '@/v3d/generator/GRZGenerator';
+import { buildGeneratorSettingsFileName, buildGeneratorSettingsPayload } from '@/service/generatorSettingsFileName';
 import {
   Base as BaseEntity,
   Border as BorderEntity,
@@ -190,12 +191,12 @@ export default {
       }
     },
     exportSettingsAsJson() {
-      const json = JSON.stringify(this.options, null, 2)
+      const json = JSON.stringify(buildGeneratorSettingsPayload(this.options), null, 2)
       const blob = new Blob([json], {type: 'application/json'})
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `license-plate-settings-${Date.now()}.json`
+      a.download = buildGeneratorSettingsFileName('grz', this.options)
       a.click()
       URL.revokeObjectURL(url)
     },

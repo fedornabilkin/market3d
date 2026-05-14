@@ -56,6 +56,7 @@ import Border from "@/components/forms/Border.vue";
 import Keychain from "@/components/forms/Keychain.vue";
 import Magnet from "@/components/forms/Magnet.vue";
 import { createCode128Pattern, createCode128SvgDataUrl } from "@/service/barcode/code128";
+import { buildGeneratorSettingsFileName, buildGeneratorSettingsPayload } from "@/service/generatorSettingsFileName";
 
 const director = new Director()
 
@@ -231,12 +232,12 @@ export default {
       }
     },
     exportSettingsAsJson() {
-      const json = JSON.stringify(this.exportOptions(), null, 2)
+      const json = JSON.stringify(buildGeneratorSettingsPayload(this.exportOptions()), null, 2)
       const blob = new Blob([json], { type: 'application/json' })
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `barcode-settings-${Date.now()}.json`
+      a.download = buildGeneratorSettingsFileName('barcode', this.options)
       a.click()
       URL.revokeObjectURL(url)
     },

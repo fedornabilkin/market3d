@@ -39,6 +39,7 @@ export class Box {
       console.warn(`Attempted to add null node with name: ${name}`)
       return
     }
+    node.name = node.name || name
     this.collectionNodes[name] = node
     this.sceneGraphRoot.add(node)
   }

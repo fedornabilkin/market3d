@@ -5,6 +5,7 @@ import ModelGenerator from "@/v3d/generator/ModelGenerator.js";
 import { BaseRotation } from "@/v3d/animation/baseRotation";
 import { STLExporter } from 'three/examples/jsm/exporters/STLExporter.js';
 import { OBJExporter } from 'three/examples/jsm/exporters/OBJExporter.js';
+import { ThreeMFExporter } from '@/v3d/exporters/ThreeMFExporter.js';
 import JSZip from 'jszip';
 import { save, saveAsArrayBuffer, saveAsString } from '@/utils.js';
 
@@ -318,6 +319,21 @@ export class V3DFacade {
     saveAsArrayBuffer(result, objFilename);
     
     return result;
+  }
+
+  async export3MF(options = {}) {
+    if (!this.box) {
+      throw new Error('Scene not initialized. Call initialize() first.');
+    }
+
+    const { filename = null } = options;
+    this.box.sceneGraphRoot.updateMatrixWorld(true);
+
+    const exporter = new ThreeMFExporter();
+    const blob = await exporter.parse(this.box.sceneGraphRoot);
+    const threeMfFilename = filename || `${this.generateFilename()}.3mf`;
+    save(blob, threeMfFilename);
+    return blob;
   }
 
   /**

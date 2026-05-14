@@ -3,6 +3,7 @@ import {Font} from 'three/examples/jsm/loaders/FontLoader.js';
 import {TextGeometry} from 'three/examples/jsm/geometries/TextGeometry.js';
 import * as BufferGeometryUtils from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import {Brush, Evaluator, SUBTRACTION} from 'three-bvh-csg';
+import polygonClipping from 'polygon-clipping';
 import fontInterSemiBold from '@/assets/fonts/Inter_SemiBold.json';
 import fontInterSemiBoldItalic from '@/assets/fonts/Inter_SemiBold_Italic.json';
 import fontInterExtraBold from '@/assets/fonts/Inter_ExtraBold.json';
@@ -421,6 +422,17 @@ export default class ModelGenerator extends BaseGenerator {
     const cityMinDepth = Math.min(baseBlockDepth, this.options.code.block.depth)
     const cityDepthRange = Math.abs(this.options.code.block.depth - baseBlockDepth)
 
+    if (!rotationBlock && !roundBlock && !cityMode) {
+      const mesh = this.getQRCodeUnionMesh({
+        material,
+        baseBlockDepth,
+        checkEmptyCenter: this.options.code.emptyCenter === true && !!this.iconMesh,
+      })
+      this.finalBlock = mesh
+      this.process(100)
+      return mesh
+    }
+
     // Шаблонная геометрия блока: высота нормирована к 1, низ — в z=0.
     // Преобразования rotation/round запекаются в шаблон — они одинаковы для всех блоков.
     // Далее per-block нам достаточно сдвига по XY и умножения Z на blockDepth.
@@ -543,6 +555,86 @@ export default class ModelGenerator extends BaseGenerator {
     return mesh
   }
 
+  getQRCodeUnionMesh({material, baseBlockDepth, checkEmptyCenter}) {
+    const portraitOffsetY = this.options.base.width < this.options.base.height
+      ? (this.options.base.height - this.options.base.width) / 2
+      : 0
+    const iconHalfX = this.iconSize.x / 2 + this.safetyMargin
+    const iconHalfY = this.iconSize.y / 2 + this.safetyMargin
+    const halfBlock = this.blockWidth / 2
+    const polygons = []
+
+    for (let x = 0; x < this.maskWidth; x++) {
+      for (let y = 0; y < this.maskWidth; y++) {
+        if (!this.bitMask[y * this.maskWidth + x]) continue
+
+        const posX = this.correctPositionX(this.availableWidth, this.xCountPosition, this.blockWidth, x)
+        let posY = this.correctPositionY(this.availableWidth, this.yCountPosition, this.blockWidth, y)
+
+        if (checkEmptyCenter
+          && posX > -iconHalfX && posX < iconHalfX
+          && posY > -iconHalfY && posY < iconHalfY) {
+          continue
+        }
+
+        posY += portraitOffsetY
+        const x0 = posX - halfBlock
+        const x1 = posX + halfBlock
+        const y0 = posY - halfBlock
+        const y1 = posY + halfBlock
+        polygons.push([[[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]]])
+      }
+    }
+
+    if (!polygons.length) {
+      return new THREE.Object3D()
+    }
+
+    const union = polygonClipping.union(...polygons)
+    const shapes = []
+    for (const polygon of union) {
+      if (!polygon.length) continue
+      const shape = this.ringToShape(polygon[0])
+      for (let i = 1; i < polygon.length; i++) {
+        shape.holes.push(this.ringToPath(polygon[i]))
+      }
+      shapes.push(shape)
+    }
+
+    if (!shapes.length) {
+      return new THREE.Object3D()
+    }
+
+    const geometry = new THREE.ExtrudeGeometry(shapes, {
+      steps: 1,
+      depth: baseBlockDepth,
+      bevelEnabled: false,
+    })
+    geometry.translate(0, 0, this.options.base.depth)
+    geometry.computeVertexNormals()
+    return new THREE.Mesh(geometry, material)
+  }
+
+  ringToShape(ring) {
+    const shape = new THREE.Shape()
+    this.writeRingToPath(shape, ring)
+    return shape
+  }
+
+  ringToPath(ring) {
+    const path = new THREE.Path()
+    this.writeRingToPath(path, ring)
+    return path
+  }
+
+  writeRingToPath(path, ring) {
+    if (!ring.length) return
+    path.moveTo(ring[0][0], ring[0][1])
+    for (let i = 1; i < ring.length; i++) {
+      path.lineTo(ring[i][0], ring[i][1])
+    }
+  }
+
   getBarcodeMesh() {
     if (!this.hasBarcode || !this.options.barcode.active) {
       return undefined
@@ -568,61 +660,45 @@ export default class ModelGenerator extends BaseGenerator {
       color: parseHexColor(this.options.barcode?.color, 0x000000),
     })
 
-    const template = new THREE.BoxGeometry(1, 1, 1)
-    template.translate(0, 0, 0.5)
-
-    const tplPos = template.attributes.position.array
-    const tplNorm = template.attributes.normal.array
-    const tplIndex = template.index ? template.index.array : null
-    const vertCount = template.attributes.position.count
-    const idxCount = tplIndex ? tplIndex.length : 0
-    const totalVerts = bars.length * vertCount
-    const totalIdx = bars.length * idxCount
-    const positions = new Float32Array(totalVerts * 3)
-    const normals = new Float32Array(totalVerts * 3)
-    const indices = tplIndex ? new Uint32Array(totalIdx) : null
-
     const startX = -availableWidth / 2
     const centerY = textHeight > 0 ? textHeight / 2 : 0
+    const halfHeight = barcodeHeight / 2
+    const polygons = []
 
-    for (let i = 0; i < bars.length; i++) {
-      const bar = bars[i]
+    for (const bar of bars) {
       const width = Math.max(moduleWidth * 0.25, moduleWidth * bar.length * ratio)
       const centerX = startX + moduleWidth * bar.start + (moduleWidth * bar.length) / 2
-      const baseV = i * vertCount
-      const posOffset = baseV * 3
-
-      for (let v = 0; v < vertCount; v++) {
-        const src = v * 3
-        const dst = posOffset + src
-        positions[dst] = tplPos[src] * width + centerX
-        positions[dst + 1] = tplPos[src + 1] * barcodeHeight + centerY
-        positions[dst + 2] = tplPos[src + 2] * barDepth + baseZ
-        normals[dst] = tplNorm[src]
-        normals[dst + 1] = tplNorm[src + 1]
-        normals[dst + 2] = tplNorm[src + 2]
-      }
-
-      if (indices) {
-        const idxOffset = i * idxCount
-        for (let k = 0; k < idxCount; k++) {
-          indices[idxOffset + k] = tplIndex[k] + baseV
-        }
-      }
+      const x0 = centerX - width / 2
+      const x1 = centerX + width / 2
+      const y0 = centerY - halfHeight
+      const y1 = centerY + halfHeight
+      polygons.push([[[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]]])
     }
 
-    template.dispose()
-
-    const mergedGeometry = new THREE.BufferGeometry()
-    mergedGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3))
-    mergedGeometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3))
-    if (indices) {
-      mergedGeometry.setIndex(new THREE.BufferAttribute(indices, 1))
+    const union = polygonClipping.union(...polygons)
+    const shapes = []
+    for (const polygon of union) {
+      if (!polygon.length) continue
+      const shape = this.ringToShape(polygon[0])
+      for (let i = 1; i < polygon.length; i++) {
+        shape.holes.push(this.ringToPath(polygon[i]))
+      }
+      shapes.push(shape)
     }
-    mergedGeometry.computeBoundingBox()
-    mergedGeometry.computeBoundingSphere()
 
-    return new THREE.Mesh(mergedGeometry, material)
+    if (!shapes.length) {
+      return undefined
+    }
+
+    const geometry = new THREE.ExtrudeGeometry(shapes, {
+      steps: 1,
+      depth: barDepth,
+      bevelEnabled: false,
+    })
+    geometry.translate(0, 0, baseZ)
+    geometry.computeVertexNormals()
+
+    return new THREE.Mesh(geometry, material)
   }
 
   /**

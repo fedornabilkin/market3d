@@ -19,6 +19,7 @@
         v-model:ascii="expSettings.ascii"
         @exportSTL="exportSTL"
         @exportOBJ="exportOBJ"
+        @export3MF="export3MF"
         @exportPNG="exportPNG"
       )
         button.button.is-small.gen-export-btn(@click="historyDownloadModalVisible=true")
@@ -46,6 +47,7 @@ import ExportModal from '@/components/generator/ExportModal.vue';
 import ExportPanel from '@/components/generator/ExportPanel.vue';
 import HistoryModal from "@/components/generator/HistoryModal.vue";
 import { useGenerator } from "@/service/useGenerator";
+import { useSeoHeadI18n } from "@/composables/useSeoHead";
 
 function buildFileName(options) {
   const timestamp = new Date().getTime();
@@ -62,6 +64,7 @@ function buildFileName(options) {
 export default {
   name: 'GeneratorBarcode',
   setup() {
+    useSeoHeadI18n('seo.generatorBarcode');
     return useGenerator({ fileName: buildFileName });
   },
   components: {

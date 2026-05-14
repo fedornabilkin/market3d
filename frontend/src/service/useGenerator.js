@@ -97,6 +97,16 @@ export function useGenerator({ containerId = 'container3d', fileName, exportTime
     }, exportTimer);
   }
 
+  function export3MF() {
+    exportModalVisible.value = true;
+    setTimeout(async () => {
+      await v3dFacade.export3MF({
+        filename: `${_name()}.3mf`,
+      });
+      _recordExport();
+    }, exportTimer);
+  }
+
   function exportPNG() {
     if (!renderer || !scene || !camera) return;
     const container = document.getElementById(containerId);
@@ -154,6 +164,7 @@ export function useGenerator({ containerId = 'container3d', fileName, exportTime
     menuVisible,
     exportSTL,
     exportOBJ,
+    export3MF,
     exportPNG,
     fillExportList,
     recoveryModel,

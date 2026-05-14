@@ -35,6 +35,7 @@ Teleport(to="#gen-progress-target" v-if="teleportReady")
 import { markRaw } from 'vue';
 import CoasterForm from '@/components/forms/CoasterForm.vue';
 import CoasterGenerator from '@/v3d/generator/CoasterGenerator';
+import { buildGeneratorSettingsFileName, buildGeneratorSettingsPayload } from '@/service/generatorSettingsFileName';
 import {
   Base as BaseEntity,
   Text as TextEntity,
@@ -178,12 +179,12 @@ export default {
       }
     },
     exportSettingsAsJson() {
-      const json = JSON.stringify(this.options, null, 2);
+      const json = JSON.stringify(buildGeneratorSettingsPayload(this.options), null, 2);
       const blob = new Blob([json], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `coaster-settings-${Date.now()}.json`;
+      a.download = buildGeneratorSettingsFileName('coaster', this.options);
       a.click();
       URL.revokeObjectURL(url);
     },

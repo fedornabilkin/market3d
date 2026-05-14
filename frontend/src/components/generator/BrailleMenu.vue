@@ -35,6 +35,7 @@ Teleport(to="#gen-progress-target" v-if="teleportReady")
 import {markRaw} from 'vue';
 import BrailleForm from '@/components/forms/BrailleForm.vue';
 import BrailleGenerator from '@/v3d/generator/BrailleGenerator';
+import { buildGeneratorSettingsFileName, buildGeneratorSettingsPayload } from '@/service/generatorSettingsFileName';
 import {
   Base as BaseEntity,
   Keychain as KeychainEntity,
@@ -188,12 +189,12 @@ export default {
       }
     },
     exportSettingsAsJson() {
-      const json = JSON.stringify(this.options, null, 2)
+      const json = JSON.stringify(buildGeneratorSettingsPayload(this.options), null, 2)
       const blob = new Blob([json], {type: 'application/json'})
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `braille-settings-${Date.now()}.json`
+      a.download = buildGeneratorSettingsFileName('braille', this.options)
       a.click()
       URL.revokeObjectURL(url)
     },

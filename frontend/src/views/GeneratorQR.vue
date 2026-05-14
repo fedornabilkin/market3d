@@ -90,6 +90,7 @@
         v-model:ascii="expSettings.ascii"
         @exportSTL="exportSTL"
         @exportOBJ="exportOBJ"
+        @export3MF="export3MF"
         @exportPNG="exportPNG"
       )
         button.button.is-small.gen-export-btn(@click="historyDownloadModalVisible=true")
@@ -134,6 +135,7 @@ import { dataURItoBlob } from '@/utils.js';
 import { useTourStore } from "@/store/tour";
 import { useTourPlacement } from "@/service/useTourPlacement";
 import { useGenerator } from "@/service/useGenerator";
+import { useSeoHeadI18n } from "@/composables/useSeoHead";
 
 const QR_STEPS = [
   'common.tourButton',
@@ -165,12 +167,14 @@ function buildFileName(options) {
 export default {
   name: 'GeneratorQR',
   setup() {
+    useSeoHeadI18n('seo.generatorQr');
     const { tp } = useTourPlacement();
     const gen = useGenerator({ fileName: buildFileName });
     const {
       startAnimation: _genStartAnimation,
       exportSTL: _genExportSTL,
       exportOBJ: _genExportOBJ,
+      export3MF: _genExport3MF,
       recoveryModel: _genRecoveryModel,
       menuVisible: _genMenuVisible,
       ...rest
@@ -347,6 +351,19 @@ export default {
 
       setTimeout(async () => {
         await this.v3dFacade.exportOBJ(`${buildFileName(this.options)}.obj`);
+        const image = this.v3dFacade.getImageDataUrl();
+        this._recordQrExport(image);
+        this.sendImage(image);
+      }, this.exportTimer);
+    },
+    export3MF() {
+      this.exportModalVisible = true;
+      this.autoRotation = false;
+
+      setTimeout(async () => {
+        await this.v3dFacade.export3MF({
+          filename: `${buildFileName(this.options)}.3mf`,
+        });
         const image = this.v3dFacade.getImageDataUrl();
         this._recordQrExport(image);
         this.sendImage(image);
