@@ -350,19 +350,22 @@ export default {
         case 0: // Text
           ret = this.options.content
           break;
-        case 1: // Wifi
-          if (this.options.wifi.password === '') {
-            this.options.wifi.security = 'nopass';
-          }
-          if (this.options.wifi.security === 'nopass') {
-            this.options.wifi.password = '';
-          }
+        case 1: { // Wifi
+          // Не мутируем options здесь (getQRText вызывается реактивно при рендере):
+          // иначе выбор WPA с пустым паролем сбрасывал бы security обратно в nopass
+          // и поле пароля исчезало бы сразу после появления.
+          const wifiSecurity =
+            this.options.wifi.security === 'nopass' || this.options.wifi.password === ''
+              ? 'nopass'
+              : this.options.wifi.security;
+          const wifiPassword = wifiSecurity === 'nopass' ? '' : this.options.wifi.password;
           ret = `WIFI:S:${this.wifiQREscape(
             this.options.wifi.ssid,
-          )};T:${this.wifiQREscape(this.options.wifi.security)};P:${this.wifiQREscape(
-            this.options.wifi.password,
+          )};T:${this.wifiQREscape(wifiSecurity)};P:${this.wifiQREscape(
+            wifiPassword,
           )};H:${this.options.wifi.hidden ? 'true' : 'false'};`;
           break;
+        }
         case 2: // E-Mail
           ret = `mailto:${this.options.email.recipient
             .split(',')

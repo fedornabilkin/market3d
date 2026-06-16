@@ -208,6 +208,9 @@ export default {
     },
     licensePlate: {
       title: 'Russian license plate',
+      format: 'Plate format',
+      formatStandard: 'Standard',
+      formatSquare: 'Square',
       number: 'Number',
       fontSize: 'Font size',
       textDepth: 'Text depth',

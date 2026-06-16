@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import * as BufferGeometryUtils from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { Brush, Evaluator, ADDITION, SUBTRACTION, INTERSECTION } from 'three-bvh-csg';
 import type { BooleanOperation } from '../composite/BooleanFeature';
+import { CUT_INFLATE_EPS, cleanupGeometry, inflateGeom } from './geometryCleanup';
 
 export interface BooleanInput {
   geometry: THREE.BufferGeometry;
@@ -19,9 +20,11 @@ export interface BooleanInput {
  * Pipeline:
  *  1. Каждую геометрию запекаем матрицей в копию (Brush с identity-transform).
  *  2. mergeVertices(1e-5) — индексированный манифолд.
- *  3. Solids комбинируются operation'ом.
+ *  3. Solids комбинируются operation'ом. Режущие тела при subtract раздуваются
+ *     на ε (как holes), чтобы копланарные грани не давали неманифолдных срезов.
  *  4. Holes вычитаются всегда.
- *  5. На выходе — mergeVertices(1e-4) + computeVertexNormals.
+ *  5. На выходе — mergeVertices(1e-4) + удаление вырожденных граней +
+ *     computeVertexNormals.
  */
 export function booleanCsg(
   inputs: BooleanInput[],
@@ -38,21 +41,24 @@ export function booleanCsg(
   evaluator.useGroups = false;
 
   const op = bvhOp(operation);
-  let current: Brush = inputToBrush(solids[0]);
+  // База (первый solid) — целевое тело, не раздувается.
+  let current: Brush = inputToBrush(solids[0], false);
 
   for (let i = 1; i < solids.length; i++) {
-    const next = inputToBrush(solids[i]);
+    // При вычитании режущий solid раздуваем (как hole): иначе копланарные
+    // грани режущего тела и базы дают неманифолдный результат (слипшиеся
+    // грани / срез нулевой толщины). При union/intersect раздувать нельзя —
+    // это изменило бы размеры результата.
+    const next = inputToBrush(solids[i], operation === 'subtract');
     current = evaluator.evaluate(current, next, op);
   }
 
   for (const hole of holes) {
-    const holeBrush = inputToBrush(hole);
+    const holeBrush = inputToBrush(hole, true);
     current = evaluator.evaluate(current, holeBrush, SUBTRACTION);
   }
 
-  const finalGeom = BufferGeometryUtils.mergeVertices(current.geometry, 1e-4);
-  finalGeom.computeVertexNormals();
-  return finalGeom;
+  return cleanupGeometry(current.geometry);
 }
 
 function bvhOp(op: BooleanOperation): number {
@@ -61,35 +67,9 @@ function bvhOp(op: BooleanOperation): number {
   return ADDITION;
 }
 
-/**
- * Hole-оверсайз: typical CSG-проблема — копланарные грани hole'а и solid'а
- * (когда оба сидят на сетке Z=0 либо вплотную друг к другу) дают неустойчивый
- * результат: остаётся тонкий срез ~0.001 мм. Раздуваем hole bbox на ε вокруг
- * центра — гарантируем, что грани не совпадают точно, CSG срезает чисто.
- */
-const HOLE_INFLATE_EPS = 0.005;
-
-function inflateHole(geom: THREE.BufferGeometry, epsilon: number): void {
-  geom.computeBoundingBox();
-  const bb = geom.boundingBox;
-  if (!bb) return;
-  const cx = (bb.min.x + bb.max.x) * 0.5;
-  const cy = (bb.min.y + bb.max.y) * 0.5;
-  const cz = (bb.min.z + bb.max.z) * 0.5;
-  const sx = bb.max.x - bb.min.x;
-  const sy = bb.max.y - bb.min.y;
-  const sz = bb.max.z - bb.min.z;
-  const fx = sx > 1e-9 ? (sx + 2 * epsilon) / sx : 1;
-  const fy = sy > 1e-9 ? (sy + 2 * epsilon) / sy : 1;
-  const fz = sz > 1e-9 ? (sz + 2 * epsilon) / sz : 1;
-  geom.translate(-cx, -cy, -cz);
-  geom.scale(fx, fy, fz);
-  geom.translate(cx, cy, cz);
-}
-
-function inputToBrush(input: BooleanInput): Brush {
+function inputToBrush(input: BooleanInput, inflate: boolean): Brush {
   const geom = prepGeometry(input.geometry);
-  if (input.isHole) inflateHole(geom, HOLE_INFLATE_EPS);
+  if (inflate) inflateGeom(geom, CUT_INFLATE_EPS);
   if (!isIdentity(input.transform)) {
     geom.applyMatrix4(input.transform);
     if (input.transform.determinant() < 0) flipWinding(geom);

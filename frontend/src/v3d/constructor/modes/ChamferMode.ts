@@ -45,6 +45,12 @@ export interface ChamferSettings {
   profile: 'convex' | 'concave' | 'flat';
 }
 
+/** Тип + геометрические параметры фичи, разрешённые по featureId из FeatureDocument. */
+export interface ChamferFeatureInfo {
+  type: string;
+  params: Record<string, number>;
+}
+
 /**
  * Chamfer/Fillet mode.
  *
@@ -69,6 +75,14 @@ export class ChamferMode {
   settings: ChamferSettings = { radius: 2, profile: 'concave' };
 
   onEdgeClick: ((obj: THREE.Object3D, edge: BBoxEdge, settings: ChamferSettings) => void) | null = null;
+
+  /**
+   * Резолвер фичи по featureId (ставит ConstructorSceneService из FeatureDocument).
+   * Нужен, чтобы определить тип примитива (cylinder → круговые ободы торцов) и
+   * его геометрические параметры. После P2-flip'а `userData.node` больше нет —
+   * меши несут только `userData.featureId`.
+   */
+  getFeatureInfo: ((featureId: string) => ChamferFeatureInfo | null) | null = null;
 
   // ─── Lifecycle ───────────────────────────────────────────────────────────
 
@@ -111,15 +125,33 @@ export class ChamferMode {
     mesh.updateMatrixWorld(true);
 
     if (this.cachedEdgeObjUuid !== mesh.uuid) {
-      const nodeType = (mesh.userData as { node?: { type?: string } }).node?.type;
-      this.cachedEdges = nodeType === 'cylinder'
-        ? this.buildCylinderEdges(mesh)
+      const info = this.resolveFeatureInfo(obj);
+      this.cachedEdges = info?.type === 'cylinder'
+        ? this.buildCylinderEdges(mesh, info.params)
         : this.buildBoxEdges(mesh);
       this.cachedEdgeObjUuid = mesh.uuid;
     }
 
     if (!this.cachedEdges || this.cachedEdges.length === 0) return null;
     return this.findClosestEdge(this.cachedEdges, hitPoint, mesh);
+  }
+
+  /**
+   * Разрешает фичу по `userData.featureId`, поднимаясь по родителям (для
+   * child-мешей composite-групп). Возвращает тип + геом-параметры или null.
+   */
+  private resolveFeatureInfo(obj: THREE.Object3D): ChamferFeatureInfo | null {
+    if (!this.getFeatureInfo) return null;
+    let cur: THREE.Object3D | null = obj;
+    while (cur) {
+      const fid = (cur.userData as { featureId?: string }).featureId;
+      if (fid) {
+        const info = this.getFeatureInfo(fid);
+        if (info) return info;
+      }
+      cur = cur.parent;
+    }
+    return null;
   }
 
   /**
@@ -210,14 +242,10 @@ export class ChamferMode {
    * Sampled chain points let the visualization draw a smooth arc even after
    * the mesh is rotated in world space.
    */
-  private buildCylinderEdges(mesh: THREE.Mesh): BBoxEdge[] {
-    const node = (mesh.userData as { node?: { geometryParams?: Record<string, number> } }).node;
-    const p = node?.geometryParams;
-    if (!p) return [];
-
-    const h = p.height ?? 1;
-    const rTop = p.radiusTop ?? p.radius ?? 0.5;
-    const rBot = p.radiusBottom ?? p.radius ?? 0.5;
+  private buildCylinderEdges(mesh: THREE.Mesh, params: Record<string, number>): BBoxEdge[] {
+    const h = params.height ?? 1;
+    const rTop = params.radiusTop ?? params.radius ?? 0.5;
+    const rBot = params.radiusBottom ?? params.radius ?? 0.5;
     const wm = mesh.matrixWorld;
 
     const sampleCount = 48;

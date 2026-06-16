@@ -439,6 +439,14 @@ export class ConstructorSceneService {
     this.alignmentMode.init(this.scene, this.modelRootGroup!, this.camera);
     this.alignmentMode.setContainerHeight(height);
     this.chamferMode.init(this.scene, this.camera);
+    // После P2-flip'а тип/параметры примитива берутся из FeatureDocument по
+    // featureId (userData.node больше нет). Без этого цилиндр детектился как box
+    // и круговой обод торца не находился.
+    this.chamferMode.getFeatureInfo = (featureId) => {
+      const f = this.featureDocCurrent?.graph.get(featureId);
+      if (!f) return null;
+      return { type: f.type, params: f.params as Record<string, number> };
+    };
     this.generatorMode.init(this.scene);
 
     // View cube navigator

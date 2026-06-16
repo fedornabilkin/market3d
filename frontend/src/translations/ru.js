@@ -208,6 +208,9 @@ export default {
     },
     licensePlate: {
       title: 'Номерной знак РФ',
+      format: 'Формат знака',
+      formatStandard: 'Стандартный',
+      formatSquare: 'Квадратный',
       number: 'Номер',
       fontSize: 'Размер шрифта',
       textDepth: 'Глубина текста',

@@ -44,6 +44,7 @@ import {
 
 const defaultOptions = {
   base: new BaseEntity({active: true, width: 60, height: 14, depth: 2, cornerRadius: 3}),
+  format: 'standard',
   fontSize: 8,
   textDepth: 1,
   letter1: 'А',

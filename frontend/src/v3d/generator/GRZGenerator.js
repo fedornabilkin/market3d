@@ -5,20 +5,20 @@ import fontInterExtraBold from '@/assets/fonts/Inter_ExtraBold.json';
 import BaseGenerator, {parseHexColor} from '@/v3d/generator/base';
 import {RectangleRoundedShape} from '@/v3d/primitives/shape';
 
-// Пропорции реального номерного знака РФ (ГОСТ Р 50577-2018): 520 × 112 мм
-const REAL_WIDTH = 520
-const REAL_HEIGHT = 112
-const PLATE_RATIO = REAL_WIDTH / REAL_HEIGHT
-
-// Кириллица → латиница для букв, допустимых на номерных знаках РФ
-const CYR_TO_LAT = {
-  'А': 'A', 'В': 'B', 'Е': 'E', 'К': 'K', 'М': 'M', 'Н': 'H',
-  'О': 'O', 'Р': 'P', 'С': 'C', 'Т': 'T', 'У': 'Y', 'Х': 'X',
+// Пропорции реальных номерных знаков РФ (ГОСТ Р 50577-2018):
+//  - standard (Тип 1):   520 × 112 мм
+//  - square   (Тип 1А):  290 × 170 мм — для ТС, конструкция которых не
+//    предусматривает места под стандартный знак (грузовики, прицепы, импорт)
+const PLATE_FORMATS = {
+  standard: {width: 520, height: 112},
+  square: {width: 290, height: 170},
 }
 
-function cyrToLat(text) {
-  return text.split('').map(ch => CYR_TO_LAT[ch] || ch).join('')
-}
+// Шрифт Inter содержит кириллицу, поэтому допустимые буквы знака
+// (А, В, Е, К, М, Н, О, Р, С, Т, У, Х) рендерятся как есть. Транслитерация в
+// латиницу НЕ применяется: она искажала У → Y (латинская Y — другой глиф,
+// чем кириллическая У; остальные 11 букв визуально совпадают, поэтому баг
+// был заметен только на У).
 
 /**
  * Генератор 3D-модели брелока российского номерного знака.
@@ -43,16 +43,18 @@ export default class GRZGenerator extends BaseGenerator {
     }
 
     this.font = new Font(fontInterExtraBold)
+    this.format = this.options.format === 'square' ? 'square' : 'standard'
     this.plateWidth = this.options.base.width
     this.plateHeight = this.options.base.height
     this.baseDepth = this.options.base.depth
-    // Коэффициент масштабирования относительно реального знака
-    this.s = this.plateWidth / REAL_WIDTH
+    // Коэффициент масштабирования относительно реального знака выбранного формата
+    this.s = this.plateWidth / PLATE_FORMATS[this.format].width
     // Внутренний отступ от края (учитывает рамку)
     const bw = (this.options.border && this.options.border.active) ? (this.options.border.width || 1) : 0
     this.borderWidth = bw
     // Размер шрифта — основной параметр для расчёта всех размеров
     const fs = this.options.fontSize || 8
+    this.fs = fs
     this.digitH = fs
     this.letterH = fs * (58 / 76)
     this.smallH = fs * (20 / 76)
@@ -75,13 +77,17 @@ export default class GRZGenerator extends BaseGenerator {
       meshes.border = this.createBorder()
     }
 
-    meshes.separator = this.createSeparator()
-    meshes.regNumber = this.createRegistrationNumber()
-    meshes.regionCode = this.createRegionCode()
-    meshes.rusLabel = this.createRusLabel()
-
-    if (this.options.flagEnabled) {
-      meshes.flag = this.createFlag()
+    if (this.format === 'square') {
+      meshes.regNumber = this.createRegistrationNumberSquare()
+      meshes.regionBox = this.createRegionBoxSquare()
+    } else {
+      meshes.separator = this.createSeparator()
+      meshes.regNumber = this.createRegistrationNumber()
+      meshes.regionCode = this.createRegionCode()
+      meshes.rusLabel = this.createRusLabel()
+      if (this.options.flagEnabled) {
+        meshes.flag = this.createFlag()
+      }
     }
 
     if (this.options.keychain && this.options.keychain.active) {
@@ -155,11 +161,11 @@ export default class GRZGenerator extends BaseGenerator {
    */
   _separatorX() {
     const leftX = -this.plateWidth / 2 + this.pad
-    const l1 = this._textMesh(cyrToLat(this.options.letter1), this.letterH)
+    const l1 = this._textMesh(this.options.letter1, this.letterH)
     const l1W = this.getBoundingBoxSize(l1).x
     const dig = this._textMesh(this.options.digits, this.digitH)
     const digW = this.getBoundingBoxSize(dig).x
-    const l23 = this._textMesh(cyrToLat(this.options.letter2 + this.options.letter3), this.letterH)
+    const l23 = this._textMesh(this.options.letter2 + this.options.letter3, this.letterH)
     const l23W = this.getBoundingBoxSize(l23).x
     const textEndX = leftX + l1W + this.gap + digW + this.gap + l23W
     return textEndX + this.gap
@@ -175,7 +181,7 @@ export default class GRZGenerator extends BaseGenerator {
     const leftX = -this.plateWidth / 2 + this.pad
 
     // Первая буква — прижата к низу
-    const l1 = this._textMesh(cyrToLat(this.options.letter1), this.letterH)
+    const l1 = this._textMesh(this.options.letter1, this.letterH)
     l1.position.set(leftX, bottomY, baseZ)
     group.add(l1)
     const l1W = this.getBoundingBoxSize(l1).x
@@ -188,7 +194,7 @@ export default class GRZGenerator extends BaseGenerator {
     const digW = this.getBoundingBoxSize(dig).x
 
     // 2 буквы — сразу после цифр
-    const l23 = this._textMesh(cyrToLat(this.options.letter2 + this.options.letter3), this.letterH)
+    const l23 = this._textMesh(this.options.letter2 + this.options.letter3, this.letterH)
     l23.position.set(digX + digW + this.gap, bottomY, baseZ)
     group.add(l23)
 
@@ -235,12 +241,8 @@ export default class GRZGenerator extends BaseGenerator {
   // ─── Флаг РФ (снизу правой секции, правее RUS) ─────────
 
   createFlag() {
-    const group = new THREE.Group()
-    const baseZ = this.baseDepth
-
     const flagH = this.smallH
     const flagW = flagH * 1.5
-    const stripeH = flagH / 3
 
     // Вычисляем позицию флага: правее RUS, по центру секции
     const sepX = this._separatorX()
@@ -251,7 +253,19 @@ export default class GRZGenerator extends BaseGenerator {
     const totalW = rusW + this.gap + flagW
     const startX = sepX + (sectionW - totalW) / 2
     const flagCenterX = startX + rusW + this.gap + flagW / 2
-    const flagBottomY = -this.plateHeight / 2 + this.rpad + flagH / 2
+    const flagCenterY = -this.plateHeight / 2 + this.rpad + flagH / 2
+
+    return this._buildFlag(flagCenterX, flagCenterY, flagH)
+  }
+
+  /**
+   * Строит группу флага РФ (3 полосы + обводка) с центром в (centerX, centerY).
+   */
+  _buildFlag(centerX, centerY, flagH) {
+    const group = new THREE.Group()
+    const baseZ = this.baseDepth
+    const flagW = flagH * 1.5
+    const stripeH = flagH / 3
 
     const colors = [0xffffff, 0x0039A6, 0xD52B1E] // белый, синий, красный
 
@@ -260,8 +274,8 @@ export default class GRZGenerator extends BaseGenerator {
       const mat = new THREE.MeshPhongMaterial({color: colors[i]})
       const stripe = new THREE.Mesh(geo, mat)
       stripe.position.set(
-        flagCenterX,
-        flagBottomY + flagH / 2 - stripeH * i - stripeH / 2,
+        centerX,
+        centerY + flagH / 2 - stripeH * i - stripeH / 2,
         baseZ + this.options.textDepth * 0.25,
       )
       stripe.updateMatrix()
@@ -272,11 +286,155 @@ export default class GRZGenerator extends BaseGenerator {
     const borderGeo = new THREE.BoxGeometry(flagW + flagH * 0.06, flagH + flagH * 0.06, this.options.textDepth * 0.3)
     const borderMat = new THREE.MeshPhongMaterial({color: new THREE.Color(this.options.textColor)})
     const border = new THREE.Mesh(borderGeo, borderMat)
-    border.position.set(flagCenterX, flagBottomY, baseZ + this.options.textDepth * 0.1)
+    border.position.set(centerX, centerY, baseZ + this.options.textDepth * 0.1)
     border.updateMatrix()
     group.add(border)
 
     return group
+  }
+
+  // ─── Квадратный формат (Тип 1А, 290×170): две строки ─────
+  //
+  // Раскладка (по ГОСТ Р 50577-2018, Тип 1А):
+  //   ┌──────────────────────────┐
+  //   │  Х 001                    │  ← 1-я буква + 3 цифры, слева сверху
+  //   │  Е Р        ┌──── 35 ────┐│  ← 2 последние буквы слева; справа —
+  //   │             └─ RUS ▭ ────┘│    бокс: регион сверху, RUS+флаг снизу
+  //   └──────────────────────────┘
+
+  /**
+   * Метрики region-бокса (правый нижний угол). Выделено отдельно, чтобы и
+   * верхняя строка номера (выровнять цифры по центру бокса), и сам бокс
+   * считали одни и те же координаты. Создаёт меши region/RUS для измерения и
+   * переиспользования.
+   */
+  _regionBoxRect() {
+    const fs = this.fs
+    const pbox = fs * 0.18
+    const ft = Math.max(0.5, fs * 0.09)
+    const midGap = fs * 0.2
+    const botPad = fs * 0.08 // маленький нижний отступ → RUS+флаг ниже
+
+    const regionH = fs * 0.6
+    const region = this._textMesh(this.options.region, regionH)
+    const regionSize = this.getBoundingBoxSize(region)
+
+    const rus = this._textMesh('RUS', fs * 0.26)
+    const rusSize = this.getBoundingBoxSize(rus)
+
+    const withFlag = !!this.options.flagEnabled
+    const flagH = fs * 0.28
+    const flagW = flagH * 1.5
+    const rusRowW = withFlag ? rusSize.x + this.gap + flagW : rusSize.x
+    const rusRowH = withFlag ? Math.max(rusSize.y, flagH) : rusSize.y
+
+    const contentW = Math.max(regionSize.x, rusRowW)
+    const Wb = contentW + 2 * pbox
+    const Hb = pbox + regionH + midGap + rusRowH + botPad
+
+    // Прижат к внутренней кромке окантовки в правом-нижнем углу
+    const hasBorder = !!(this.options.border && this.options.border.active)
+    const edge = hasBorder ? this.borderWidth : ft
+    const boxRight = this.plateWidth / 2 - edge
+    const boxBottom = -this.plateHeight / 2 + edge
+    const boxLeft = boxRight - Wb
+    const boxTop = boxBottom + Hb
+    const bcx = boxRight - Wb / 2
+    const bcy = boxBottom + Hb / 2
+
+    return {
+      pbox, ft, regionH, botPad, region, regionSize, rus, rusSize,
+      withFlag, flagH, flagW, rusRowW, rusRowH, Wb, Hb,
+      hasBorder, boxLeft, boxRight, boxTop, boxBottom, bcx, bcy,
+    }
+  }
+
+  /**
+   * Верхняя строка (1-я буква + 3 цифры) и нижняя строка слева (2 буквы).
+   * Буквы X и Е выровнены по левому краю; буквы и цифры одной высоты.
+   */
+  createRegistrationNumberSquare() {
+    const group = new THREE.Group()
+    const baseZ = this.baseDepth
+    const charH = this.digitH // буквы и цифры одинаковой высоты
+    const box = this._regionBoxRect()
+
+    // Левый отступ первой буквы + увеличенный пробел до цифр
+    const leftStartX = -this.plateWidth / 2 + this.pad + this.fs * 0.45
+    const letterGap = this.fs * 0.4
+    // Верхняя строка чуть ниже верхнего края
+    const topBottomY = this.plateHeight / 2 - this.pad - charH - this.fs * 0.3
+
+    const l1 = this._textMesh(this.options.letter1, charH)
+    const l1W = this.getBoundingBoxSize(l1).x
+    const dig = this._textMesh(this.options.digits, charH)
+    const digW = this.getBoundingBoxSize(dig).x
+    // Цифры заканчиваются по центру region-бокса (bcx); не наезжают на букву
+    const digX = Math.max(box.bcx - digW, leftStartX + l1W + letterGap)
+
+    l1.position.set(leftStartX, topBottomY, baseZ)
+    group.add(l1)
+    dig.position.set(digX, topBottomY, baseZ)
+    group.add(dig)
+
+    // Низ слева: две последние буквы — ещё левее верхней строки;
+    // по вертикали — по центру region-бокса
+    const botLeftX = -this.plateWidth / 2 + this.pad + this.fs * 0.15
+    const l23 = this._textMesh(this.options.letter2 + this.options.letter3, charH)
+    l23.position.set(botLeftX, box.bcy - charH / 2, baseZ)
+    group.add(l23)
+
+    return group
+  }
+
+  /**
+   * Бокс региона (справа снизу): рамка + код региона сверху, RUS + флаг снизу.
+   * Рисуются только верхняя и левая стороны (правая и нижняя = окантовка знака);
+   * без окантовки — все четыре. Флаг включается опцией flagEnabled.
+   */
+  createRegionBoxSquare() {
+    const group = new THREE.Group()
+    const baseZ = this.baseDepth
+    const {
+      ft, pbox, regionH, botPad, region, regionSize, rus, rusSize,
+      withFlag, flagH, flagW, rusRowW, rusRowH, Wb, Hb,
+      hasBorder, boxLeft, boxRight, boxTop, boxBottom, bcx, bcy,
+    } = this._regionBoxRect()
+
+    // Верхнюю и левую стороны удлиняем на ft, чтобы левый-верхний угол смыкался.
+    group.add(this._lineBox(Wb + ft, ft, bcx, boxTop))   // верхняя
+    group.add(this._lineBox(ft, Hb + ft, boxLeft, bcy))  // левая
+    if (!hasBorder) {
+      group.add(this._lineBox(Wb + ft, ft, bcx, boxBottom)) // нижняя
+      group.add(this._lineBox(ft, Hb + ft, boxRight, bcy))  // правая
+    }
+
+    // Регион (верх бокса)
+    const regionCenterY = boxTop - pbox - regionH / 2
+    region.position.set(bcx - regionSize.x / 2, regionCenterY - regionSize.y / 2, baseZ)
+    group.add(region)
+
+    // RUS + флаг (низ бокса, ближе к нижней границе)
+    const rusCenterY = boxBottom + botPad + rusRowH / 2
+    const rowStartX = bcx - rusRowW / 2
+    rus.position.set(rowStartX, rusCenterY - rusSize.y / 2, baseZ)
+    group.add(rus)
+    if (withFlag) {
+      const flagCenterX = rowStartX + rusSize.x + this.gap + flagW / 2
+      group.add(this._buildFlag(flagCenterX, rusCenterY, flagH))
+    }
+
+    return group
+  }
+
+  /** Приподнятый прямоугольный брусок (линия рамки/разделителя) цветом текста. */
+  _lineBox(w, h, cx, cy) {
+    const geo = new THREE.BoxGeometry(w, h, this.options.textDepth)
+    const mat = new THREE.MeshPhongMaterial({color: new THREE.Color(this.options.textColor)})
+    const mesh = new THREE.Mesh(geo, mat)
+    mesh.position.set(cx, cy, this.baseDepth + this.options.textDepth / 2)
+    mesh.updateMatrix()
+    return mesh
   }
 
   // ─── Брелок (отверстие) ─────────────────────────────────

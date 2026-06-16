@@ -20,20 +20,14 @@
       .field-body
         .field
           .control
-            .select.is-small
-              select(v-model='wifi.security')
-                option(value='WPA') WPA
-                option(value='WEP') WEP
-                option(value='nopass') No password
-    .field.is-horizontal
-      .field-label.is-small
-        label.label {{$t('form.qr.content.wifi.hidden')}}?
-      .field-body
+            label.radio.mr-3(v-for="opt in securityOptions" :key="opt.value")
+              input(type='radio' name='wifi-security' :value='opt.value' v-model='wifi.security')
+              |  {{ opt.label }}
         .field
           .control
             label.checkbox
               input.is-small(type='checkbox' v-model='wifi.hidden')
-              | {{$t('form.qr.content.wifi.hiddenText')}}
+              |  {{$t('form.qr.content.wifi.hiddenText')}}
 </template>
 
 <script>
@@ -41,6 +35,15 @@ export default {
   name: 'WifiForm',
   props: {
     wifi: Object,
+  },
+  data() {
+    return {
+      securityOptions: [
+        { value: 'WPA', label: 'WPA' },
+        { value: 'WEP', label: 'WEP' },
+        { value: 'nopass', label: 'No password' },
+      ],
+    };
   },
 };
 </script>
