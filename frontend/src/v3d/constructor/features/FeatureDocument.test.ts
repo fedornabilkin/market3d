@@ -8,6 +8,7 @@ vi.mock('./csg/booleanCsg', () => ({
 }));
 
 import { FeatureDocument } from './FeatureDocument';
+import { booleanCsg } from './csg/booleanCsg';
 import { BoxFeature } from './primitives/BoxFeature';
 import { SphereFeature } from './primitives/SphereFeature';
 import { TransformFeature } from './composite/TransformFeature';
@@ -72,6 +73,7 @@ describe('FeatureDocument: serialization', () => {
     // Добавляем в произвольном порядке (зависимости создаём через композиты).
     doc.addFeature(new BoxFeature('b1', { width: 10, height: 10, depth: 10 }));
     doc.addFeature(new GroupFeature('g1', {}, ['b1']));
+    doc.setRootIds(['g1']);
     const json = doc.toJSON();
     // SerializeVisitor обходит graph.values() — порядок Map'а вставки.
     // fromJSON сортирует по inputs, поэтому ребёнок раньше родителя:
@@ -79,6 +81,59 @@ describe('FeatureDocument: serialization', () => {
     expect(restored.graph.has('b1')).toBe(true);
     expect(restored.graph.has('g1')).toBe(true);
     expect(restored.graph.get('g1')!.getInputs()).toEqual(['b1']);
+  });
+
+  it('loads only root-reachable outputs from json', () => {
+    const csgMock = vi.mocked(booleanCsg);
+    csgMock.mockClear();
+
+    const restored = FeatureDocument.fromJSON({
+      version: 2,
+      features: [
+        { id: 'root_box', type: 'box', params: { width: 10, height: 10, depth: 10 } },
+        { id: 'unused_a', type: 'box', params: { width: 10, height: 10, depth: 10 } },
+        { id: 'unused_b', type: 'box', params: { width: 5, height: 5, depth: 5 } },
+        { id: 'unused_boolean', type: 'boolean', params: { operation: 'union' }, inputs: ['unused_a', 'unused_b'] },
+      ],
+      rootIds: ['root_box'],
+    });
+
+    expect(restored.graph.has('unused_boolean')).toBe(true);
+    expect(restored.getOutput('root_box')).toBeDefined();
+    expect(restored.getOutput('unused_boolean')).toBeUndefined();
+    expect(csgMock).not.toHaveBeenCalled();
+  });
+
+  it('serializes only root-reachable features', () => {
+    const restored = FeatureDocument.fromJSON({
+      version: 2,
+      features: [
+        { id: 'root_box', type: 'box', params: { width: 10, height: 10, depth: 10 } },
+        { id: 'unused_box', type: 'box', params: { width: 5, height: 5, depth: 5 } },
+      ],
+      rootIds: ['root_box'],
+    });
+
+    expect(restored.graph.has('unused_box')).toBe(true);
+    expect(restored.toJSON().features.map((f) => f.id)).toEqual(['root_box']);
+  });
+
+  it('prunes unreachable features from the graph', () => {
+    const restored = FeatureDocument.fromJSON({
+      version: 2,
+      features: [
+        { id: 'root_box', type: 'box', params: { width: 10, height: 10, depth: 10 } },
+        { id: 'unused_a', type: 'box', params: { width: 10, height: 10, depth: 10 } },
+        { id: 'unused_b', type: 'box', params: { width: 5, height: 5, depth: 5 } },
+        { id: 'unused_group', type: 'group', params: {}, inputs: ['unused_a', 'unused_b'] },
+      ],
+      rootIds: ['root_box'],
+    });
+
+    const removed = restored.pruneUnreachable();
+    expect(removed).toEqual(expect.arrayContaining(['unused_a', 'unused_b', 'unused_group']));
+    expect(restored.graph.size()).toBe(1);
+    expect(restored.graph.has('root_box')).toBe(true);
   });
 });
 

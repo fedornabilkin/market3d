@@ -8,34 +8,6 @@ import * as BufferGeometryUtils from 'three/examples/jsm/utils/BufferGeometryUti
  */
 
 /**
- * Cut-оверсайз: typical CSG-проблема — копланарные грани режущего тела и базы
- * (когда оба сидят на сетке Z=0 либо вплотную друг к другу) дают неустойчивый
- * результат: остаётся тонкий срез ~0.001 мм. Раздуваем bbox режущего тела на ε
- * вокруг центра — гарантируем, что грани не совпадают точно, CSG срезает чисто.
- * Применяется к holes и к режущим solid'ам при subtract.
- */
-export const CUT_INFLATE_EPS = 0.005;
-
-/** Раздувает геометрию на 2·epsilon по каждой оси вокруг её bbox-центра. */
-export function inflateGeom(geom: THREE.BufferGeometry, epsilon: number): void {
-  geom.computeBoundingBox();
-  const bb = geom.boundingBox;
-  if (!bb) return;
-  const cx = (bb.min.x + bb.max.x) * 0.5;
-  const cy = (bb.min.y + bb.max.y) * 0.5;
-  const cz = (bb.min.z + bb.max.z) * 0.5;
-  const sx = bb.max.x - bb.min.x;
-  const sy = bb.max.y - bb.min.y;
-  const sz = bb.max.z - bb.min.z;
-  const fx = sx > 1e-9 ? (sx + 2 * epsilon) / sx : 1;
-  const fy = sy > 1e-9 ? (sy + 2 * epsilon) / sy : 1;
-  const fz = sz > 1e-9 ? (sz + 2 * epsilon) / sz : 1;
-  geom.translate(-cx, -cy, -cz);
-  geom.scale(fx, fy, fz);
-  geom.translate(cx, cy, cz);
-}
-
-/**
  * Пост-обработка результата CSG для манифолдности.
  *  1. mergeVertices(1e-4) сшивает совпадающие вершины вдоль швов реза
  *     (three-bvh-csg отдаёт неиндексированный «суп» треугольников).

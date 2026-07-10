@@ -72,4 +72,47 @@ describe('FeatureDocument.updateParamsLive', () => {
     doc.updateParamsLive('b1', { width: 25 });
     expect(events.map((e) => e.type)).toEqual(['feature-updated']);
   });
+
+  it('updateParamsSilent mutates params without events or recompute', () => {
+    const doc = new FeatureDocument();
+    doc.addFeature(new BoxFeature('b1', { width: 10, height: 10, depth: 10 }));
+    doc.addFeature(new TransformFeature('t1', {
+      position: [0, 0, 0],
+      rotation: [0, 0, 0],
+      scale: [1, 1, 1],
+    }, ['b1']));
+    doc.setRootIds(['t1']);
+
+    const events: FeatureDocumentEvent[] = [];
+    doc.subscribe((event) => events.push(event));
+    const before = doc.getOutput('t1');
+
+    doc.updateParamsSilent('t1', { position: [5, 0, 0] });
+
+    expect((doc.graph.get('t1') as TransformFeature).params.position).toEqual([5, 0, 0]);
+    expect(doc.getOutput('t1')).toBe(before);
+    expect(events).toEqual([]);
+  });
+
+  it('recomputeFrom commits silent params and emits one recompute event', () => {
+    const doc = new FeatureDocument();
+    doc.addFeature(new BoxFeature('b1', { width: 10, height: 10, depth: 10 }));
+    doc.addFeature(new TransformFeature('t1', {
+      position: [0, 0, 0],
+      rotation: [0, 0, 0],
+      scale: [1, 1, 1],
+    }, ['b1']));
+    doc.setRootIds(['t1']);
+    const events: FeatureDocumentEvent[] = [];
+    doc.subscribe((event) => events.push(event));
+
+    doc.updateParamsSilent('t1', { position: [7, 0, 0] });
+    doc.recomputeFrom(['t1']);
+
+    const out = doc.getOutput('t1')!;
+    const pos = new THREE.Vector3();
+    out.transform.decompose(pos, new THREE.Quaternion(), new THREE.Vector3());
+    expect(pos.x).toBeCloseTo(7);
+    expect(events.map((event) => event.type)).toEqual(['recompute-done']);
+  });
 });

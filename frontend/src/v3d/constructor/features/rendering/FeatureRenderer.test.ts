@@ -65,6 +65,49 @@ describe('FeatureRenderer: live updates', () => {
     renderer.dispose();
   });
 
+  it('rebuilds only changed root on recompute-done event', () => {
+    const root = new THREE.Group();
+    const renderer = new FeatureRenderer(root);
+    const doc = new FeatureDocument();
+    doc.addFeature(new BoxFeature('b1', { width: 10, height: 10, depth: 10 }));
+    doc.addFeature(new SphereFeature('s1', { radius: 5 }));
+    doc.setRootIds(['b1', 's1']);
+
+    renderer.bindDocument(doc);
+    const boxBefore = renderer.getObject3D('b1');
+    const sphereBefore = renderer.getObject3D('s1');
+
+    doc.updateParams<{ width: number }>('b1', { width: 20 });
+
+    expect(renderer.getObject3D('b1')).toBeDefined();
+    expect(renderer.getObject3D('b1')).not.toBe(boxBefore);
+    expect(renderer.getObject3D('s1')).toBe(sphereBefore);
+    renderer.dispose();
+  });
+
+  it('preserves unchanged children when composite root inputs change', () => {
+    const root = new THREE.Group();
+    const renderer = new FeatureRenderer(root);
+    const doc = new FeatureDocument();
+    doc.addFeature(new BoxFeature('b1', { width: 10, height: 10, depth: 10 }));
+    doc.addFeature(new GroupFeature('scene', {}, ['b1']));
+    doc.setRootIds(['scene']);
+
+    renderer.bindDocument(doc);
+    const sceneObj = renderer.getObject3D('scene') as THREE.Group;
+    const firstChildBefore = sceneObj.children[0];
+
+    doc.addFeature(new SphereFeature('s1', { radius: 5 }));
+    doc.updateInputs('scene', ['b1', 's1']);
+
+    const sceneAfter = renderer.getObject3D('scene') as THREE.Group;
+    expect(sceneAfter).toBe(sceneObj);
+    expect(sceneAfter.children).toHaveLength(2);
+    expect(sceneAfter.children[0]).toBe(firstChildBefore);
+    expect(renderer.findFeatureIdByObject(sceneAfter.children[1])).toBe('s1');
+    renderer.dispose();
+  });
+
   it('removes object on feature-removed', () => {
     const root = new THREE.Group();
     const renderer = new FeatureRenderer(root);

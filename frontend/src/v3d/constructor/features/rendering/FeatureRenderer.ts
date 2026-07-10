@@ -34,6 +34,7 @@ export class FeatureRenderer {
   private objectsByFeatureId = new Map<FeatureId, THREE.Object3D>();
   private document: FeatureDocument | null = null;
   private unsubscribe: (() => void) | null = null;
+  private renderVersion = 0;
 
   /**
    * Все материалы — per-mesh, без шаринга. Шаринг ломал updateNodeMaterial
@@ -104,6 +105,10 @@ export class FeatureRenderer {
     return this.objectsByFeatureId.get(id);
   }
 
+  getRenderVersion(): number {
+    return this.renderVersion;
+  }
+
   dispose(): void {
     this.unbindDocument();
   }
@@ -117,7 +122,7 @@ export class FeatureRenderer {
       // Полная пересборка корней — простая и предсказуемая стратегия для
       // структурных мутаций (add/remove/updateInputs или полный updateParams).
       // High-frequency путь идёт через `feature-updated` (см. ниже).
-      this.fullRebuild();
+      this.reconcileRoots(event.featureIds);
       return;
     }
 
@@ -168,14 +173,99 @@ export class FeatureRenderer {
     this.clearScene();
     if (!this.document) return;
     for (const id of this.document.rootIds) {
-      const output = this.document.getOutput(id);
-      if (!output) continue;
-      const obj = this.buildSceneObjectFromOutput(output, id, true);
-      if (obj) {
-        this.objectsByFeatureId.set(id, obj);
-        this.rootGroup.add(obj);
+      this.rebuildRoot(id);
+    }
+    this.sortRootObjects();
+    this.renderVersion++;
+  }
+
+  private reconcileRoots(changedIds: readonly FeatureId[] | undefined): void {
+    if (!this.document) return;
+    const rootIds = this.document.rootIds;
+    const rootSet = new Set(rootIds);
+    for (const id of [...this.objectsByFeatureId.keys()]) {
+      if (!rootSet.has(id)) this.removeObjectByFeatureId(id);
+    }
+
+    const changedSet = changedIds ? new Set(changedIds) : null;
+    for (const id of rootIds) {
+      if (!this.objectsByFeatureId.has(id)) {
+        this.rebuildRoot(id);
+      } else if (!changedSet || changedSet.has(id)) {
+        if (!this.reconcileCompositeRoot(id, changedSet)) this.rebuildRoot(id);
       }
     }
+    this.sortRootObjects();
+    this.renderVersion++;
+  }
+
+  private reconcileCompositeRoot(id: FeatureId, changedSet: ReadonlySet<FeatureId> | null): boolean {
+    if (!this.document) return false;
+    const output = this.document.getOutput(id);
+    const group = this.objectsByFeatureId.get(id);
+    if (!output || output.kind !== 'composite' || !(group instanceof THREE.Group)) return false;
+    if (output.color || output.isHole) return false;
+
+    output.transform.decompose(group.position, group.quaternion, group.scale);
+    const nextIds = output.children.map((child, index) => child.sourceFeatureId ?? `${id}:${index}`);
+    const nextIdSet = new Set(nextIds);
+    for (const child of [...group.children]) {
+      const childId = (child.userData as { featureId?: FeatureId }).featureId;
+      if (!childId || !nextIdSet.has(childId)) {
+        group.remove(child);
+        this.disposeObject(child);
+      }
+    }
+
+    const existingById = new Map<FeatureId, THREE.Object3D>();
+    for (const child of group.children) {
+      const childId = (child.userData as { featureId?: FeatureId }).featureId;
+      if (childId) existingById.set(childId, child);
+    }
+
+    for (let i = 0; i < output.children.length; i++) {
+      const childOutput = output.children[i];
+      const childId = nextIds[i];
+      const existing = existingById.get(childId);
+      if (existing && changedSet && !changedSet.has(childId)) continue;
+      if (existing) {
+        group.remove(existing);
+        this.disposeObject(existing);
+      }
+      const childObj = this.buildSceneObjectFromOutput(childOutput, childId);
+      if (childObj) group.add(childObj);
+    }
+
+    const order = new Map(nextIds.map((childId, index) => [childId, index]));
+    group.children.sort((a, b) => {
+      const aId = (a.userData as { featureId?: FeatureId }).featureId;
+      const bId = (b.userData as { featureId?: FeatureId }).featureId;
+      return (order.get(aId ?? '') ?? Number.MAX_SAFE_INTEGER)
+        - (order.get(bId ?? '') ?? Number.MAX_SAFE_INTEGER);
+    });
+    return true;
+  }
+
+  private rebuildRoot(id: FeatureId): void {
+    if (!this.document) return;
+    this.removeObjectByFeatureId(id);
+    const output = this.document.getOutput(id);
+    if (!output) return;
+    const obj = this.buildSceneObjectFromOutput(output, id, true);
+    if (!obj) return;
+    this.objectsByFeatureId.set(id, obj);
+    this.rootGroup.add(obj);
+  }
+
+  private sortRootObjects(): void {
+    if (!this.document) return;
+    const order = new Map(this.document.rootIds.map((id, index) => [id, index]));
+    this.rootGroup.children.sort((a, b) => {
+      const aId = (a.userData as { featureId?: FeatureId }).featureId;
+      const bId = (b.userData as { featureId?: FeatureId }).featureId;
+      return (order.get(aId ?? '') ?? Number.MAX_SAFE_INTEGER)
+        - (order.get(bId ?? '') ?? Number.MAX_SAFE_INTEGER);
+    });
   }
 
   private clearScene(): void {
@@ -185,6 +275,7 @@ export class FeatureRenderer {
       this.disposeObject(child);
     }
     this.objectsByFeatureId.clear();
+    this.renderVersion++;
   }
 
   private removeObjectByFeatureId(id: FeatureId): void {
@@ -193,6 +284,7 @@ export class FeatureRenderer {
     if (obj.parent) obj.parent.remove(obj);
     this.disposeObject(obj);
     this.objectsByFeatureId.delete(id);
+    this.renderVersion++;
   }
 
   /**

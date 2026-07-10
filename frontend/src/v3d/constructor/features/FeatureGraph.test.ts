@@ -15,6 +15,7 @@ import { SphereFeature } from './primitives/SphereFeature';
 import { TransformFeature } from './composite/TransformFeature';
 import { BooleanFeature } from './composite/BooleanFeature';
 import { GroupFeature } from './composite/GroupFeature';
+import { booleanCsg } from './csg/booleanCsg';
 
 const makeBox = (id: string, w = 10) => new BoxFeature(id, { width: w, height: w, depth: w });
 const makeSphere = (id: string, r = 5) => new SphereFeature(id, { radius: r });
@@ -163,6 +164,79 @@ describe('FeatureGraph: recompute', () => {
       // Геометрия должна существовать и быть непустой.
       expect(out!.geometry.getAttribute('position').count).toBeGreaterThan(0);
     }
+  });
+
+  it('materializes composite cutters before outer subtract', () => {
+    const csgMock = vi.mocked(booleanCsg);
+    csgMock.mockClear();
+
+    const g = new FeatureGraph();
+    g.add(makeBox('base', 20));
+    g.add(makeBox('outer', 10));
+    g.add(makeBox('inner', 4));
+    g.add(new TransformFeature('innerHole', {
+      position: [0, 0, 0],
+      rotation: [0, 0, 0],
+      scale: [1, 1, 1],
+      isHole: true,
+    }, ['inner']));
+    g.add(new GroupFeature('emptyCutter', {}, ['outer', 'innerHole']));
+    g.add(makeBoolean('result', 'subtract', ['base', 'emptyCutter']));
+
+    const r = g.recomputeAll();
+    expect(r.failed).toEqual([]);
+
+    expect(csgMock).toHaveBeenCalledTimes(2);
+    const materializeCall = csgMock.mock.calls[0];
+    expect(materializeCall[1]).toBe('union');
+    expect(materializeCall[0]).toHaveLength(2);
+    expect(materializeCall[0][0].isHole).toBe(false);
+    expect(materializeCall[0][1].isHole).toBe(true);
+
+    const outerCall = csgMock.mock.calls[1];
+    expect(outerCall[1]).toBe('subtract');
+    expect(outerCall[0]).toHaveLength(2);
+    expect(outerCall[0][0].isHole).toBe(false);
+    expect(outerCall[0][1].isHole).toBe(false);
+  });
+
+  it('flattens non-cutter composites without extra materialization', () => {
+    const csgMock = vi.mocked(booleanCsg);
+    csgMock.mockClear();
+
+    const g = new FeatureGraph();
+    g.add(makeBox('a', 10));
+    g.add(makeBox('b', 6));
+    g.add(new GroupFeature('group', {}, ['a', 'b']));
+    g.add(makeBoolean('result', 'union', ['group']));
+
+    const r = g.recomputeAll();
+    expect(r.failed).toEqual([]);
+
+    expect(csgMock).toHaveBeenCalledTimes(1);
+    expect(csgMock.mock.calls[0][1]).toBe('union');
+    expect(csgMock.mock.calls[0][0]).toHaveLength(2);
+  });
+
+  it('collapses nested union chains during dependency recompute', () => {
+    const csgMock = vi.mocked(booleanCsg);
+    csgMock.mockClear();
+
+    const g = new FeatureGraph();
+    g.add(makeBox('a', 10));
+    g.add(makeBox('b', 8));
+    g.add(makeBox('c', 6));
+    g.add(makeBoolean('inner', 'union', ['a', 'b']));
+    g.add(makeBoolean('outer', 'union', ['inner', 'c']));
+
+    const r = g.recomputeDependencies(['outer']);
+    expect(r.failed).toEqual([]);
+
+    expect(csgMock).toHaveBeenCalledTimes(1);
+    expect(csgMock.mock.calls[0][1]).toBe('union');
+    expect(csgMock.mock.calls[0][0]).toHaveLength(3);
+    expect(g.getOutput('outer')).toBeDefined();
+    expect(g.getOutput('inner')).toBeUndefined();
   });
 
   it('group returns composite output', () => {

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { FeatureDocument } from '../FeatureDocument';
+import type { Feature } from '../Feature';
 import type { FeatureId, FeatureJSON } from '../types';
 import { CompositeFeature } from '../CompositeFeature';
 import { TransformFeature, type TransformFeatureParams } from '../composite/TransformFeature';
@@ -279,12 +280,14 @@ export function cloneFeatureSubgraph(
 
   // 3. Десериализация и добавление в граф (порядок: deps first).
   const addedIds: FeatureId[] = [];
+  const newFeatures: Feature[] = [];
   for (const oldId of order) {
     const json = newJsonByOldId.get(oldId)!;
     const newFeature = reg.create(json);
-    doc.addFeature(newFeature);
+    newFeatures.push(newFeature);
     addedIds.push(newFeature.id);
   }
+  doc.addFeatures(newFeatures, [idMap.get(featureId)!]);
 
   return { rootId: idMap.get(featureId)!, addedIds };
 }

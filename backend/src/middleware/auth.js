@@ -70,6 +70,18 @@ export const generateToken = (user) => {
 // Middleware для проверки JWT
 export const authenticateJWT = passport.authenticate('jwt', { session: false });
 
+export const optionalAuthenticateJWT = (req, res, next) => {
+  passport.authenticate('jwt', { session: false }, (err, user) => {
+    if (err) {
+      return next(err);
+    }
+    if (user) {
+      req.user = user;
+    }
+    return next();
+  })(req, res, next);
+};
+
 // Middleware для обновления времени последней активности пользователя
 export const updateLastActivity = async (req, res, next) => {
   if (req.user && req.user.id) {

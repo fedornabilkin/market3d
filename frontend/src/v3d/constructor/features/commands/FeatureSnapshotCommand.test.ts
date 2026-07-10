@@ -77,6 +77,31 @@ describe('FeatureSnapshotCommand', () => {
     expect(events).toContain('recompute-done');
   });
 
+  it('uses targeted restore for param-only undo/redo', () => {
+    const doc = new FeatureDocument();
+    doc.addFeature(new BoxFeature('b1', { width: 10, height: 10, depth: 10 }));
+    doc.addFeature(new BoxFeature('b2', { width: 5, height: 5, depth: 5 }));
+    doc.setRootIds(['b1', 'b2']);
+
+    const before = doc.toJSON();
+    doc.updateParams('b1', { width: 25 });
+    const after = doc.toJSON();
+    const cmd = new FeatureSnapshotCommand(before, after, doc);
+
+    const recomputed: string[][] = [];
+    doc.subscribe((event) => {
+      if (event.type === 'recompute-done') recomputed.push(event.featureIds ?? []);
+    });
+
+    cmd.undo();
+    expect((doc.graph.get('b1')!.params as { width: number }).width).toBe(10);
+    expect(recomputed[recomputed.length - 1]).toEqual(['b1']);
+
+    cmd.redo();
+    expect((doc.graph.get('b1')!.params as { width: number }).width).toBe(25);
+    expect(recomputed[recomputed.length - 1]).toEqual(['b1']);
+  });
+
   it('restores feature add/remove (not just params)', () => {
     const doc = new FeatureDocument();
     doc.addFeature(new BoxFeature('b1', { width: 10, height: 10, depth: 10 }));

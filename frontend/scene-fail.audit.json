@@ -1,0 +1,2971 @@
+{
+  "version": 2,
+  "metadata": {
+    "createdAt": "2026-04-27T21:24:43.683Z",
+    "updatedAt": "2026-07-09T20:04:28.629Z"
+  },
+  "features": [
+    {
+      "id": "m_box_1",
+      "type": "box",
+      "params": {
+        "width": 20,
+        "height": 20,
+        "depth": 20
+      }
+    },
+    {
+      "id": "m_xf_2",
+      "type": "transform",
+      "params": {
+        "position": [
+          86.5,
+          92,
+          7.499999999999997
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1.7500000000000002,
+          3.0999999999999996,
+          0.34999999999999976
+        ]
+      },
+      "inputs": [
+        "m_box_1"
+      ]
+    },
+    {
+      "id": "p2_box_1",
+      "type": "box",
+      "params": {
+        "width": 20,
+        "height": 20,
+        "depth": 20
+      }
+    },
+    {
+      "id": "p2_xform_2",
+      "type": "transform",
+      "params": {
+        "position": [
+          81,
+          96,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "inputs": [
+        "p2_box_1"
+      ]
+    },
+    {
+      "id": "p2_cylinder_3",
+      "type": "cylinder",
+      "params": {
+        "radiusTop": 10,
+        "radiusBottom": 10,
+        "height": 20,
+        "segments": 32
+      }
+    },
+    {
+      "id": "p2_xform_4",
+      "type": "transform",
+      "params": {
+        "position": [
+          89,
+          103,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ],
+        "isHole": true
+      },
+      "inputs": [
+        "p2_cylinder_3"
+      ]
+    },
+    {
+      "id": "p2_box_5",
+      "type": "box",
+      "params": {
+        "width": 20,
+        "height": 20,
+        "depth": 20
+      }
+    },
+    {
+      "id": "p2_xform_6",
+      "type": "transform",
+      "params": {
+        "position": [
+          72,
+          87,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ],
+        "isHole": true
+      },
+      "inputs": [
+        "p2_box_5"
+      ]
+    },
+    {
+      "id": "p2_boolean_7",
+      "type": "boolean",
+      "params": {
+        "operation": "union"
+      },
+      "inputs": [
+        "p2_xform_2",
+        "p2_xform_4",
+        "p2_xform_6"
+      ]
+    },
+    {
+      "id": "p2_box_26",
+      "type": "box",
+      "params": {
+        "width": 20,
+        "height": 20,
+        "depth": 20
+      }
+    },
+    {
+      "id": "p2_xform_27",
+      "type": "transform",
+      "params": {
+        "position": [
+          81,
+          96,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "inputs": [
+        "p2_box_26"
+      ]
+    },
+    {
+      "id": "p2_xform_28",
+      "type": "transform",
+      "params": {
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "inputs": [
+        "p2_boolean_7"
+      ]
+    },
+    {
+      "id": "p2_group_29",
+      "type": "group",
+      "params": {
+        "position": [
+          50,
+          -78,
+          0
+        ]
+      },
+      "inputs": [
+        "p2_xform_28",
+        "p2_xform_27"
+      ]
+    },
+    {
+      "id": "p2_cylinder_30",
+      "type": "cylinder",
+      "params": {
+        "radiusTop": 10,
+        "radiusBottom": 10,
+        "height": 20,
+        "segments": 32
+      }
+    },
+    {
+      "id": "p2_xform_31",
+      "type": "transform",
+      "params": {
+        "position": [
+          0,
+          96,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ],
+        "isHole": true
+      },
+      "inputs": [
+        "p2_cylinder_30"
+      ]
+    },
+    {
+      "id": "p2_box_32",
+      "type": "box",
+      "params": {
+        "width": 20,
+        "height": 20,
+        "depth": 20
+      }
+    },
+    {
+      "id": "p2_xform_33",
+      "type": "transform",
+      "params": {
+        "position": [
+          93.00000000000003,
+          25.499999999999986,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          5.300000000000001,
+          3.8499999999999996,
+          1
+        ]
+      },
+      "inputs": [
+        "p2_box_32"
+      ]
+    },
+    {
+      "id": "p2_box_2",
+      "type": "box",
+      "params": {
+        "width": 20,
+        "height": 20,
+        "depth": 20
+      }
+    },
+    {
+      "id": "p2_xform_3",
+      "type": "transform",
+      "params": {
+        "position": [
+          97,
+          81,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "inputs": [
+        "p2_box_2"
+      ]
+    },
+    {
+      "id": "p2_cylinder_4",
+      "type": "cylinder",
+      "params": {
+        "radiusTop": 10,
+        "radiusBottom": 10,
+        "height": 20,
+        "segments": 32
+      }
+    },
+    {
+      "id": "p2_xform_5",
+      "type": "transform",
+      "params": {
+        "position": [
+          88,
+          74,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ],
+        "isHole": true
+      },
+      "inputs": [
+        "p2_cylinder_4"
+      ]
+    },
+    {
+      "id": "p2_boolean_6",
+      "type": "boolean",
+      "params": {
+        "operation": "union"
+      },
+      "inputs": [
+        "p2_xform_3",
+        "p2_xform_5"
+      ]
+    },
+    {
+      "id": "p2_xform_7",
+      "type": "transform",
+      "params": {
+        "position": [
+          -46.849999999999994,
+          65.9000000000001,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1.5499999999999998,
+          1.0999999999999985,
+          0.9999999999999996
+        ],
+        "isHole": true
+      },
+      "inputs": [
+        "p2_boolean_6"
+      ]
+    },
+    {
+      "id": "p2_box_8",
+      "type": "box",
+      "params": {
+        "width": 20,
+        "height": 20,
+        "depth": 20
+      }
+    },
+    {
+      "id": "p2_xform_9",
+      "type": "transform",
+      "params": {
+        "position": [
+          144.5,
+          56.5,
+          -0.5
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          2.5499999999999994,
+          3.85,
+          0.95
+        ]
+      },
+      "inputs": [
+        "p2_box_8"
+      ]
+    },
+    {
+      "id": "p2_cylinder_10",
+      "type": "cylinder",
+      "params": {
+        "radiusTop": 10,
+        "radiusBottom": 10,
+        "height": 20,
+        "segments": 32
+      }
+    },
+    {
+      "id": "p2_cylinder_12",
+      "type": "cylinder",
+      "params": {
+        "radiusTop": 10,
+        "radiusBottom": 10,
+        "height": 20,
+        "segments": 32
+      }
+    },
+    {
+      "id": "p2_xform_13",
+      "type": "transform",
+      "params": {
+        "position": [
+          53.999999999999986,
+          141,
+          0.999999911355367
+        ],
+        "rotation": [
+          0,
+          -1.5707963267948966,
+          0
+        ],
+        "scale": [
+          0.49999999999999983,
+          0.49999999999999983,
+          3.299999999999999
+        ],
+        "isHole": true
+      },
+      "inputs": [
+        "p2_cylinder_12"
+      ]
+    },
+    {
+      "id": "p2_dup_cylinder_18",
+      "type": "cylinder",
+      "params": {
+        "radiusTop": 10,
+        "radiusBottom": 10,
+        "height": 20,
+        "segments": 32
+      }
+    },
+    {
+      "id": "p2_dup_transform_19",
+      "type": "transform",
+      "params": {
+        "position": [
+          74,
+          89,
+          12
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ],
+        "isHole": true
+      },
+      "inputs": [
+        "p2_dup_cylinder_18"
+      ]
+    },
+    {
+      "id": "p2_dup_box_20",
+      "type": "box",
+      "params": {
+        "width": 20,
+        "height": 20,
+        "depth": 20
+      }
+    },
+    {
+      "id": "p2_dup_transform_21",
+      "type": "transform",
+      "params": {
+        "position": [
+          97,
+          81,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "inputs": [
+        "p2_dup_box_20"
+      ]
+    },
+    {
+      "id": "p2_dup_cylinder_22",
+      "type": "cylinder",
+      "params": {
+        "radiusTop": 10,
+        "radiusBottom": 10,
+        "height": 20,
+        "segments": 32
+      }
+    },
+    {
+      "id": "p2_dup_transform_23",
+      "type": "transform",
+      "params": {
+        "position": [
+          88,
+          74,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ],
+        "isHole": true
+      },
+      "inputs": [
+        "p2_dup_cylinder_22"
+      ]
+    },
+    {
+      "id": "p2_dup_boolean_24",
+      "type": "boolean",
+      "params": {
+        "operation": "union"
+      },
+      "inputs": [
+        "p2_dup_transform_21",
+        "p2_dup_transform_23"
+      ]
+    },
+    {
+      "id": "p2_dup_transform_25",
+      "type": "transform",
+      "params": {
+        "position": [
+          -3.8499999999999943,
+          -3.0999999999998664,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1.5499999999999998,
+          1.0999999999999985,
+          0.9999999999999996
+        ],
+        "isHole": true
+      },
+      "inputs": [
+        "p2_dup_boolean_24"
+      ]
+    },
+    {
+      "id": "p2_dup_box_26",
+      "type": "box",
+      "params": {
+        "width": 20,
+        "height": 20,
+        "depth": 20
+      }
+    },
+    {
+      "id": "p2_dup_transform_27",
+      "type": "transform",
+      "params": {
+        "position": [
+          156.5,
+          58.5,
+          -0.5
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          2.5499999999999994,
+          3.85,
+          0.95
+        ]
+      },
+      "inputs": [
+        "p2_dup_box_26"
+      ]
+    },
+    {
+      "id": "p2_dup_cylinder_28",
+      "type": "cylinder",
+      "params": {
+        "radiusTop": 10,
+        "radiusBottom": 10,
+        "height": 20,
+        "segments": 32
+      }
+    },
+    {
+      "id": "p2_dup_transform_29",
+      "type": "transform",
+      "params": {
+        "position": [
+          156.5,
+          58.5,
+          1
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1.1
+        ],
+        "isHole": true
+      },
+      "inputs": [
+        "p2_dup_cylinder_28"
+      ]
+    },
+    {
+      "id": "p2_dup_boolean_30",
+      "type": "boolean",
+      "params": {
+        "operation": "union"
+      },
+      "inputs": [
+        "p2_dup_transform_25",
+        "p2_dup_transform_27",
+        "p2_dup_transform_29"
+      ]
+    },
+    {
+      "id": "p2_dup_transform_31",
+      "type": "transform",
+      "params": {
+        "position": [
+          -100,
+          60,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "inputs": [
+        "p2_dup_boolean_30"
+      ]
+    },
+    {
+      "id": "p2_dup_boolean_32",
+      "type": "boolean",
+      "params": {
+        "operation": "union"
+      },
+      "inputs": [
+        "p2_dup_transform_19",
+        "p2_dup_transform_31"
+      ]
+    },
+    {
+      "id": "p2_dup_cylinder_82",
+      "type": "cylinder",
+      "params": {
+        "radiusTop": 10,
+        "radiusBottom": 10,
+        "height": 20,
+        "segments": 32
+      }
+    },
+    {
+      "id": "p2_dup_transform_83",
+      "type": "transform",
+      "params": {
+        "position": [
+          74,
+          89,
+          12
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ],
+        "isHole": true
+      },
+      "inputs": [
+        "p2_dup_cylinder_82"
+      ]
+    },
+    {
+      "id": "p2_dup_box_84",
+      "type": "box",
+      "params": {
+        "width": 20,
+        "height": 20,
+        "depth": 20
+      }
+    },
+    {
+      "id": "p2_dup_transform_85",
+      "type": "transform",
+      "params": {
+        "position": [
+          97,
+          81,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "inputs": [
+        "p2_dup_box_84"
+      ]
+    },
+    {
+      "id": "p2_dup_cylinder_86",
+      "type": "cylinder",
+      "params": {
+        "radiusTop": 10,
+        "radiusBottom": 10,
+        "height": 20,
+        "segments": 32
+      }
+    },
+    {
+      "id": "p2_dup_transform_87",
+      "type": "transform",
+      "params": {
+        "position": [
+          88,
+          74,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ],
+        "isHole": true
+      },
+      "inputs": [
+        "p2_dup_cylinder_86"
+      ]
+    },
+    {
+      "id": "p2_dup_boolean_88",
+      "type": "boolean",
+      "params": {
+        "operation": "union"
+      },
+      "inputs": [
+        "p2_dup_transform_85",
+        "p2_dup_transform_87"
+      ]
+    },
+    {
+      "id": "p2_dup_transform_89",
+      "type": "transform",
+      "params": {
+        "position": [
+          -3.8499999999999943,
+          -3.0999999999998664,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1.5499999999999998,
+          1.0999999999999985,
+          0.9999999999999996
+        ],
+        "isHole": true
+      },
+      "inputs": [
+        "p2_dup_boolean_88"
+      ]
+    },
+    {
+      "id": "p2_dup_box_90",
+      "type": "box",
+      "params": {
+        "width": 20,
+        "height": 20,
+        "depth": 20
+      }
+    },
+    {
+      "id": "p2_dup_transform_91",
+      "type": "transform",
+      "params": {
+        "position": [
+          156.5,
+          58.5,
+          -0.5
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          2.5499999999999994,
+          3.85,
+          0.95
+        ]
+      },
+      "inputs": [
+        "p2_dup_box_90"
+      ]
+    },
+    {
+      "id": "p2_dup_cylinder_92",
+      "type": "cylinder",
+      "params": {
+        "radiusTop": 10,
+        "radiusBottom": 10,
+        "height": 20,
+        "segments": 32
+      }
+    },
+    {
+      "id": "p2_dup_transform_93",
+      "type": "transform",
+      "params": {
+        "position": [
+          156.5,
+          58.5,
+          1
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1.1
+        ],
+        "isHole": true
+      },
+      "inputs": [
+        "p2_dup_cylinder_92"
+      ]
+    },
+    {
+      "id": "p2_dup_boolean_94",
+      "type": "boolean",
+      "params": {
+        "operation": "union"
+      },
+      "inputs": [
+        "p2_dup_transform_89",
+        "p2_dup_transform_91",
+        "p2_dup_transform_93"
+      ]
+    },
+    {
+      "id": "p2_dup_transform_95",
+      "type": "transform",
+      "params": {
+        "position": [
+          -100,
+          60,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "inputs": [
+        "p2_dup_boolean_94"
+      ]
+    },
+    {
+      "id": "p2_dup_boolean_96",
+      "type": "boolean",
+      "params": {
+        "operation": "union"
+      },
+      "inputs": [
+        "p2_dup_transform_83",
+        "p2_dup_transform_95"
+      ]
+    },
+    {
+      "id": "p2_dup_transform_97",
+      "type": "transform",
+      "params": {
+        "position": [
+          -25,
+          -24,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "inputs": [
+        "p2_dup_boolean_96"
+      ]
+    },
+    {
+      "id": "p2_box_98",
+      "type": "box",
+      "params": {
+        "width": 20,
+        "height": 20,
+        "depth": 20
+      }
+    },
+    {
+      "id": "p2_xform_99",
+      "type": "transform",
+      "params": {
+        "position": [
+          11.500000000000004,
+          52.5,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1.3500000000000003,
+          1.5500000000000005,
+          1
+        ]
+      },
+      "inputs": [
+        "p2_box_98"
+      ]
+    },
+    {
+      "id": "p2_group_100",
+      "type": "group",
+      "params": {},
+      "inputs": [
+        "p2_dup_transform_97",
+        "p2_xform_99"
+      ]
+    },
+    {
+      "id": "p2_xform_101",
+      "type": "transform",
+      "params": {
+        "position": [
+          20,
+          40,
+          1
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "inputs": [
+        "p2_group_100"
+      ]
+    },
+    {
+      "id": "p2_boolean_102",
+      "type": "boolean",
+      "params": {
+        "operation": "union"
+      },
+      "inputs": [
+        "p2_xform_13",
+        "p2_xform_101"
+      ]
+    },
+    {
+      "id": "p2_xform_103",
+      "type": "transform",
+      "params": {
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "inputs": [
+        "p2_boolean_102"
+      ]
+    },
+    {
+      "id": "p2_box_40",
+      "type": "box",
+      "params": {
+        "width": 20,
+        "height": 20,
+        "depth": 20
+      }
+    },
+    {
+      "id": "p2_chamfer_box_49",
+      "type": "box",
+      "params": {
+        "width": 2,
+        "height": 20.2,
+        "depth": 2
+      }
+    },
+    {
+      "id": "p2_chamfer_box_xform_50",
+      "type": "transform",
+      "params": {
+        "position": [
+          -1,
+          1,
+          -10.1
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "inputs": [
+        "p2_chamfer_box_49"
+      ]
+    },
+    {
+      "id": "p2_chamfer_cyl_51",
+      "type": "cylinder",
+      "params": {
+        "radiusTop": 2,
+        "radiusBottom": 2,
+        "height": 20.2,
+        "segments": 32
+      }
+    },
+    {
+      "id": "p2_chamfer_cyl_xform_52",
+      "type": "transform",
+      "params": {
+        "position": [
+          -2,
+          2,
+          -10.1
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ],
+        "isHole": true
+      },
+      "inputs": [
+        "p2_chamfer_cyl_51"
+      ]
+    },
+    {
+      "id": "p2_chamfer_group_53",
+      "type": "boolean",
+      "params": {
+        "operation": "union"
+      },
+      "name": "Скругление",
+      "inputs": [
+        "p2_chamfer_box_xform_50",
+        "p2_chamfer_cyl_xform_52"
+      ]
+    },
+    {
+      "id": "p2_chamfer_root_54",
+      "type": "transform",
+      "params": {
+        "position": [
+          10,
+          0,
+          20
+        ],
+        "rotation": [
+          -1.5707963267948966,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ],
+        "isHole": true
+      },
+      "inputs": [
+        "p2_chamfer_group_53"
+      ]
+    },
+    {
+      "id": "p2_chamfer_target_group_55",
+      "type": "boolean",
+      "params": {
+        "operation": "union"
+      },
+      "inputs": [
+        "p2_box_40",
+        "p2_chamfer_root_54"
+      ]
+    },
+    {
+      "id": "p2_chamfer_box_56",
+      "type": "box",
+      "params": {
+        "width": 2,
+        "height": 20.2,
+        "depth": 2
+      }
+    },
+    {
+      "id": "p2_chamfer_box_xform_57",
+      "type": "transform",
+      "params": {
+        "position": [
+          -1,
+          1,
+          -10.1
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "inputs": [
+        "p2_chamfer_box_56"
+      ]
+    },
+    {
+      "id": "p2_chamfer_cyl_58",
+      "type": "cylinder",
+      "params": {
+        "radiusTop": 2,
+        "radiusBottom": 2,
+        "height": 20.2,
+        "segments": 32
+      }
+    },
+    {
+      "id": "p2_chamfer_cyl_xform_59",
+      "type": "transform",
+      "params": {
+        "position": [
+          -2,
+          2,
+          -10.1
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ],
+        "isHole": true
+      },
+      "inputs": [
+        "p2_chamfer_cyl_58"
+      ]
+    },
+    {
+      "id": "p2_chamfer_group_60",
+      "type": "boolean",
+      "params": {
+        "operation": "union"
+      },
+      "name": "Скругление",
+      "inputs": [
+        "p2_chamfer_box_xform_57",
+        "p2_chamfer_cyl_xform_59"
+      ]
+    },
+    {
+      "id": "p2_chamfer_root_61",
+      "type": "transform",
+      "params": {
+        "position": [
+          10,
+          -10,
+          10
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ],
+        "isHole": true
+      },
+      "inputs": [
+        "p2_chamfer_group_60"
+      ]
+    },
+    {
+      "id": "p2_chamfer_target_group_62",
+      "type": "boolean",
+      "params": {
+        "operation": "union"
+      },
+      "inputs": [
+        "p2_chamfer_target_group_55",
+        "p2_chamfer_root_61"
+      ]
+    },
+    {
+      "id": "p2_chamfer_box_63",
+      "type": "box",
+      "params": {
+        "width": 5,
+        "height": 20.20000041469289,
+        "depth": 5
+      }
+    },
+    {
+      "id": "p2_chamfer_box_xform_64",
+      "type": "transform",
+      "params": {
+        "position": [
+          2.5,
+          2.5,
+          -10.100000207346445
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "inputs": [
+        "p2_chamfer_box_63"
+      ]
+    },
+    {
+      "id": "p2_chamfer_cyl_65",
+      "type": "cylinder",
+      "params": {
+        "radiusTop": 5,
+        "radiusBottom": 5,
+        "height": 20.20000041469289,
+        "segments": 32
+      }
+    },
+    {
+      "id": "p2_chamfer_cyl_xform_66",
+      "type": "transform",
+      "params": {
+        "position": [
+          5,
+          5,
+          -10.100000207346445
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ],
+        "isHole": true
+      },
+      "inputs": [
+        "p2_chamfer_cyl_65"
+      ]
+    },
+    {
+      "id": "p2_chamfer_group_67",
+      "type": "boolean",
+      "params": {
+        "operation": "union"
+      },
+      "name": "Скругление",
+      "inputs": [
+        "p2_chamfer_box_xform_64",
+        "p2_chamfer_cyl_xform_66"
+      ]
+    },
+    {
+      "id": "p2_chamfer_root_68",
+      "type": "transform",
+      "params": {
+        "position": [
+          -10,
+          -10,
+          9.999999792653554
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ],
+        "isHole": true
+      },
+      "inputs": [
+        "p2_chamfer_group_67"
+      ]
+    },
+    {
+      "id": "p2_chamfer_target_group_69",
+      "type": "boolean",
+      "params": {
+        "operation": "union"
+      },
+      "inputs": [
+        "p2_chamfer_target_group_62",
+        "p2_chamfer_root_68"
+      ]
+    },
+    {
+      "id": "p2_chamfer_box_70",
+      "type": "box",
+      "params": {
+        "width": 5,
+        "height": 20.200049591064452,
+        "depth": 5
+      }
+    },
+    {
+      "id": "p2_chamfer_box_xform_71",
+      "type": "transform",
+      "params": {
+        "position": [
+          2.5,
+          2.5,
+          -10.100024795532226
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "inputs": [
+        "p2_chamfer_box_70"
+      ]
+    },
+    {
+      "id": "p2_chamfer_cyl_72",
+      "type": "cylinder",
+      "params": {
+        "radiusTop": 5,
+        "radiusBottom": 5,
+        "height": 20.200049591064452,
+        "segments": 32
+      }
+    },
+    {
+      "id": "p2_chamfer_cyl_xform_73",
+      "type": "transform",
+      "params": {
+        "position": [
+          5,
+          5,
+          -10.100024795532226
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ],
+        "isHole": true
+      },
+      "inputs": [
+        "p2_chamfer_cyl_72"
+      ]
+    },
+    {
+      "id": "p2_chamfer_group_74",
+      "type": "boolean",
+      "params": {
+        "operation": "union"
+      },
+      "name": "Скругление",
+      "inputs": [
+        "p2_chamfer_box_xform_71",
+        "p2_chamfer_cyl_xform_73"
+      ]
+    },
+    {
+      "id": "p2_chamfer_root_75",
+      "type": "transform",
+      "params": {
+        "position": [
+          -10,
+          0.0000247955322265625,
+          20.000003814697266
+        ],
+        "rotation": [
+          -1.5707963267948966,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ],
+        "isHole": true
+      },
+      "inputs": [
+        "p2_chamfer_group_74"
+      ]
+    },
+    {
+      "id": "p2_chamfer_target_group_76",
+      "type": "boolean",
+      "params": {
+        "operation": "union"
+      },
+      "inputs": [
+        "p2_chamfer_target_group_69",
+        "p2_chamfer_root_75"
+      ]
+    },
+    {
+      "id": "p2_chamfer_box_77",
+      "type": "box",
+      "params": {
+        "width": 5,
+        "height": 20.2,
+        "depth": 5
+      }
+    },
+    {
+      "id": "p2_chamfer_box_xform_78",
+      "type": "transform",
+      "params": {
+        "position": [
+          2.5,
+          2.5,
+          -10.1
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "inputs": [
+        "p2_chamfer_box_77"
+      ]
+    },
+    {
+      "id": "p2_chamfer_cyl_79",
+      "type": "cylinder",
+      "params": {
+        "radiusTop": 5,
+        "radiusBottom": 5,
+        "height": 20.2,
+        "segments": 32
+      }
+    },
+    {
+      "id": "p2_chamfer_cyl_xform_80",
+      "type": "transform",
+      "params": {
+        "position": [
+          5,
+          5,
+          -10.1
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ],
+        "isHole": true
+      },
+      "inputs": [
+        "p2_chamfer_cyl_79"
+      ]
+    },
+    {
+      "id": "p2_chamfer_group_81",
+      "type": "boolean",
+      "params": {
+        "operation": "union"
+      },
+      "name": "Скругление",
+      "inputs": [
+        "p2_chamfer_box_xform_78",
+        "p2_chamfer_cyl_xform_80"
+      ]
+    },
+    {
+      "id": "p2_chamfer_root_82",
+      "type": "transform",
+      "params": {
+        "position": [
+          0,
+          -10,
+          20
+        ],
+        "rotation": [
+          0,
+          1.5707963267948966,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ],
+        "isHole": true
+      },
+      "inputs": [
+        "p2_chamfer_group_81"
+      ]
+    },
+    {
+      "id": "p2_chamfer_target_group_83",
+      "type": "boolean",
+      "params": {
+        "operation": "union"
+      },
+      "inputs": [
+        "p2_chamfer_target_group_76",
+        "p2_chamfer_root_82"
+      ]
+    },
+    {
+      "id": "p2_xform_41",
+      "type": "transform",
+      "params": {
+        "position": [
+          80,
+          20,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "inputs": [
+        "p2_chamfer_target_group_83"
+      ]
+    },
+    {
+      "id": "m_group_3",
+      "type": "group",
+      "params": {},
+      "inputs": [
+        "p2_xform_7",
+        "p2_xform_9",
+        "p2_xform_103",
+        "p2_xform_41"
+      ]
+    },
+    {
+      "id": "p2_chamfer_box_8",
+      "type": "box",
+      "params": {
+        "width": 2,
+        "height": 20.2,
+        "depth": 2
+      }
+    },
+    {
+      "id": "p2_chamfer_box_xform_9",
+      "type": "transform",
+      "params": {
+        "position": [
+          1,
+          1,
+          -10.1
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "inputs": [
+        "p2_chamfer_box_8"
+      ]
+    },
+    {
+      "id": "p2_chamfer_cyl_10",
+      "type": "cylinder",
+      "params": {
+        "radiusTop": 2,
+        "radiusBottom": 2,
+        "height": 20.2,
+        "segments": 32
+      }
+    },
+    {
+      "id": "p2_chamfer_cyl_xform_11",
+      "type": "transform",
+      "params": {
+        "position": [
+          2,
+          2,
+          -10.1
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ],
+        "isHole": true
+      },
+      "inputs": [
+        "p2_chamfer_cyl_10"
+      ]
+    },
+    {
+      "id": "p2_chamfer_group_12",
+      "type": "group",
+      "params": {},
+      "name": "Скругление",
+      "inputs": [
+        "p2_chamfer_box_xform_9",
+        "p2_chamfer_cyl_xform_11"
+      ]
+    },
+    {
+      "id": "p2_chamfer_box_14",
+      "type": "box",
+      "params": {
+        "width": 2,
+        "height": 20.2,
+        "depth": 2
+      }
+    },
+    {
+      "id": "p2_chamfer_box_xform_15",
+      "type": "transform",
+      "params": {
+        "position": [
+          1,
+          1,
+          -10.1
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "inputs": [
+        "p2_chamfer_box_14"
+      ]
+    },
+    {
+      "id": "p2_chamfer_cyl_16",
+      "type": "cylinder",
+      "params": {
+        "radiusTop": 2,
+        "radiusBottom": 2,
+        "height": 20.2,
+        "segments": 32
+      }
+    },
+    {
+      "id": "p2_chamfer_cyl_xform_17",
+      "type": "transform",
+      "params": {
+        "position": [
+          2,
+          2,
+          -10.1
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ],
+        "isHole": true
+      },
+      "inputs": [
+        "p2_chamfer_cyl_16"
+      ]
+    },
+    {
+      "id": "p2_chamfer_group_18",
+      "type": "group",
+      "params": {},
+      "name": "Скругление",
+      "inputs": [
+        "p2_chamfer_box_xform_15",
+        "p2_chamfer_cyl_xform_17"
+      ]
+    },
+    {
+      "id": "p2_chamfer_box_20",
+      "type": "box",
+      "params": {
+        "width": 2,
+        "height": 20.2,
+        "depth": 2
+      }
+    },
+    {
+      "id": "p2_chamfer_box_xform_21",
+      "type": "transform",
+      "params": {
+        "position": [
+          1,
+          1,
+          -10.1
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "inputs": [
+        "p2_chamfer_box_20"
+      ]
+    },
+    {
+      "id": "p2_chamfer_cyl_22",
+      "type": "cylinder",
+      "params": {
+        "radiusTop": 2,
+        "radiusBottom": 2,
+        "height": 20.2,
+        "segments": 32
+      }
+    },
+    {
+      "id": "p2_chamfer_cyl_xform_23",
+      "type": "transform",
+      "params": {
+        "position": [
+          2,
+          2,
+          -10.1
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ],
+        "isHole": true
+      },
+      "inputs": [
+        "p2_chamfer_cyl_22"
+      ]
+    },
+    {
+      "id": "p2_chamfer_group_24",
+      "type": "group",
+      "params": {},
+      "name": "Скругление",
+      "inputs": [
+        "p2_chamfer_box_xform_21",
+        "p2_chamfer_cyl_xform_23"
+      ]
+    },
+    {
+      "id": "p2_dup_cylinder_34",
+      "type": "cylinder",
+      "params": {
+        "radiusTop": 10,
+        "radiusBottom": 10,
+        "height": 20,
+        "segments": 32
+      }
+    },
+    {
+      "id": "p2_dup_transform_35",
+      "type": "transform",
+      "params": {
+        "position": [
+          74,
+          89,
+          12
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ],
+        "isHole": true
+      },
+      "inputs": [
+        "p2_dup_cylinder_34"
+      ]
+    },
+    {
+      "id": "p2_dup_box_36",
+      "type": "box",
+      "params": {
+        "width": 20,
+        "height": 20,
+        "depth": 20
+      }
+    },
+    {
+      "id": "p2_dup_transform_37",
+      "type": "transform",
+      "params": {
+        "position": [
+          97,
+          81,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "inputs": [
+        "p2_dup_box_36"
+      ]
+    },
+    {
+      "id": "p2_dup_cylinder_38",
+      "type": "cylinder",
+      "params": {
+        "radiusTop": 10,
+        "radiusBottom": 10,
+        "height": 20,
+        "segments": 32
+      }
+    },
+    {
+      "id": "p2_dup_transform_39",
+      "type": "transform",
+      "params": {
+        "position": [
+          88,
+          74,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ],
+        "isHole": true
+      },
+      "inputs": [
+        "p2_dup_cylinder_38"
+      ]
+    },
+    {
+      "id": "p2_dup_boolean_40",
+      "type": "boolean",
+      "params": {
+        "operation": "union"
+      },
+      "inputs": [
+        "p2_dup_transform_37",
+        "p2_dup_transform_39"
+      ]
+    },
+    {
+      "id": "p2_dup_transform_41",
+      "type": "transform",
+      "params": {
+        "position": [
+          -3.8499999999999943,
+          -3.0999999999998664,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1.5499999999999998,
+          1.0999999999999985,
+          0.9999999999999996
+        ],
+        "isHole": true
+      },
+      "inputs": [
+        "p2_dup_boolean_40"
+      ]
+    },
+    {
+      "id": "p2_dup_box_42",
+      "type": "box",
+      "params": {
+        "width": 20,
+        "height": 20,
+        "depth": 20
+      }
+    },
+    {
+      "id": "p2_dup_transform_43",
+      "type": "transform",
+      "params": {
+        "position": [
+          156.5,
+          58.5,
+          -0.5
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          2.5499999999999994,
+          3.85,
+          0.95
+        ]
+      },
+      "inputs": [
+        "p2_dup_box_42"
+      ]
+    },
+    {
+      "id": "p2_dup_cylinder_44",
+      "type": "cylinder",
+      "params": {
+        "radiusTop": 10,
+        "radiusBottom": 10,
+        "height": 20,
+        "segments": 32
+      }
+    },
+    {
+      "id": "p2_dup_transform_45",
+      "type": "transform",
+      "params": {
+        "position": [
+          156.5,
+          58.5,
+          1
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1.1
+        ],
+        "isHole": true
+      },
+      "inputs": [
+        "p2_dup_cylinder_44"
+      ]
+    },
+    {
+      "id": "p2_dup_boolean_46",
+      "type": "boolean",
+      "params": {
+        "operation": "union"
+      },
+      "inputs": [
+        "p2_dup_transform_41",
+        "p2_dup_transform_43",
+        "p2_dup_transform_45"
+      ]
+    },
+    {
+      "id": "p2_dup_transform_47",
+      "type": "transform",
+      "params": {
+        "position": [
+          -100,
+          60,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "inputs": [
+        "p2_dup_boolean_46"
+      ]
+    },
+    {
+      "id": "p2_dup_boolean_48",
+      "type": "boolean",
+      "params": {
+        "operation": "union"
+      },
+      "inputs": [
+        "p2_dup_transform_35",
+        "p2_dup_transform_47"
+      ]
+    },
+    {
+      "id": "p2_dup_cylinder_50",
+      "type": "cylinder",
+      "params": {
+        "radiusTop": 10,
+        "radiusBottom": 10,
+        "height": 20,
+        "segments": 32
+      }
+    },
+    {
+      "id": "p2_dup_transform_51",
+      "type": "transform",
+      "params": {
+        "position": [
+          74,
+          89,
+          12
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ],
+        "isHole": true
+      },
+      "inputs": [
+        "p2_dup_cylinder_50"
+      ]
+    },
+    {
+      "id": "p2_dup_box_52",
+      "type": "box",
+      "params": {
+        "width": 20,
+        "height": 20,
+        "depth": 20
+      }
+    },
+    {
+      "id": "p2_dup_transform_53",
+      "type": "transform",
+      "params": {
+        "position": [
+          97,
+          81,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "inputs": [
+        "p2_dup_box_52"
+      ]
+    },
+    {
+      "id": "p2_dup_cylinder_54",
+      "type": "cylinder",
+      "params": {
+        "radiusTop": 10,
+        "radiusBottom": 10,
+        "height": 20,
+        "segments": 32
+      }
+    },
+    {
+      "id": "p2_dup_transform_55",
+      "type": "transform",
+      "params": {
+        "position": [
+          88,
+          74,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ],
+        "isHole": true
+      },
+      "inputs": [
+        "p2_dup_cylinder_54"
+      ]
+    },
+    {
+      "id": "p2_dup_boolean_56",
+      "type": "boolean",
+      "params": {
+        "operation": "union"
+      },
+      "inputs": [
+        "p2_dup_transform_53",
+        "p2_dup_transform_55"
+      ]
+    },
+    {
+      "id": "p2_dup_transform_57",
+      "type": "transform",
+      "params": {
+        "position": [
+          -3.8499999999999943,
+          -3.0999999999998664,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1.5499999999999998,
+          1.0999999999999985,
+          0.9999999999999996
+        ],
+        "isHole": true
+      },
+      "inputs": [
+        "p2_dup_boolean_56"
+      ]
+    },
+    {
+      "id": "p2_dup_box_58",
+      "type": "box",
+      "params": {
+        "width": 20,
+        "height": 20,
+        "depth": 20
+      }
+    },
+    {
+      "id": "p2_dup_transform_59",
+      "type": "transform",
+      "params": {
+        "position": [
+          156.5,
+          58.5,
+          -0.5
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          2.5499999999999994,
+          3.85,
+          0.95
+        ]
+      },
+      "inputs": [
+        "p2_dup_box_58"
+      ]
+    },
+    {
+      "id": "p2_dup_cylinder_60",
+      "type": "cylinder",
+      "params": {
+        "radiusTop": 10,
+        "radiusBottom": 10,
+        "height": 20,
+        "segments": 32
+      }
+    },
+    {
+      "id": "p2_dup_transform_61",
+      "type": "transform",
+      "params": {
+        "position": [
+          156.5,
+          58.5,
+          1
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1.1
+        ],
+        "isHole": true
+      },
+      "inputs": [
+        "p2_dup_cylinder_60"
+      ]
+    },
+    {
+      "id": "p2_dup_boolean_62",
+      "type": "boolean",
+      "params": {
+        "operation": "union"
+      },
+      "inputs": [
+        "p2_dup_transform_57",
+        "p2_dup_transform_59",
+        "p2_dup_transform_61"
+      ]
+    },
+    {
+      "id": "p2_dup_transform_63",
+      "type": "transform",
+      "params": {
+        "position": [
+          -100,
+          60,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "inputs": [
+        "p2_dup_boolean_62"
+      ]
+    },
+    {
+      "id": "p2_dup_boolean_64",
+      "type": "boolean",
+      "params": {
+        "operation": "union"
+      },
+      "inputs": [
+        "p2_dup_transform_51",
+        "p2_dup_transform_63"
+      ]
+    },
+    {
+      "id": "p2_dup_cylinder_66",
+      "type": "cylinder",
+      "params": {
+        "radiusTop": 10,
+        "radiusBottom": 10,
+        "height": 20,
+        "segments": 32
+      }
+    },
+    {
+      "id": "p2_dup_transform_67",
+      "type": "transform",
+      "params": {
+        "position": [
+          74,
+          89,
+          12
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ],
+        "isHole": true
+      },
+      "inputs": [
+        "p2_dup_cylinder_66"
+      ]
+    },
+    {
+      "id": "p2_dup_box_68",
+      "type": "box",
+      "params": {
+        "width": 20,
+        "height": 20,
+        "depth": 20
+      }
+    },
+    {
+      "id": "p2_dup_transform_69",
+      "type": "transform",
+      "params": {
+        "position": [
+          97,
+          81,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "inputs": [
+        "p2_dup_box_68"
+      ]
+    },
+    {
+      "id": "p2_dup_cylinder_70",
+      "type": "cylinder",
+      "params": {
+        "radiusTop": 10,
+        "radiusBottom": 10,
+        "height": 20,
+        "segments": 32
+      }
+    },
+    {
+      "id": "p2_dup_transform_71",
+      "type": "transform",
+      "params": {
+        "position": [
+          88,
+          74,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ],
+        "isHole": true
+      },
+      "inputs": [
+        "p2_dup_cylinder_70"
+      ]
+    },
+    {
+      "id": "p2_dup_boolean_72",
+      "type": "boolean",
+      "params": {
+        "operation": "union"
+      },
+      "inputs": [
+        "p2_dup_transform_69",
+        "p2_dup_transform_71"
+      ]
+    },
+    {
+      "id": "p2_dup_transform_73",
+      "type": "transform",
+      "params": {
+        "position": [
+          -3.8499999999999943,
+          -3.0999999999998664,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1.5499999999999998,
+          1.0999999999999985,
+          0.9999999999999996
+        ],
+        "isHole": true
+      },
+      "inputs": [
+        "p2_dup_boolean_72"
+      ]
+    },
+    {
+      "id": "p2_dup_box_74",
+      "type": "box",
+      "params": {
+        "width": 20,
+        "height": 20,
+        "depth": 20
+      }
+    },
+    {
+      "id": "p2_dup_transform_75",
+      "type": "transform",
+      "params": {
+        "position": [
+          156.5,
+          58.5,
+          -0.5
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          2.5499999999999994,
+          3.85,
+          0.95
+        ]
+      },
+      "inputs": [
+        "p2_dup_box_74"
+      ]
+    },
+    {
+      "id": "p2_dup_cylinder_76",
+      "type": "cylinder",
+      "params": {
+        "radiusTop": 10,
+        "radiusBottom": 10,
+        "height": 20,
+        "segments": 32
+      }
+    },
+    {
+      "id": "p2_dup_transform_77",
+      "type": "transform",
+      "params": {
+        "position": [
+          156.5,
+          58.5,
+          1
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1.1
+        ],
+        "isHole": true
+      },
+      "inputs": [
+        "p2_dup_cylinder_76"
+      ]
+    },
+    {
+      "id": "p2_dup_boolean_78",
+      "type": "boolean",
+      "params": {
+        "operation": "union"
+      },
+      "inputs": [
+        "p2_dup_transform_73",
+        "p2_dup_transform_75",
+        "p2_dup_transform_77"
+      ]
+    },
+    {
+      "id": "p2_dup_transform_79",
+      "type": "transform",
+      "params": {
+        "position": [
+          -100,
+          60,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "inputs": [
+        "p2_dup_boolean_78"
+      ]
+    },
+    {
+      "id": "p2_dup_boolean_80",
+      "type": "boolean",
+      "params": {
+        "operation": "union"
+      },
+      "inputs": [
+        "p2_dup_transform_67",
+        "p2_dup_transform_79"
+      ]
+    },
+    {
+      "id": "p2_box_125",
+      "type": "box",
+      "params": {
+        "width": 20,
+        "height": 20,
+        "depth": 20
+      }
+    },
+    {
+      "id": "p2_chamfer_box_127",
+      "type": "box",
+      "params": {
+        "width": 2,
+        "height": 20.2,
+        "depth": 2
+      }
+    },
+    {
+      "id": "p2_chamfer_box_xform_128",
+      "type": "transform",
+      "params": {
+        "position": [
+          -1,
+          1,
+          -10.1
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "inputs": [
+        "p2_chamfer_box_127"
+      ]
+    },
+    {
+      "id": "p2_chamfer_cyl_129",
+      "type": "cylinder",
+      "params": {
+        "radiusTop": 2,
+        "radiusBottom": 2,
+        "height": 20.2,
+        "segments": 32
+      }
+    },
+    {
+      "id": "p2_chamfer_cyl_xform_130",
+      "type": "transform",
+      "params": {
+        "position": [
+          -2,
+          2,
+          -10.1
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ],
+        "isHole": true
+      },
+      "inputs": [
+        "p2_chamfer_cyl_129"
+      ]
+    },
+    {
+      "id": "p2_chamfer_group_131",
+      "type": "group",
+      "params": {},
+      "name": "Скругление",
+      "inputs": [
+        "p2_chamfer_box_xform_128",
+        "p2_chamfer_cyl_xform_130"
+      ]
+    },
+    {
+      "id": "p2_chamfer_root_132",
+      "type": "transform",
+      "params": {
+        "position": [
+          10,
+          -10,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ],
+        "isHole": true
+      },
+      "inputs": [
+        "p2_chamfer_group_131"
+      ]
+    },
+    {
+      "id": "p2_chamfer_target_group_133",
+      "type": "boolean",
+      "params": {
+        "operation": "union"
+      },
+      "inputs": [
+        "p2_box_125",
+        "p2_chamfer_root_132"
+      ]
+    },
+    {
+      "id": "p2_chamfer_box_134",
+      "type": "box",
+      "params": {
+        "width": 2,
+        "height": 20.2,
+        "depth": 2
+      }
+    },
+    {
+      "id": "p2_chamfer_box_xform_135",
+      "type": "transform",
+      "params": {
+        "position": [
+          -1,
+          1,
+          -10.1
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "inputs": [
+        "p2_chamfer_box_134"
+      ]
+    },
+    {
+      "id": "p2_chamfer_cyl_136",
+      "type": "cylinder",
+      "params": {
+        "radiusTop": 2,
+        "radiusBottom": 2,
+        "height": 20.2,
+        "segments": 32
+      }
+    },
+    {
+      "id": "p2_chamfer_cyl_xform_137",
+      "type": "transform",
+      "params": {
+        "position": [
+          -2,
+          2,
+          -10.1
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ],
+        "isHole": true
+      },
+      "inputs": [
+        "p2_chamfer_cyl_136"
+      ]
+    },
+    {
+      "id": "p2_chamfer_group_138",
+      "type": "group",
+      "params": {},
+      "name": "Скругление",
+      "inputs": [
+        "p2_chamfer_box_xform_135",
+        "p2_chamfer_cyl_xform_137"
+      ]
+    },
+    {
+      "id": "p2_chamfer_root_139",
+      "type": "transform",
+      "params": {
+        "position": [
+          10,
+          0,
+          20
+        ],
+        "rotation": [
+          -1.5707963267948966,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ],
+        "isHole": true
+      },
+      "inputs": [
+        "p2_chamfer_group_138"
+      ]
+    },
+    {
+      "id": "p2_chamfer_target_group_140",
+      "type": "boolean",
+      "params": {
+        "operation": "union"
+      },
+      "inputs": [
+        "p2_chamfer_target_group_133",
+        "p2_chamfer_root_139"
+      ]
+    }
+  ],
+  "rootIds": [
+    "m_group_3"
+  ]
+}

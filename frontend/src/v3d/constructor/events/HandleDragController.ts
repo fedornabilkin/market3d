@@ -247,8 +247,8 @@ export class HandleDragController {
       }
     }
 
-    // Sync scratch → featureDoc.updateParamsLive (single-feature targeted).
-    doc.updateParamsLive(featureId, {
+    // Sync scratch → FeatureDocument params. The THREE object was already updated above.
+    doc.updateParamsSilent(featureId, {
       position: [params.position.x, params.position.y, params.position.z],
       rotation: [params.rotation.x, params.rotation.y, params.rotation.z],
       scale: [params.scale.x, params.scale.y, params.scale.z],

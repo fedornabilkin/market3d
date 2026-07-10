@@ -110,6 +110,7 @@ export class ConstructorSceneService {
    */
   private featureRenderer: FeatureRenderer | null = null;
   private featureDocCurrent: FeatureDocument | null = null;
+  private featureRendererBoundDoc: FeatureDocument | null = null;
   /**
    * Двунаправленные карты featureId ↔ ModelNode (NodeFeatureMapping). Нужны
    * UI'ю (Feature Tree, FeatureParamsForm) и legacy mutation paths
@@ -156,6 +157,7 @@ export class ConstructorSceneService {
   private selectedFeatureIds: FeatureId[] = [];
   private selectedFeatureIdPrimary: FeatureId | null = null;
   private selectedObject3D: THREE.Object3D | null = null;
+  private selectableMeshesCache: { version: number; meshes: THREE.Mesh[] } | null = null;
 
   // ─── Misc ──────────────────────────────────────────────────────────────────
   private animationId: number | null = null;
@@ -536,6 +538,7 @@ export class ConstructorSceneService {
     this.mouse = null;
     this.dragPlane = null;
     this.dragTarget = null;
+    this.featureRendererBoundDoc = null;
   }
 
   // ─── Scene management ──────────────────────────────────────────────────────
@@ -578,7 +581,9 @@ export class ConstructorSceneService {
     if (!this.featureDocCurrent) {
       this.featureDocCurrent = new FeatureDocument();
     }
+    if (this.featureRendererBoundDoc === this.featureDocCurrent) return;
     this.featureRenderer.bindDocument(this.featureDocCurrent);
+    this.featureRendererBoundDoc = this.featureDocCurrent;
   }
 
   /**
@@ -627,7 +632,7 @@ export class ConstructorSceneService {
     if (!this.featureDocCurrent) {
       throw new Error('[ConstructorSceneService.mutateFeatureDoc] featureDoc не инициализирован — вызовите rebuildSceneFromTree до первой мутации');
     }
-    mutate(this.featureDocCurrent);
+    this.featureDocCurrent.batchMutate(() => mutate(this.featureDocCurrent!));
     this.updateGizmoTarget();
   }
 
@@ -640,6 +645,12 @@ export class ConstructorSceneService {
   syncCurrentFeatureDocToModelTree(): void {
     if (!this.featureDocCurrent) return;
     this.rebuildSceneFromTree();
+  }
+
+  commitSelectedFeatureChanges(): void {
+    if (!this.featureDocCurrent || !this.selectedFeatureIdPrimary) return;
+    this.featureDocCurrent.recomputeFrom([this.selectedFeatureIdPrimary]);
+    this.updateGizmoTarget();
   }
 
   private animate = (): void => {
@@ -660,8 +671,10 @@ export class ConstructorSceneService {
     // Dashed projection of active object onto the grid
     this.gridMode.updateProjection(this.selectedObject3D);
 
-    // Soft shadows for non-selected objects
-    this.gridMode.updateShadows(this.getSelectableMeshes(), this.selectedObject3D);
+    // Soft shadows are static enough during drag; recomputing Box3 for every object each frame is expensive.
+    if (!this.isPlaneDragging && !this.isHandleDragging) {
+      this.gridMode.updateShadows(this.getSelectableMeshes(), this.selectedObject3D);
+    }
 
     // Debug center marker
     this.updateCenterMarker();
@@ -695,11 +708,16 @@ export class ConstructorSceneService {
   };
 
   private getSelectableMeshes(): THREE.Mesh[] {
+    const version = this.featureRenderer?.getRenderVersion() ?? 0;
+    if (this.selectableMeshesCache?.version === version) {
+      return this.selectableMeshesCache.meshes;
+    }
     const meshes: THREE.Mesh[] = [];
     if (!this.modelRootGroup) return meshes;
     this.modelRootGroup.traverse((o) => {
       if (o instanceof THREE.Mesh && (o.userData as { featureId?: unknown }).featureId) meshes.push(o);
     });
+    this.selectableMeshesCache = { version, meshes };
     return meshes;
   }
 

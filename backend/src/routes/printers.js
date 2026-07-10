@@ -11,13 +11,13 @@ import {
   removePrinterColors,
 } from '../controllers/printerController.js';
 import { printerValidation, validate } from '../utils/validators/index.js';
-import { authenticateJWTWithActivity } from '../middleware/auth.js';
+import { authenticateJWTWithActivity, optionalAuthenticateJWT } from '../middleware/auth.js';
 
 const router = express.Router();
 
 router.get('/', authenticateJWTWithActivity, getAllPrinters);
 router.get('/recent', getRecentPrinters);
-router.get('/:id', authenticateJWTWithActivity, getPrinterById);
+router.get('/:id', optionalAuthenticateJWT, getPrinterById);
 router.post('/', authenticateJWTWithActivity, printerValidation, validate, savePrinter);
 router.put('/:id', authenticateJWTWithActivity, printerValidation, validate, savePrinter);
 router.post('/:id/archive', authenticateJWTWithActivity, archivePrinter);

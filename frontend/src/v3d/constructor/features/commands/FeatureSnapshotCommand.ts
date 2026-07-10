@@ -33,6 +33,7 @@ export class FeatureSnapshotCommand extends Command {
   }
 
   private applyTarget(json: FeatureDocumentJSON): void {
+    if (this.target.tryRestoreMatchingGraphFromJSON(json)) return;
     this.target.loadFromJSON(json);
   }
 }

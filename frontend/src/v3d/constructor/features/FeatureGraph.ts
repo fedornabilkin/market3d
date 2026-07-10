@@ -1,6 +1,7 @@
 import type { FeatureId, FeatureOutput, RecomputeResult, EvaluateContext } from './types';
 import type { Feature } from './Feature';
 import { CompositeFeature } from './CompositeFeature';
+import { BooleanFeature } from './composite/BooleanFeature';
 import { EvaluateVisitor } from './visitors/EvaluateVisitor';
 
 /**
@@ -122,6 +123,20 @@ export class FeatureGraph {
     return visited;
   }
 
+  collectDependencies(rootIds: FeatureId[]): Set<FeatureId> {
+    const visited = new Set<FeatureId>();
+    const stack = [...rootIds];
+    while (stack.length > 0) {
+      const id = stack.pop()!;
+      if (visited.has(id)) continue;
+      const feature = this.features.get(id);
+      if (!feature) continue;
+      visited.add(id);
+      for (const inputId of feature.getInputs()) stack.push(inputId);
+    }
+    return visited;
+  }
+
   /**
    * Топосорт подмножества (обычно — affected из collectDependents).
    * Бросает на циклах (которых после assertNoCycle быть не должно, но
@@ -162,7 +177,22 @@ export class FeatureGraph {
    */
   recompute(changedIds: FeatureId[]): RecomputeResult {
     const affected = this.collectDependents(changedIds);
+    return this.recomputeSubset(affected);
+  }
+
+  recomputeDependencies(rootIds: FeatureId[]): RecomputeResult {
+    const affected = this.collectDependencies(rootIds);
+    return this.recomputeSubset(affected, { protectedIds: new Set(rootIds), skipNestedUnions: true });
+  }
+
+  private recomputeSubset(
+    affected: Set<FeatureId>,
+    options: { protectedIds?: Set<FeatureId>; skipNestedUnions?: boolean } = {},
+  ): RecomputeResult {
     const order = this.topologicalOrder(affected);
+    const skippedUnionIds = options.skipNestedUnions
+      ? this.collectNestedUnionSkips(affected, options.protectedIds ?? new Set())
+      : new Set<FeatureId>();
 
     // ctx.resolved: туда уйдут outputs всех нужных фич (включая
     // не-affected зависимости affected'ов).
@@ -171,7 +201,7 @@ export class FeatureGraph {
       if (!affected.has(id)) resolved.set(id, out);
     }
 
-    const ctx: EvaluateContext = { resolved };
+    const ctx: EvaluateContext = { resolved, features: this.features, skippedUnionIds };
     const visitor = new EvaluateVisitor(ctx);
 
     const updated: FeatureId[] = [];
@@ -180,11 +210,17 @@ export class FeatureGraph {
     for (const id of order) {
       const feature = this.features.get(id);
       if (!feature) continue;
+      if (skippedUnionIds.has(id)) {
+        feature.error = undefined;
+        this.cachedOutputs.delete(id);
+        continue;
+      }
 
       // Если хоть один input в failed — пропагируем ошибку.
       let inputFailure: string | null = null;
       for (const inputId of feature.getInputs()) {
-        if (!resolved.has(inputId)) {
+        const canConsumeSkippedUnion = isUnionBoolean(feature) && skippedUnionIds.has(inputId);
+        if (!resolved.has(inputId) && !canConsumeSkippedUnion) {
           inputFailure = `вход ${inputId} не разрешён (вероятно, упал ранее)`;
           break;
         }
@@ -211,6 +247,29 @@ export class FeatureGraph {
     }
 
     return { updated, failed };
+  }
+
+  private collectNestedUnionSkips(affected: Set<FeatureId>, protectedIds: Set<FeatureId>): Set<FeatureId> {
+    const skipped = new Set<FeatureId>();
+    for (const id of affected) {
+      if (protectedIds.has(id)) continue;
+      const feature = this.features.get(id);
+      if (!isUnionBoolean(feature)) continue;
+      const dependents = this.dependentsIndex.get(id);
+      if (!dependents) continue;
+      let hasAffectedDependent = false;
+      let allAffectedDependentsAreUnions = true;
+      for (const dependentId of dependents) {
+        if (!affected.has(dependentId)) continue;
+        hasAffectedDependent = true;
+        if (!isUnionBoolean(this.features.get(dependentId))) {
+          allAffectedDependentsAreUnions = false;
+          break;
+        }
+      }
+      if (hasAffectedDependent && allAffectedDependentsAreUnions) skipped.add(id);
+    }
+    return skipped;
   }
 
   /**
@@ -304,4 +363,8 @@ export class FeatureGraph {
       }
     }
   }
+}
+
+function isUnionBoolean(feature: Feature | undefined): feature is BooleanFeature {
+  return feature instanceof BooleanFeature && feature.params.operation === 'union';
 }

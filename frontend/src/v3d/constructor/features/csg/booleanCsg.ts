@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import * as BufferGeometryUtils from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { Brush, Evaluator, ADDITION, SUBTRACTION, INTERSECTION } from 'three-bvh-csg';
 import type { BooleanOperation } from '../composite/BooleanFeature';
-import { CUT_INFLATE_EPS, cleanupGeometry, inflateGeom } from './geometryCleanup';
+import { cleanupGeometry } from './geometryCleanup';
 
 export interface BooleanInput {
   geometry: THREE.BufferGeometry;
@@ -13,18 +13,14 @@ export interface BooleanInput {
 }
 
 /**
- * Чистая утилита: применяет three-bvh-csg к набору входов с заданной
- * операцией. Вызывается из EvaluateVisitor.visitBoolean и (в legacy-пути)
- * из GroupNode.getMesh.
+ * Applies three-bvh-csg to prepared Boolean inputs.
  *
  * Pipeline:
- *  1. Каждую геометрию запекаем матрицей в копию (Brush с identity-transform).
- *  2. mergeVertices(1e-5) — индексированный манифолд.
- *  3. Solids комбинируются operation'ом. Режущие тела при subtract раздуваются
- *     на ε (как holes), чтобы копланарные грани не давали неманифолдных срезов.
- *  4. Holes вычитаются всегда.
- *  5. На выходе — mergeVertices(1e-4) + удаление вырожденных граней +
- *     computeVertexNormals.
+ *  1. Clone each geometry and bake its matrix before CSG.
+ *  2. Weld vertices with a small tolerance for indexed manifold input.
+ *  3. Combine solids by the requested operation without resizing cutters.
+ *  4. Subtract inputs marked as holes.
+ *  5. Cleanup the result: weld seams, remove degenerate triangles, recompute normals.
  */
 export function booleanCsg(
   inputs: BooleanInput[],
@@ -41,20 +37,15 @@ export function booleanCsg(
   evaluator.useGroups = false;
 
   const op = bvhOp(operation);
-  // База (первый solid) — целевое тело, не раздувается.
-  let current: Brush = inputToBrush(solids[0], false);
+  let current: Brush = inputToBrush(solids[0]);
 
   for (let i = 1; i < solids.length; i++) {
-    // При вычитании режущий solid раздуваем (как hole): иначе копланарные
-    // грани режущего тела и базы дают неманифолдный результат (слипшиеся
-    // грани / срез нулевой толщины). При union/intersect раздувать нельзя —
-    // это изменило бы размеры результата.
-    const next = inputToBrush(solids[i], operation === 'subtract');
+    const next = inputToBrush(solids[i]);
     current = evaluator.evaluate(current, next, op);
   }
 
   for (const hole of holes) {
-    const holeBrush = inputToBrush(hole, true);
+    const holeBrush = inputToBrush(hole);
     current = evaluator.evaluate(current, holeBrush, SUBTRACTION);
   }
 
@@ -67,17 +58,21 @@ function bvhOp(op: BooleanOperation): number {
   return ADDITION;
 }
 
-function inputToBrush(input: BooleanInput, inflate: boolean): Brush {
+function inputToBrush(input: BooleanInput): Brush {
+  const geom = inputToGeometry(input);
+  const brush = new Brush(geom);
+  brush.updateMatrixWorld();
+  return brush;
+}
+
+function inputToGeometry(input: BooleanInput): THREE.BufferGeometry {
   const geom = prepGeometry(input.geometry);
-  if (inflate) inflateGeom(geom, CUT_INFLATE_EPS);
   if (!isIdentity(input.transform)) {
     geom.applyMatrix4(input.transform);
     if (input.transform.determinant() < 0) flipWinding(geom);
     geom.computeVertexNormals();
   }
-  const brush = new Brush(geom);
-  brush.updateMatrixWorld();
-  return brush;
+  return geom;
 }
 
 function prepGeometry(geometry: THREE.BufferGeometry): THREE.BufferGeometry {

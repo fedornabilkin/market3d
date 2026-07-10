@@ -572,7 +572,7 @@ export class PointerEventController {
           if (transform) {
             const cur = (transform.params as { position?: [number, number, number] }).position
               ?? [0, 0, 0];
-            doc.updateParamsLive(featureId, {
+            doc.updateParamsSilent(featureId, {
               position: [host.dragTarget.position.x, host.dragTarget.position.y, cur[2]],
             });
           }

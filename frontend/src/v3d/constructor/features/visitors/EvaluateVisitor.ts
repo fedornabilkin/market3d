@@ -1,7 +1,12 @@
 import * as THREE from 'three';
-import type { EvaluateContext, FeatureOutput, LeafOutput } from '../types';
+import type { CompositeOutput, EvaluateContext, FeatureOutput, LeafOutput } from '../types';
 import { FeatureVisitor } from '../FeatureVisitor';
 import type { Feature } from '../Feature';
+
+// Composite cutters can be requested repeatedly while flattening nested
+// booleans during one evaluation. Materializing them is itself a CSG pass;
+// keep the result per output object and operation to avoid duplicate passes.
+const compositeOperandCache = new WeakMap<object, Map<string, THREE.BufferGeometry>>();
 
 import type { BoxFeature } from '../primitives/BoxFeature';
 import type { SphereFeature } from '../primitives/SphereFeature';
@@ -155,10 +160,18 @@ export class EvaluateVisitor extends FeatureVisitor<FeatureOutput> {
       throw new Error(`[Boolean ${f.id}] нет входов`);
     }
     const csgInputs: BooleanInput[] = [];
-    for (const inputId of inputs) {
+    for (let i = 0; i < inputs.length; i++) {
+      const inputId = inputs[i];
       const out = this.ctx.resolved.get(inputId);
-      if (!out) throw new Error(`[Boolean ${f.id}] вход ${inputId} не разрешён`);
-      collectLeavesForCsg(out, csgInputs);
+      if (out) {
+        csgInputs.push(...collectOperandsForCsg(out, f.params.operation, i));
+        continue;
+      }
+      if (f.params.operation === 'union' && this.ctx.skippedUnionIds?.has(inputId)) {
+        csgInputs.push(...collectSkippedUnionInputs(inputId, this.ctx));
+        continue;
+      }
+      throw new Error(`[Boolean ${f.id}] вход ${inputId} не разрешён`);
     }
 
     const geom = booleanCsg(csgInputs, f.params.operation);
@@ -264,7 +277,94 @@ function collectLeavesForCsg(out: FeatureOutput, target: BooleanInput[]): void {
   }
 }
 
-/** Применяет bottomAnchorOffsetZ как внешнюю Z-трансляцию: T(0,0,halfH) · transform. */
+/**
+ * Materialize composite cutters only when their internal holes must stay inside that operand.
+ */
+function collectOperandsForCsg(
+  out: FeatureOutput,
+  operation: BooleanFeature['params']['operation'],
+  inputIndex: number,
+): BooleanInput[] {
+  if (out.kind === 'leaf') {
+    return [{
+      geometry: out.geometry,
+      transform: bakeBottomAnchor(out.transform, out.bottomAnchorOffsetZ),
+      isHole: out.isHole,
+    }];
+  }
+
+  if (out.isHole || (operation === 'subtract' && inputIndex > 0)) {
+    return [materializeCompositeOperand(out)];
+  }
+
+  const leaves: BooleanInput[] = [];
+  collectLeavesForCsg(out, leaves);
+  return leaves;
+}
+
+function collectSkippedUnionInputs(featureId: string, ctx: EvaluateContext): BooleanInput[] {
+  const feature = ctx.features?.get(featureId);
+  if (!feature || feature.type !== 'boolean' || (feature.params as { operation?: unknown }).operation !== 'union') {
+    throw new Error(`[Boolean ${featureId}] skipped union не найден`);
+  }
+
+  const csgInputs: BooleanInput[] = [];
+  const inputs = feature.getInputs();
+  for (let i = 0; i < inputs.length; i++) {
+    const inputId = inputs[i];
+    const out = ctx.resolved.get(inputId);
+    if (out) {
+      csgInputs.push(...collectOperandsForCsg(out, 'union', i));
+      continue;
+    }
+    if (ctx.skippedUnionIds?.has(inputId)) {
+      csgInputs.push(...collectSkippedUnionInputs(inputId, ctx));
+      continue;
+    }
+    throw new Error(`[Boolean ${featureId}] вход ${inputId} не разрешён`);
+  }
+  return csgInputs;
+}
+
+function materializeCompositeOperand(out: CompositeOutput): BooleanInput {
+  const operation = 'union';
+  let byOperation = compositeOperandCache.get(out as object);
+  if (!byOperation) {
+    byOperation = new Map();
+    compositeOperandCache.set(out as object, byOperation);
+  }
+  const cached = byOperation.get(operation);
+  if (cached) {
+    return { geometry: cached, transform: new THREE.Matrix4(), isHole: out.isHole };
+  }
+  const leaves: BooleanInput[] = [];
+  collectCompositeChildrenForOperand(out, leaves);
+  const geometry = leaves.length > 0 ? booleanCsg(leaves, operation) : new THREE.BufferGeometry();
+  byOperation.set(operation, geometry);
+  return {
+    geometry,
+    transform: new THREE.Matrix4(),
+    isHole: out.isHole,
+  };
+}
+
+function collectCompositeChildrenForOperand(out: CompositeOutput, target: BooleanInput[]): void {
+  for (const child of out.children) {
+    if (child.kind === 'leaf') {
+      const composed = out.transform.clone().multiply(child.transform);
+      target.push({
+        geometry: child.geometry,
+        transform: bakeBottomAnchor(composed, child.bottomAnchorOffsetZ),
+        isHole: child.isHole,
+      });
+    } else {
+      collectLeavesForCsg({
+        ...child,
+        transform: out.transform.clone().multiply(child.transform),
+      }, target);
+    }
+  }
+}
 function bakeBottomAnchor(transform: THREE.Matrix4, halfH: number | undefined): THREE.Matrix4 {
   if (!halfH) return transform.clone();
   return new THREE.Matrix4().makeTranslation(0, 0, halfH).multiply(transform);

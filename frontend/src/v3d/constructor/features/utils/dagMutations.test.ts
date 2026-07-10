@@ -212,6 +212,23 @@ describe('cloneFeatureSubgraph', () => {
     expect(inputs[1]).not.toBe('s1');
     for (const id of inputs) expect(addedIds).toContain(id);
   });
+
+  it('adds cloned subgraph in one recompute batch', () => {
+    const doc = new FeatureDocument();
+    doc.addFeature(new BoxFeature('b1', { width: 10, height: 10, depth: 10 }));
+    doc.addFeature(new SphereFeature('s1', { radius: 5 }));
+    doc.addFeature(new GroupFeature('g1', {}, ['b1', 's1']));
+    doc.setRootIds(['g1']);
+    const events: { type: string; featureIds?: string[] }[] = [];
+    doc.subscribe((event) => events.push(event));
+
+    const { addedIds } = cloneFeatureSubgraph(doc, 'g1');
+
+    expect(addedIds).toHaveLength(3);
+    expect(events.filter((event) => event.type === 'feature-added')).toHaveLength(1);
+    expect(events.filter((event) => event.type === 'recompute-done')).toHaveLength(1);
+    expect(events.find((event) => event.type === 'feature-added')?.featureIds).toEqual(addedIds);
+  });
 });
 
 describe('computeFeatureBboxRecursive', () => {

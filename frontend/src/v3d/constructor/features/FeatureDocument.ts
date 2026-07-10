@@ -1,4 +1,5 @@
 import type { FeatureId, FeatureDocumentJSON, FeatureOutput } from './types';
+import type { Feature } from './Feature';
 import { FeatureGraph } from './FeatureGraph';
 import { FeatureRegistry, createDefaultRegistry } from './FeatureRegistry';
 import { SerializeVisitor } from './visitors/SerializeVisitor';
@@ -24,6 +25,8 @@ type Listener = (event: FeatureDocumentEvent) => void;
  * BufferGeometry) — иначе proxy ломает кэши GPU.
  */
 export class FeatureDocument {
+  private batchDepth = 0;
+  private batchDirty = false;
   readonly graph = new FeatureGraph();
   rootIds: FeatureId[] = [];
   metadata: { name?: string; createdAt?: string; updatedAt?: string } = {};
@@ -49,16 +52,28 @@ export class FeatureDocument {
   // ─── Mutators (с emit'ами) ────────────────────────────────
 
   addFeature(...args: Parameters<FeatureGraph['add']>): void {
-    this.graph.add(...args);
-    const id = args[0].id;
+    const feature = args[0];
+    this.graph.add(feature);
+    const id = feature.id;
     this.emit({ type: 'feature-added', featureIds: [id] });
+    if (this.batchDepth > 0) { this.batchDirty = true; return; }
     const result = this.graph.recompute([id]);
+    this.emit({ type: 'recompute-done', featureIds: [...result.updated] });
+  }
+
+  addFeatures(features: Feature[], recomputeRootIds?: FeatureId[]): void {
+    if (features.length === 0) return;
+    const ids = features.map((feature) => feature.id);
+    for (const feature of features) this.graph.add(feature);
+    this.emit({ type: 'feature-added', featureIds: ids });
+    const result = this.graph.recomputeDependencies(recomputeRootIds ?? ids);
     this.emit({ type: 'recompute-done', featureIds: [...result.updated] });
   }
 
   removeFeature(id: FeatureId): void {
     this.graph.remove(id);
     this.rootIds = this.rootIds.filter((rid) => rid !== id);
+    if (this.batchDepth > 0) { this.batchDirty = true; return; }
     this.emit({ type: 'feature-removed', featureIds: [id] });
   }
 
@@ -66,6 +81,7 @@ export class FeatureDocument {
     const changed = this.graph.updateParams<TP>(id, patch);
     if (!changed) return;
     this.emit({ type: 'feature-updated', featureIds: [id] });
+    if (this.batchDepth > 0) { this.batchDirty = true; return; }
     const result = this.graph.recompute([id]);
     this.emit({ type: 'recompute-done', featureIds: [...result.updated] });
   }
@@ -95,10 +111,57 @@ export class FeatureDocument {
     this.emit({ type: 'feature-updated', featureIds: [id] });
   }
 
+  updateParamsSilent<TP extends object>(id: FeatureId, patch: Partial<TP>): void {
+    this.graph.updateParams<TP>(id, patch);
+  }
+
+  recomputeFrom(ids: FeatureId[]): void {
+    if (ids.length === 0) return;
+    const result = this.graph.recompute(ids);
+    this.emit({ type: 'recompute-done', featureIds: [...result.updated] });
+  }
+
+  /**
+   * Fast in-place restore for history snapshots that changed only existing
+   * feature params/name. Structural edits still fall back to loadFromJSON().
+   */
+  tryRestoreMatchingGraphFromJSON(json: FeatureDocumentJSON): boolean {
+    if (json.version !== 2) return false;
+    if (!sameStringArray(this.rootIds, json.rootIds)) return false;
+    if (this.graph.size() !== json.features.length) return false;
+
+    const changedIds: FeatureId[] = [];
+    for (const fjson of json.features) {
+      const feature = this.graph.get(fjson.id);
+      if (!feature) return false;
+      if (feature.type !== fjson.type) return false;
+      if (!sameStringArray([...feature.getInputs()], fjson.inputs ?? [])) return false;
+
+      const nextParams = fjson.params ?? {};
+      const nameChanged = (feature.name ?? undefined) !== (fjson.name ?? undefined);
+      const paramsChanged = !sameJSONValue(feature.params, nextParams);
+      if (!nameChanged && !paramsChanged) continue;
+
+      feature.name = fjson.name;
+      if (paramsChanged) {
+        feature.params = { ...nextParams };
+        feature.paramsVersion++;
+      }
+      changedIds.push(feature.id);
+    }
+
+    this.metadata = json.metadata ? { ...json.metadata } : {};
+    if (changedIds.length === 0) return true;
+    const result = this.graph.recompute(changedIds);
+    this.emit({ type: 'recompute-done', featureIds: [...result.updated] });
+    return true;
+  }
+
   updateInputs(id: FeatureId, next: FeatureId[]): void {
     const changed = this.graph.updateInputs(id, next);
     if (!changed) return;
     this.emit({ type: 'feature-updated', featureIds: [id] });
+    if (this.batchDepth > 0) { this.batchDirty = true; return; }
     const result = this.graph.recompute([id]);
     this.emit({ type: 'recompute-done', featureIds: [...result.updated] });
   }
@@ -109,7 +172,57 @@ export class FeatureDocument {
         throw new Error(`[FeatureDocument] root ${id} нет в графе`);
       }
     }
+    const prev = this.rootIds;
     this.rootIds = [...ids];
+    if (this.batchDepth > 0) { this.batchDirty = true; return; }
+    if (prev.length !== ids.length || prev.some((id, index) => id !== ids[index])) {
+      this.emit({ type: 'recompute-done', featureIds: ids });
+    }
+  }
+
+  batchMutate<T>(mutate: () => T): T {
+    this.batchDepth++;
+    try { return mutate(); }
+    finally {
+      this.batchDepth--;
+      if (this.batchDepth === 0 && this.batchDirty) {
+        this.batchDirty = false;
+        const result = this.graph.recomputeDependencies(this.rootIds);
+        this.emit({ type: 'recompute-done', featureIds: [...result.updated] });
+      }
+    }
+  }
+
+  pruneUnreachable(): FeatureId[] {
+    const reachable = this.graph.collectDependencies(this.rootIds);
+    const removed: FeatureId[] = [];
+    const allIds = [...this.graph.values()].map((f) => f.id);
+    for (const id of allIds) {
+      if (reachable.has(id)) continue;
+      const feature = this.graph.get(id);
+      if (!feature) continue;
+      const inputs = feature.getInputs();
+      if (inputs.length > 0) {
+        try {
+          this.graph.updateInputs(id, []);
+        } catch {
+          // Leaf features do not support inputs.
+        }
+      }
+    }
+    for (const id of allIds.reverse()) {
+      if (reachable.has(id) || !this.graph.has(id)) continue;
+      try {
+        this.graph.remove(id);
+        removed.push(id);
+      } catch {
+        // If an external edge appeared, keep the feature rather than corrupting the graph.
+      }
+    }
+    if (removed.length > 0) {
+      this.emit({ type: 'feature-removed', featureIds: removed });
+    }
+    return removed;
   }
 
   // ─── Queries ──────────────────────────────────────────────
@@ -134,7 +247,10 @@ export class FeatureDocument {
 
   toJSON(): FeatureDocumentJSON {
     const serializer = new SerializeVisitor();
-    const features = [...this.graph.values()].map((f) => f.accept(serializer));
+    const reachable = this.graph.collectDependencies(this.rootIds);
+    const features = [...this.graph.values()]
+      .filter((f) => reachable.has(f.id))
+      .map((f) => f.accept(serializer));
     return {
       version: 2,
       metadata: {
@@ -172,7 +288,7 @@ export class FeatureDocument {
 
     this.rootIds = [...json.rootIds];
     this.metadata = json.metadata ? { ...json.metadata } : {};
-    this.graph.recomputeAll();
+    this.graph.recomputeDependencies(this.rootIds);
     this.emit({
       type: 'recompute-done',
       featureIds: [...this.graph.values()].map((f) => f.id),
@@ -200,4 +316,12 @@ function sortByInputs(features: FeatureDocumentJSON['features']): FeatureDocumen
 
   for (const f of features) visit(f.id);
   return result;
+}
+
+function sameStringArray(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((value, index) => value === b[index]);
+}
+
+function sameJSONValue(a: unknown, b: unknown): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
 }

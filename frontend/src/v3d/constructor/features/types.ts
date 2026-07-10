@@ -1,4 +1,5 @@
 import type * as THREE from 'three';
+import type { Feature } from './Feature';
 
 /** Стабильный идентификатор фичи в графе. */
 export type FeatureId = string;
@@ -76,6 +77,8 @@ export type FeatureOutput = LeafOutput | CompositeOutput;
  */
 export interface EvaluateContext {
   resolved: Map<FeatureId, FeatureOutput>;
+  features?: ReadonlyMap<FeatureId, Feature>;
+  skippedUnionIds?: ReadonlySet<FeatureId>;
 }
 
 /** Сериализованный вид фичи. type — дискриминатор для FeatureRegistry. */
