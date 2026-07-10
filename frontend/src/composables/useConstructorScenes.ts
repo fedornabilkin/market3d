@@ -1,5 +1,6 @@
 import { nextTick, ref } from 'vue';
 import type { ConstructorSceneService } from '@/v3d/constructor/ConstructorSceneService';
+import type { FeatureDocument } from '@/v3d/constructor/features/FeatureDocument';
 import type { FeatureDocumentJSON } from '@/v3d/constructor/features/types';
 import { loadFeatureDocument } from '@/v3d/constructor/features/loader/loadFeatureDocument';
 import { migrateAllV1ToV2 } from '@/v3d/constructor/loader/migrateV1Storage';
@@ -21,14 +22,23 @@ export type ConstructorScenesOptions = {
 /** Scene slot switching, initial migration and FeatureDocument loading. */
 export function useConstructorScenes(options: ConstructorScenesOptions) {
   const activeIndex = ref(0);
+  const documents: Array<FeatureDocument | null> = Array.from(
+    { length: options.sceneCount },
+    () => null,
+  );
 
-  async function loadDocument(json: FeatureDocumentJSON): Promise<boolean> {
+  function activateDocument(document: FeatureDocument): boolean {
     const service = options.getService();
     if (!service) return false;
-    const document = await loadFeatureDocument(json);
-    service.loadFromV2JSON(document.toJSON());
+    documents[activeIndex.value] = document;
+    service.replaceFeatureDocument(document);
     options.onLoaded();
     return true;
+  }
+
+  async function loadDocument(json: FeatureDocumentJSON): Promise<boolean> {
+    const document = await loadFeatureDocument(json);
+    return activateDocument(document);
   }
 
   async function loadActiveSlot(): Promise<boolean> {
@@ -39,19 +49,23 @@ export function useConstructorScenes(options: ConstructorScenesOptions) {
   async function switchTo(index: number): Promise<void> {
     const nextIndex = Math.min(Math.max(index, 0), options.sceneCount - 1);
     if (nextIndex === activeIndex.value) return;
-    options.loading.start();
-    await nextTick();
+    const cached = documents[nextIndex];
+    if (!cached) {
+      options.loading.start();
+      await allowLoadingPaint();
+    }
     try {
       options.flushCurrentScene();
+      documents[activeIndex.value] = options.getService()?.getFeatureDocument() ?? null;
       activeIndex.value = nextIndex;
       options.history.clear();
+      if (cached && activateDocument(cached)) return;
       if (await loadActiveSlot()) return;
-      options.getService()?.loadFromV2JSON(emptyScene());
-      options.onLoaded();
+      await loadDocument(emptyScene());
     } catch (error) {
       console.warn('[ConstructorScenes] switch failed:', error);
     } finally {
-      options.loading.finish();
+      if (!cached) options.loading.finish();
     }
   }
 
@@ -59,7 +73,9 @@ export function useConstructorScenes(options: ConstructorScenesOptions) {
     options.loading.start();
     try {
       await migrateAllV1ToV2({ sceneCount: options.sceneCount });
-      await loadActiveSlot();
+      if (!await loadActiveSlot()) {
+        documents[activeIndex.value] = options.getService()?.getFeatureDocument() ?? null;
+      }
     } catch (error) {
       console.warn('[ConstructorScenes] initial load failed:', error);
     } finally {
@@ -68,6 +84,14 @@ export function useConstructorScenes(options: ConstructorScenesOptions) {
   }
 
   return { activeIndex, loadDocument, loadActiveSlot, switchTo, initialize };
+}
+
+async function allowLoadingPaint(): Promise<void> {
+  await nextTick();
+  if (typeof requestAnimationFrame !== 'function') return;
+  await new Promise<void>((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+  });
 }
 
 function emptyScene(): FeatureDocumentJSON {

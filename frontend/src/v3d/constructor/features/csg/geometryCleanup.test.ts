@@ -1,7 +1,31 @@
 import { describe, it, expect } from 'vitest';
 import * as THREE from 'three';
 
-import { removeDegenerateTriangles } from './geometryCleanup';
+import {
+  CUT_INFLATE_EPS,
+  inflateGeom,
+  removeDegenerateTriangles,
+} from './geometryCleanup';
+
+describe('inflateGeom', () => {
+  it('expands cutter bounds while preserving its center', () => {
+    const geometry = new THREE.BoxGeometry(20, 8, 8);
+    geometry.translate(5, -3, 2);
+    geometry.computeBoundingBox();
+    const before = geometry.boundingBox!.clone();
+
+    inflateGeom(geometry, CUT_INFLATE_EPS);
+    geometry.computeBoundingBox();
+    const after = geometry.boundingBox!;
+
+    expect(after.getCenter(new THREE.Vector3())).toEqual(before.getCenter(new THREE.Vector3()));
+    const beforeSize = before.getSize(new THREE.Vector3());
+    const afterSize = after.getSize(new THREE.Vector3());
+    expect(afterSize.x).toBeCloseTo(beforeSize.x + 2 * CUT_INFLATE_EPS, 5);
+    expect(afterSize.y).toBeCloseTo(beforeSize.y + 2 * CUT_INFLATE_EPS, 5);
+    expect(afterSize.z).toBeCloseTo(beforeSize.z + 2 * CUT_INFLATE_EPS, 5);
+  });
+});
 
 describe('removeDegenerateTriangles', () => {
   it('выбрасывает схлопнувшиеся грани с повторяющимся индексом, сохраняя валидные', () => {

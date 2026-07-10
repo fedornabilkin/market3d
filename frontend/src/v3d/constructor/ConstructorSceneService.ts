@@ -111,6 +111,11 @@ export class ConstructorSceneService {
   private featureRenderer: FeatureRenderer | null = null;
   private featureDocCurrent: FeatureDocument | null = null;
   private featureRendererBoundDoc: FeatureDocument | null = null;
+  private readonly renderBindings = new Map<FeatureDocument, {
+    group: THREE.Group;
+    renderer: FeatureRenderer;
+  }>();
+  private activeRenderGroup: THREE.Group | null = null;
   /**
    * Двунаправленные карты featureId ↔ ModelNode (NodeFeatureMapping). Нужны
    * UI'ю (Feature Tree, FeatureParamsForm) и legacy mutation paths
@@ -433,9 +438,6 @@ export class ConstructorSceneService {
     this.scene.add(this.modelRootGroup);
     this.modificationGizmo.addToScene();
 
-    // Render-cutover: FeatureRenderer пишет меши в modelRootGroup.
-    this.featureRenderer = new FeatureRenderer(this.modelRootGroup);
-
     // Cruise mode needs scene + model root
     this.cruiseModeCtrl.init(this.scene, this.modelRootGroup);
     this.alignmentMode.init(this.scene, this.modelRootGroup!, this.camera);
@@ -461,8 +463,6 @@ export class ConstructorSceneService {
         features: [{ id: 'root', type: 'group', params: {}, inputs: [], name: 'Scene' }],
         rootIds: ['root'],
       });
-    } else {
-      this.rebuildSceneFromTree();
     }
 
     // Input
@@ -515,7 +515,15 @@ export class ConstructorSceneService {
       this.containerEl.removeChild(this.renderer.domElement);
     }
 
-    // Dispose all model meshes before clearing
+    for (const binding of this.renderBindings.values()) {
+      binding.group.removeFromParent();
+      binding.renderer.dispose();
+    }
+    this.renderBindings.clear();
+    this.activeRenderGroup = null;
+    this.featureRenderer = null;
+
+    // Dispose all remaining model meshes before clearing
     if (this.modelRootGroup) disposeObject3D(this.modelRootGroup);
 
     this.hideYZeroIndicator();
@@ -577,12 +585,24 @@ export class ConstructorSceneService {
   }
 
   private _ensureFeatureDocBound(): void {
-    if (!this.featureRenderer) return;
+    if (!this.modelRootGroup) return;
     if (!this.featureDocCurrent) {
       this.featureDocCurrent = new FeatureDocument();
     }
     if (this.featureRendererBoundDoc === this.featureDocCurrent) return;
-    this.featureRenderer.bindDocument(this.featureDocCurrent);
+
+    if (this.activeRenderGroup) this.modelRootGroup.remove(this.activeRenderGroup);
+    let binding = this.renderBindings.get(this.featureDocCurrent);
+    if (!binding) {
+      const group = new THREE.Group();
+      const renderer = new FeatureRenderer(group);
+      renderer.bindDocument(this.featureDocCurrent);
+      binding = { group, renderer };
+      this.renderBindings.set(this.featureDocCurrent, binding);
+    }
+    this.modelRootGroup.add(binding.group);
+    this.activeRenderGroup = binding.group;
+    this.featureRenderer = binding.renderer;
     this.featureRendererBoundDoc = this.featureDocCurrent;
   }
 
@@ -650,6 +670,22 @@ export class ConstructorSceneService {
   commitSelectedFeatureChanges(): void {
     if (!this.featureDocCurrent || !this.selectedFeatureIdPrimary) return;
     this.featureDocCurrent.recomputeFrom([this.selectedFeatureIdPrimary]);
+    this.updateGizmoTarget();
+  }
+
+  /**
+   * Activates an already evaluated document without serializing and recomputing it.
+   * Used by scene slots so returning to an in-memory scene only rebuilds Three.js
+   * objects from cached feature outputs.
+   */
+  replaceFeatureDocument(document: FeatureDocument): void {
+    if (!this.featureRenderer) {
+      throw new Error('[ConstructorSceneService.replaceFeatureDocument] не примонтировано');
+    }
+    if (this.featureDocCurrent === document && this.featureRendererBoundDoc === document) return;
+    this.featureDocCurrent = document;
+    this._ensureFeatureDocBound();
+    (window as unknown as { __featureDoc?: FeatureDocument }).__featureDoc = document;
     this.updateGizmoTarget();
   }
 

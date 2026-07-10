@@ -7,6 +7,26 @@ import * as BufferGeometryUtils from 'three/examples/jsm/utils/BufferGeometryUti
  * three-bvh-csg / three-mesh-bvh, которая не грузится в node-окружении vitest.
  */
 
+/** Prevents coplanar cutter faces from triggering pathological BVH-CSG work. */
+export const CUT_INFLATE_EPS = 0.005;
+
+/** Expands a cutter around its bounding-box center by epsilon on each side. */
+export function inflateGeom(geom: THREE.BufferGeometry, epsilon: number): void {
+  geom.computeBoundingBox();
+  const bounds = geom.boundingBox;
+  if (!bounds) return;
+  const center = bounds.getCenter(new THREE.Vector3());
+  const size = bounds.getSize(new THREE.Vector3());
+  const scale = new THREE.Vector3(
+    size.x > 1e-9 ? (size.x + 2 * epsilon) / size.x : 1,
+    size.y > 1e-9 ? (size.y + 2 * epsilon) / size.y : 1,
+    size.z > 1e-9 ? (size.z + 2 * epsilon) / size.z : 1,
+  );
+  geom.translate(-center.x, -center.y, -center.z);
+  geom.scale(scale.x, scale.y, scale.z);
+  geom.translate(center.x, center.y, center.z);
+}
+
 /**
  * Пост-обработка результата CSG для манифолдности.
  *  1. mergeVertices(1e-4) сшивает совпадающие вершины вдоль швов реза

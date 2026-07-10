@@ -71,7 +71,14 @@ docker-compose up
 Визуальный 3D-редактор. **Phase 1 (параметрическая CAD-модель) закрыта на 2026-04-26.**
 Архитектура: feature graph (DAG из фич с типами и параметрами) — см.
 [`features/README.md`](frontend/src/v3d/constructor/features/README.md) и
+[`PERFORMANCE.md`](frontend/src/v3d/constructor/PERFORMANCE.md), а также
 [`plan/cad/phase-1-feature-tree.md`](plan/cad/phase-1-feature-tree.md).
+
+**Критический performance-инвариант**: hole/subtract cutters в runtime CSG
+раздуваются через `inflateGeom(..., CUT_INFLATE_EPS)`. Удаление этого шага уже
+вызывало ~20-кратный регресс холодной загрузки. Перед изменениями CSG,
+FeatureGraph, загрузки или renderer обязателен браузерный audit по
+`PERFORMANCE.md`; одного Vitest недостаточно, потому что CSG там мокается.
 
 - **Feature Graph** (`features/`) — параметрическая модель: каждый узел сцены — `Feature` (Box/Sphere/Cylinder/.../Transform/Boolean/Group/ImportedMesh, всего 13 типов). `FeatureGraph` (DAG), `FeatureDocument` (граф + roots + events), `EvaluateVisitor` (Feature → BufferGeometry+transform+flags), `FeatureRenderer` (FeatureDocument → THREE.js scene).
 - **Z-up конвенция** (как FreeCAD/SolidWorks). Legacy Y-up сохранёнки автомигрируются на load.
