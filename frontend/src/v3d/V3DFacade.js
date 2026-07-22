@@ -28,6 +28,8 @@ export class V3DFacade {
     this.entitiesData = null;
     this.qrCodeBitMask = null;
     this.barcodePattern = null;
+    this.animationFrameId = null;
+    this.animationActive = false;
   }
 
   /**
@@ -210,8 +212,11 @@ export class V3DFacade {
     if (!this.box) {
       throw new Error('Scene not initialized. Call initialize() first.');
     }
+    if (this.animationActive) return;
+    this.animationActive = true;
     
     const animate = (time) => {
+      if (!this.animationActive || !this.box) return;
       time *= 0.001
       this.box.animate(false, time)
       this.box.render()
@@ -220,10 +225,18 @@ export class V3DFacade {
         animateCallback(time)
       }
       
-      requestAnimationFrame(animate)
+      this.animationFrameId = requestAnimationFrame(animate)
     };
     
-    requestAnimationFrame(animate)
+    this.animationFrameId = requestAnimationFrame(animate)
+  }
+
+  stopAnimation() {
+    this.animationActive = false;
+    if (this.animationFrameId !== null) {
+      cancelAnimationFrame(this.animationFrameId);
+      this.animationFrameId = null;
+    }
   }
 
   /**
@@ -379,6 +392,19 @@ export class V3DFacade {
     }
     this.currentGenerator = null;
     this.entitiesData = null;
+  }
+
+  /** Stops rendering and releases the WebGL context when its route unmounts. */
+  dispose() {
+    this.stopAnimation();
+    this.box?.dispose();
+    this.box = null;
+    this.director = null;
+    this.currentGenerator = null;
+    this.entitiesData = null;
+    this.qrCodeBitMask = null;
+    this.barcodePattern = null;
+    this.initialized = false;
   }
 
   /**

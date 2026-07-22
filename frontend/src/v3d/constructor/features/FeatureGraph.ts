@@ -3,6 +3,7 @@ import type { Feature } from './Feature';
 import { CompositeFeature } from './CompositeFeature';
 import { BooleanFeature } from './composite/BooleanFeature';
 import { EvaluateVisitor } from './visitors/EvaluateVisitor';
+import { isChamferAggregate } from './utils/chamferAggregates';
 
 /**
  * DAG фич: хранит features по id, поддерживает обратный индекс
@@ -182,16 +183,31 @@ export class FeatureGraph {
 
   recomputeDependencies(rootIds: FeatureId[]): RecomputeResult {
     const affected = this.collectDependencies(rootIds);
-    return this.recomputeSubset(affected, { protectedIds: new Set(rootIds), skipNestedUnions: true });
+    return this.recomputeSubset(affected, {
+      protectedIds: new Set(rootIds),
+      skipNestedChamferAggregates: true,
+    });
+  }
+
+  /**
+   * Recomputes changed features and their dependents while collapsing legacy
+   * nested chamfer aggregates. Cached unchanged operands are retained.
+   */
+  recomputeCollapsed(changedIds: FeatureId[], protectedIds: ReadonlySet<FeatureId>): RecomputeResult {
+    const affected = this.collectDependents(changedIds);
+    return this.recomputeSubset(affected, {
+      protectedIds: new Set(protectedIds),
+      skipNestedChamferAggregates: true,
+    });
   }
 
   private recomputeSubset(
     affected: Set<FeatureId>,
-    options: { protectedIds?: Set<FeatureId>; skipNestedUnions?: boolean } = {},
+    options: { protectedIds?: Set<FeatureId>; skipNestedChamferAggregates?: boolean } = {},
   ): RecomputeResult {
     const order = this.topologicalOrder(affected);
-    const skippedUnionIds = options.skipNestedUnions
-      ? this.collectNestedUnionSkips(affected, options.protectedIds ?? new Set())
+    const skippedUnionIds = options.skipNestedChamferAggregates
+      ? this.collectNestedChamferAggregateSkips(affected, options.protectedIds ?? new Set())
       : new Set<FeatureId>();
 
     // ctx.resolved: туда уйдут outputs всех нужных фич (включая
@@ -249,12 +265,15 @@ export class FeatureGraph {
     return { updated, failed };
   }
 
-  private collectNestedUnionSkips(affected: Set<FeatureId>, protectedIds: Set<FeatureId>): Set<FeatureId> {
+  private collectNestedChamferAggregateSkips(
+    affected: Set<FeatureId>,
+    protectedIds: Set<FeatureId>,
+  ): Set<FeatureId> {
     const skipped = new Set<FeatureId>();
     for (const id of affected) {
       if (protectedIds.has(id)) continue;
       const feature = this.features.get(id);
-      if (!isUnionBoolean(feature)) continue;
+      if (!isChamferAggregate(feature)) continue;
       const dependents = this.dependentsIndex.get(id);
       if (!dependents) continue;
       let hasAffectedDependent = false;
@@ -262,7 +281,7 @@ export class FeatureGraph {
       for (const dependentId of dependents) {
         if (!affected.has(dependentId)) continue;
         hasAffectedDependent = true;
-        if (!isUnionBoolean(this.features.get(dependentId))) {
+        if (!isChamferAggregate(this.features.get(dependentId))) {
           allAffectedDependentsAreUnions = false;
           break;
         }

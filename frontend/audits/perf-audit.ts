@@ -1,10 +1,10 @@
 import * as THREE from 'three';
 import sceneRaw from './scene-fail.audit.json?raw';
-import { FeatureDocument } from './src/v3d/constructor/features/FeatureDocument';
-import type { FeatureDocumentJSON } from './src/v3d/constructor/features/types';
-import { FeatureRenderer } from './src/v3d/constructor/features/rendering/FeatureRenderer';
-import { GroupingFeatureOperations } from './src/v3d/constructor/modes/GroupingFeatureOperations';
-import { FeatureSnapshotCommand } from './src/v3d/constructor/features/commands/FeatureSnapshotCommand';
+import { FeatureDocument } from '../src/v3d/constructor/features/FeatureDocument';
+import type { FeatureDocumentJSON } from '../src/v3d/constructor/features/types';
+import { FeatureRenderer } from '../src/v3d/constructor/features/rendering/FeatureRenderer';
+import { GroupingFeatureOperations } from '../src/v3d/constructor/modes/GroupingFeatureOperations';
+import { FeatureSnapshotCommand } from '../src/v3d/constructor/features/commands/FeatureSnapshotCommand';
 
 const result = document.querySelector('#result')!;
 

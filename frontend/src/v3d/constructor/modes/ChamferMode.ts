@@ -1,8 +1,12 @@
 import * as THREE from 'three';
+import {
+  extendTerminalEdgeSegments,
+  extractVisibleEdgeSegments,
+} from './visibleEdgeSegments';
 
 /**
- * A detected edge — either one of the 12 classical box edges, or a circular rim
- * of a cylindrical primitive. Coordinates are in both local geometry and world space.
+ * A detected visible linear edge segment or a circular rim of a cylindrical
+ * primitive. Coordinates are in both local geometry and world space.
  */
 export interface BBoxEdge {
   /** Linear = straight segment edge; circular = cylinder/cone rim. */
@@ -49,12 +53,15 @@ export interface ChamferSettings {
 export interface ChamferFeatureInfo {
   type: string;
   params: Record<string, number>;
+  existingChamferRadius?: number;
+  /** Stable local bounds before the chamfer chain (CSG bounds may drift). */
+  referenceBounds?: THREE.Box3;
 }
 
 /**
  * Chamfer/Fillet mode.
  *
- * Detects 12 classical box edges from the geometry bounding box,
+ * Detects visible portions of classical box edges from triangle topology,
  * highlights the nearest edge on hover, and applies chamfer on click.
  */
 export class ChamferMode {
@@ -128,7 +135,11 @@ export class ChamferMode {
       const info = this.resolveFeatureInfo(obj);
       this.cachedEdges = info?.type === 'cylinder'
         ? this.buildCylinderEdges(mesh, info.params)
-        : this.buildBoxEdges(mesh);
+        : this.buildBoxEdges(
+          mesh,
+          info?.existingChamferRadius ?? 0,
+          info?.referenceBounds,
+        );
       this.cachedEdgeObjUuid = mesh.uuid;
     }
 
@@ -155,7 +166,7 @@ export class ChamferMode {
   }
 
   /**
-   * Build 12 classical edges of the geometry bounding box.
+   * Build visible portions of the 12 classical bbox edge lines.
    *
    * Each edge carries perpDirX / perpDirZ — the direction from the edge
    * toward the bbox center in chamfer-local space (where Y = edge axis).
@@ -165,9 +176,17 @@ export class ChamferMode {
    *   X-axis edge (rot z=π/2):    localX = geomY, localZ = geomZ
    *   Z-axis edge (rot x=π/2):    localX = geomX, localZ = −geomY
    */
-  private buildBoxEdges(mesh: THREE.Mesh): BBoxEdge[] {
+  private buildBoxEdges(
+    mesh: THREE.Mesh,
+    existingChamferRadius: number,
+    referenceBounds?: THREE.Box3,
+  ): BBoxEdge[] {
     mesh.geometry.computeBoundingBox();
-    const bb = mesh.geometry.boundingBox;
+    // Repeated BVH-CSG operations can move an otherwise nominal bound by
+    // fractions of a millimetre. Build candidate edge lines from the geometry
+    // before the chamfer chain, while still checking visibility against the
+    // current evaluated topology.
+    const bb = referenceBounds ?? mesh.geometry.boundingBox;
     if (!bb) return [];
 
     const min = bb.min;
@@ -210,28 +229,42 @@ export class ChamferMode {
     const result: BBoxEdge[] = [];
 
     for (const [ai, bi, axis, pdx, pdz] of edgeDefs) {
-      const localA = c[ai];
-      const localB = c[bi];
-      const localMid = localA.clone().lerp(localB, 0.5);
+      const candidateStart = c[ai];
+      const candidateEnd = c[bi];
+      const topologySegments = extractVisibleEdgeSegments(
+        mesh.geometry,
+        candidateStart,
+        candidateEnd,
+      );
+      const visibleSegments = extendTerminalEdgeSegments(
+        topologySegments,
+        candidateStart,
+        candidateEnd,
+        existingChamferRadius > 0 ? existingChamferRadius + 0.25 : 0,
+      );
 
-      const worldA = localA.clone().applyMatrix4(wm);
-      const worldB = localB.clone().applyMatrix4(wm);
-      const worldMid = worldA.clone().lerp(worldB, 0.5);
+      for (const { start: localA, end: localB } of visibleSegments) {
+        const localMid = localA.clone().lerp(localB, 0.5);
 
-      result.push({
-        kind: 'linear',
-        axis,
-        start: worldA,
-        end: worldB,
-        mid: worldMid,
-        worldChain: [worldA, worldB],
-        localStart: localA.clone(),
-        localEnd: localB.clone(),
-        localMid,
-        localChain: [localA.clone(), localB.clone()],
-        perpDirX: pdx,
-        perpDirZ: pdz,
-      });
+        const worldA = localA.clone().applyMatrix4(wm);
+        const worldB = localB.clone().applyMatrix4(wm);
+        const worldMid = worldA.clone().lerp(worldB, 0.5);
+
+        result.push({
+          kind: 'linear',
+          axis,
+          start: worldA,
+          end: worldB,
+          mid: worldMid,
+          worldChain: [worldA, worldB],
+          localStart: localA.clone(),
+          localEnd: localB.clone(),
+          localMid,
+          localChain: [localA.clone(), localB.clone()],
+          perpDirX: pdx,
+          perpDirZ: pdz,
+        });
+      }
     }
 
     return result;

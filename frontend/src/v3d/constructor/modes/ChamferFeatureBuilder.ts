@@ -113,6 +113,7 @@ export class ChamferFeatureBuilder {
       scale: [1, 1, 1],
       isHole: true,
     }, [groupId]);
+    root.name = 'Фаска';
 
     return {
       features: [box, boxXform, cyl, cylXform, group, root],
@@ -173,6 +174,7 @@ export class ChamferFeatureBuilder {
       scale: [1, 1, 1],
       isHole: true,
     }, [groupId]);
+    root.name = 'Фаска';
 
     return {
       features: [outer, inner, innerXform, torus, torusXform, group, root],

@@ -55,8 +55,10 @@ export function useConstructorScenes(options: ConstructorScenesOptions) {
       await allowLoadingPaint();
     }
     try {
+      const currentDocument = options.getService()?.getFeatureDocument() ?? null;
+      currentDocument?.pruneUnreachable();
       options.flushCurrentScene();
-      documents[activeIndex.value] = options.getService()?.getFeatureDocument() ?? null;
+      documents[activeIndex.value] = currentDocument;
       activeIndex.value = nextIndex;
       options.history.clear();
       if (cached && activateDocument(cached)) return;

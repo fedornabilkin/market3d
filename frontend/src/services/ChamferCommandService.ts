@@ -3,6 +3,10 @@ import type { FeatureDocument } from '@/v3d/constructor/features/FeatureDocument
 import type { FeatureId } from '@/v3d/constructor/features/types';
 import { BooleanFeature } from '@/v3d/constructor/features/composite/BooleanFeature';
 import { ensureTransformWrapper, nextP2FeatureId } from '@/v3d/constructor/features/utils/dagMutations';
+import {
+  isChamferAggregate,
+  readChamferAggregateChain,
+} from '@/v3d/constructor/features/utils/chamferAggregates';
 import { ChamferFeatureBuilder, type EdgeSpec } from '@/v3d/constructor/modes/ChamferFeatureBuilder';
 
 export type ChamferSettings = {
@@ -38,6 +42,9 @@ export class ChamferCommandService {
 
     const target = document.graph.get(featureId);
     if (!target) return false;
+    if (isChamferAggregate(target)) {
+      return this.appendToAggregate(document, featureId, chamfer.rootId);
+    }
     if (target.type === 'group' || target.type === 'boolean') {
       document.updateInputs(featureId, [...target.getInputs(), chamfer.rootId]);
       return true;
@@ -45,12 +52,12 @@ export class ChamferCommandService {
     if (target.type === 'transform') {
       const inner = target.getInputs();
       if (inner.length !== 1) return false;
-      this.wrapWithBoolean(document, featureId, inner[0], chamfer.rootId);
+      this.attachToTransform(document, featureId, inner[0], chamfer.rootId);
       return true;
     }
 
     const transformId = ensureTransformWrapper(document, featureId);
-    this.wrapWithBoolean(document, transformId, featureId, chamfer.rootId);
+    this.attachToTransform(document, transformId, featureId, chamfer.rootId);
     return true;
   }
 
@@ -87,14 +94,31 @@ export class ChamferCommandService {
     return output?.kind === 'leaf' ? (output.bottomAnchorOffsetZ ?? 0) : 0;
   }
 
-  private wrapWithBoolean(
+  private attachToTransform(
     document: FeatureDocument,
     transformId: FeatureId,
     targetId: FeatureId,
     chamferId: FeatureId,
   ): void {
+    if (this.appendToAggregate(document, targetId, chamferId)) return;
     const booleanId = nextP2FeatureId('chamfer_target_group');
-    document.addFeature(new BooleanFeature(booleanId, { operation: 'union' }, [targetId, chamferId]));
+    const aggregate = new BooleanFeature(booleanId, { operation: 'union' }, [targetId, chamferId]);
+    aggregate.name = 'Фаски';
+    document.addFeature(aggregate);
     document.updateInputs(transformId, [booleanId]);
+  }
+
+  private appendToAggregate(
+    document: FeatureDocument,
+    aggregateId: FeatureId,
+    chamferId: FeatureId,
+  ): boolean {
+    const chain = readChamferAggregateChain(document.graph, aggregateId);
+    if (!chain) return false;
+    const aggregate = document.graph.get(chain.aggregateId);
+    if (!isChamferAggregate(aggregate)) return false;
+    aggregate.name = 'Фаски';
+    document.updateInputs(chain.aggregateId, [chain.baseId, ...chain.cutterIds, chamferId]);
+    return true;
   }
 }

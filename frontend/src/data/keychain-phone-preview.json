@@ -1,0 +1,17 @@
+{
+  "base": { "active": true, "offsetX": 0, "offsetY": 0, "offsetZ": 0, "color": null, "depth": 3, "width": 55, "height": 13, "shape": "roundedRectangle", "cornerRadius": 3 },
+  "border": { "active": true, "offsetX": 0, "offsetY": 0, "offsetZ": 0, "color": null, "depth": 1, "width": 1 },
+  "code": { "active": false, "offsetX": 0, "offsetY": 0, "offsetZ": 0, "color": null, "depth": 1, "margin": 2, "cityMode": false, "depthMax": 2, "errorCorrectionLevel": "M", "emptyCenter": true, "invert": false, "block": { "ratio": 100, "cityMode": false, "depth": 2, "shape": "classic" }, "preview": { "htmlId": "qr-image-preview", "src": "" } },
+  "text": { "active": true, "offsetX": 0, "offsetY": 0, "offsetZ": 0, "color": null, "depth": 1, "height": 10, "message": "89264686392", "placement": "center", "align": "center", "margin": 1, "size": 5 },
+  "icon": { "name": "user", "active": false, "offsetX": 0, "offsetY": 0, "offsetZ": 0, "color": null, "ratio": 20, "inverted": false, "srcCustom": "", "htmlId": "icon-preview", "temp": {} },
+  "keychain": { "active": true, "offsetX": 0, "offsetY": 0, "offsetZ": 0, "color": null, "height": 3, "placement": "left", "holeDiameter": 6, "borderWidth": 3, "mirror": false },
+  "magnet": { "active": false, "offsetX": 0, "offsetY": 0, "offsetZ": 0.6, "color": null, "depth": 1, "shape": "round", "size": 10, "count": 1, "gap": 1, "hidden": false },
+  "content": "vsqr.ru",
+  "wifi": { "ssid": "", "password": "", "security": "WPA", "hidden": false },
+  "email": { "recipient": "", "subject": "", "body": "" },
+  "contact": { "firstName": "", "lastName": "", "organization": "", "role": "", "cell": "", "phone": "", "fax": "", "email": "", "street": "", "postcode": "", "city": "", "state": "", "country": "", "website": "" },
+  "sms": { "recipient": "", "message": "" },
+  "activeTabIndex": 0,
+  "version": "1.0.0",
+  "appVersion": "1.0.0"
+}

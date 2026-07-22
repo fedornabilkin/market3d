@@ -19,6 +19,14 @@ export function nextP2FeatureId(prefix: string): string {
   return `p2_${prefix}_${++p2Seq}`;
 }
 
+/** Advances the process-local sequence past IDs restored from a scene file. */
+export function reserveP2FeatureIds(featureIds: Iterable<string>): void {
+  for (const id of featureIds) {
+    const match = /^p2_.+_(\d+)$/.exec(id);
+    if (match) p2Seq = Math.max(p2Seq, Number(match[1]));
+  }
+}
+
 /**
  * DAG-утилиты поверх FeatureDocument. Все мутации идут через публичный API
  * документа (`addFeature`, `removeFeature`, `updateInputs`, `setRootIds`),

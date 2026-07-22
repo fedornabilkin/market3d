@@ -1,0 +1,157 @@
+{
+  "version": 1,
+  "currency": "RUB",
+  "locale": "ru-RU",
+  "timezone": "Europe/Moscow",
+  "discountMode": "max",
+  "priorityScope": "item",
+  "maxDiscountBps": 2000,
+  "maxQuantityPerProduct": 9999,
+  "checkout": {
+    "mode": "link",
+    "url": "https://t.me/+dSgck2GM29syZTQ6",
+    "copySummaryBeforeOpen": true
+  },
+  "products": [
+    {
+      "slug": "phone",
+      "nameKey": "keychainCalculator.products.phone.name",
+      "descriptionKey": "keychainCalculator.products.phone.description",
+      "image": "/images/keychains/phone.jpg",
+      "basePriceKopecks": 35000,
+      "state": "active",
+      "sortOrder": 10,
+      "discountTiers": [
+        { "minQuantity": 3, "discountBps": 300 },
+        { "minQuantity": 5, "discountBps": 500 },
+        { "minQuantity": 10, "discountBps": 1000 }
+      ]
+    },
+    {
+      "slug": "address",
+      "nameKey": "keychainCalculator.products.address.name",
+      "descriptionKey": "keychainCalculator.products.address.description",
+      "image": "/images/keychains/address.jpg",
+      "basePriceKopecks": 40000,
+      "state": "active",
+      "sortOrder": 20,
+      "discountTiers": [
+        { "minQuantity": 3, "discountBps": 300 },
+        { "minQuantity": 5, "discountBps": 500 },
+        { "minQuantity": 10, "discountBps": 1000 }
+      ]
+    },
+    {
+      "slug": "qr",
+      "nameKey": "keychainCalculator.products.qr.name",
+      "descriptionKey": "keychainCalculator.products.qr.description",
+      "image": "/images/keychains/qr.jpg",
+      "basePriceKopecks": 45000,
+      "state": "active",
+      "sortOrder": 30,
+      "discountTiers": [
+        { "minQuantity": 3, "discountBps": 300 },
+        { "minQuantity": 5, "discountBps": 500 },
+        { "minQuantity": 10, "discountBps": 1000 }
+      ]
+    },
+    {
+      "slug": "child",
+      "nameKey": "keychainCalculator.products.child.name",
+      "descriptionKey": "keychainCalculator.products.child.description",
+      "image": "/images/keychains/child.jpg",
+      "basePriceKopecks": 35000,
+      "state": "active",
+      "sortOrder": 40,
+      "discountTiers": [
+        { "minQuantity": 3, "discountBps": 300 },
+        { "minQuantity": 5, "discountBps": 500 },
+        { "minQuantity": 10, "discountBps": 1000 }
+      ]
+    },
+    {
+      "slug": "pet",
+      "nameKey": "keychainCalculator.products.pet.name",
+      "descriptionKey": "keychainCalculator.products.pet.description",
+      "image": "/images/keychains/pet.jpg",
+      "basePriceKopecks": 30000,
+      "state": "active",
+      "sortOrder": 50,
+      "discountTiers": [
+        { "minQuantity": 3, "discountBps": 300 },
+        { "minQuantity": 5, "discountBps": 500 },
+        { "minQuantity": 10, "discountBps": 1000 }
+      ]
+    },
+    {
+      "slug": "whistle",
+      "nameKey": "keychainCalculator.products.whistle.name",
+      "descriptionKey": "keychainCalculator.products.whistle.description",
+      "image": "/images/keychains/whistle.png",
+      "basePriceKopecks": 50000,
+      "state": "active",
+      "sortOrder": 60,
+      "discountTiers": [
+        { "minQuantity": 3, "discountBps": 300 },
+        { "minQuantity": 5, "discountBps": 500 },
+        { "minQuantity": 10, "discountBps": 1000 }
+      ]
+    },
+    {
+      "slug": "callsign",
+      "nameKey": "keychainCalculator.products.callsign.name",
+      "descriptionKey": "keychainCalculator.products.callsign.description",
+      "image": "/images/keychains/callsign.jpg",
+      "basePriceKopecks": 40000,
+      "state": "active",
+      "sortOrder": 70,
+      "discountTiers": [
+        { "minQuantity": 3, "discountBps": 300 },
+        { "minQuantity": 5, "discountBps": 500 },
+        { "minQuantity": 10, "discountBps": 1000 }
+      ]
+    },
+    {
+      "slug": "windshield",
+      "nameKey": "keychainCalculator.products.windshield.name",
+      "descriptionKey": "keychainCalculator.products.windshield.description",
+      "image": "/images/keychains/windshield.jpg",
+      "basePriceKopecks": 55000,
+      "state": "active",
+      "sortOrder": 80,
+      "discountTiers": [
+        { "minQuantity": 3, "discountBps": 300 },
+        { "minQuantity": 5, "discountBps": 500 },
+        { "minQuantity": 10, "discountBps": 1000 }
+      ]
+    }
+  ],
+  "orderDiscountTiers": [
+    { "minSubtotalKopecks": 150000, "discountBps": 300 },
+    { "minSubtotalKopecks": 250000, "discountBps": 700 },
+    { "minSubtotalKopecks": 400000, "discountBps": 1200 }
+  ],
+  "promotions": [
+    {
+      "code": "summer-2026",
+      "titleKey": "keychainCalculator.promotions.summer2026.title",
+      "descriptionKey": "keychainCalculator.promotions.summer2026.description",
+      "state": "active",
+      "priority": 100,
+      "startsAt": "2026-07-01T00:00:00+03:00",
+      "endsAt": "2026-09-01T00:00:00+03:00",
+      "discountMode": "max",
+      "maxDiscountBps": 2000,
+      "productOverrides": {
+        "phone": { "priceKopecks": 32000 },
+        "qr": { "priceKopecks": 42000 },
+        "pet": { "priceKopecks": 28000 }
+      },
+      "orderDiscountTiers": [
+        { "minSubtotalKopecks": 150000, "discountBps": 500 },
+        { "minSubtotalKopecks": 250000, "discountBps": 900 },
+        { "minSubtotalKopecks": 400000, "discountBps": 1400 }
+      ]
+    }
+  ]
+}

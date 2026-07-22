@@ -22,6 +22,7 @@ import { FeatureRenderer } from './features/rendering/FeatureRenderer';
 import { FeatureDocument } from './features/FeatureDocument';
 import { TransformFeature } from './features/composite/TransformFeature';
 import type { FeatureDocumentJSON, FeatureId } from './features/types';
+import { readChamferAggregateChain } from './features/utils/chamferAggregates';
 import { disposeObject3D } from './services/sceneObjectHelpers';
 import { MirrorFeatureOperation } from './modes/MirrorFeatureOperation';
 import {
@@ -162,7 +163,11 @@ export class ConstructorSceneService {
   private selectedFeatureIds: FeatureId[] = [];
   private selectedFeatureIdPrimary: FeatureId | null = null;
   private selectedObject3D: THREE.Object3D | null = null;
-  private selectableMeshesCache: { version: number; meshes: THREE.Mesh[] } | null = null;
+  private selectableMeshesCache: {
+    renderer: FeatureRenderer | null;
+    version: number;
+    meshes: THREE.Mesh[];
+  } | null = null;
 
   // ─── Misc ──────────────────────────────────────────────────────────────────
   private animationId: number | null = null;
@@ -449,7 +454,12 @@ export class ConstructorSceneService {
     this.chamferMode.getFeatureInfo = (featureId) => {
       const f = this.featureDocCurrent?.graph.get(featureId);
       if (!f) return null;
-      return { type: f.type, params: f.params as Record<string, number> };
+      return {
+        type: f.type,
+        params: f.params as Record<string, number>,
+        existingChamferRadius: this.findExistingChamferRadius(featureId),
+        referenceBounds: this.findPreChamferBounds(featureId),
+      };
     };
     this.generatorMode.init(this.scene);
 
@@ -549,6 +559,56 @@ export class ConstructorSceneService {
     this.featureRendererBoundDoc = null;
   }
 
+  private findExistingChamferRadius(featureId: FeatureId): number | undefined {
+    const document = this.featureDocCurrent;
+    if (!document) return undefined;
+    let maximumRadius = 0;
+    for (const dependencyId of document.graph.collectDependencies([featureId])) {
+      if (!dependencyId.startsWith('p2_chamfer_box_')) continue;
+      const feature = document.graph.get(dependencyId);
+      if (feature?.type !== 'box') continue;
+      const width = (feature.params as { width?: unknown }).width;
+      if (typeof width === 'number' && Number.isFinite(width)) {
+        maximumRadius = Math.max(maximumRadius, width);
+      }
+    }
+    return maximumRadius > 0 ? maximumRadius : undefined;
+  }
+
+  /**
+   * Returns bounds of the target immediately before its chamfer chain.
+   * Evaluated CSG bounds slowly accumulate floating-point drift and must not
+   * become the source of coordinates for subsequent cutters.
+   */
+  private findPreChamferBounds(featureId: FeatureId): THREE.Box3 | undefined {
+    const document = this.featureDocCurrent;
+    if (!document) return undefined;
+
+    let currentId = featureId;
+    const selected = document.graph.get(currentId);
+    if (selected?.type === 'transform') {
+      const inputId = selected.getInputs()[0];
+      if (!inputId) return undefined;
+      currentId = inputId;
+    }
+
+    const aggregate = readChamferAggregateChain(document.graph, currentId);
+    if (!aggregate) return undefined;
+    currentId = aggregate.baseId;
+
+    const output = document.getOutput(currentId);
+    if (!output || output.kind !== 'leaf') return undefined;
+    output.geometry.computeBoundingBox();
+    const bounds = output.geometry.boundingBox?.clone();
+    if (!bounds) return undefined;
+
+    const transform = output.transform.clone();
+    if (output.bottomAnchorOffsetZ) {
+      transform.premultiply(new THREE.Matrix4().makeTranslation(0, 0, output.bottomAnchorOffsetZ));
+    }
+    return bounds.applyMatrix4(transform);
+  }
+
   // ─── Scene management ──────────────────────────────────────────────────────
 
   setSelection(featureIds: readonly FeatureId[], primaryId: FeatureId | null): void {
@@ -604,6 +664,7 @@ export class ConstructorSceneService {
     this.activeRenderGroup = binding.group;
     this.featureRenderer = binding.renderer;
     this.featureRendererBoundDoc = this.featureDocCurrent;
+    this.selectableMeshesCache = null;
   }
 
   /**
@@ -744,8 +805,12 @@ export class ConstructorSceneService {
   };
 
   private getSelectableMeshes(): THREE.Mesh[] {
-    const version = this.featureRenderer?.getRenderVersion() ?? 0;
-    if (this.selectableMeshesCache?.version === version) {
+    const renderer = this.featureRenderer;
+    const version = renderer?.getRenderVersion() ?? 0;
+    if (
+      this.selectableMeshesCache?.renderer === renderer
+      && this.selectableMeshesCache.version === version
+    ) {
       return this.selectableMeshesCache.meshes;
     }
     const meshes: THREE.Mesh[] = [];
@@ -753,7 +818,7 @@ export class ConstructorSceneService {
     this.modelRootGroup.traverse((o) => {
       if (o instanceof THREE.Mesh && (o.userData as { featureId?: unknown }).featureId) meshes.push(o);
     });
-    this.selectableMeshesCache = { version, meshes };
+    this.selectableMeshesCache = { renderer, version, meshes };
     return meshes;
   }
 

@@ -59,6 +59,12 @@ const routes: RouteRecordRaw[] = [
       component: () => import('../views/Constructor.vue'),
       meta: { requiresAuth: false },
     },
+    {
+      path: '/calculator/keychains',
+      name: 'KeychainCalculator',
+      component: () => import('../views/KeychainCalculator.vue'),
+      meta: { requiresAuth: false },
+    },
   {
     path: '/payment-methods',
     name: 'PaymentMethods',

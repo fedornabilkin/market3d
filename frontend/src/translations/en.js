@@ -26,6 +26,7 @@ export default {
     goToGeneratorCoaster: 'Coasters',
     goToGeneratorNameTag: 'Name tags',
     goToConstructor: 'Constructor',
+    goToKeychainCalculator: 'Calculator',
     seconds: 's',
     scanModalTitle: 'The code must be in front of the camera',
     readModalTitle: 'Load QR code from file',
@@ -408,6 +409,93 @@ export default {
     copyLink: 'Скопировать ссылку',
   },
 
+  keychainCalculator: {
+    eyebrow: 'Preliminary estimate',
+    title: 'Keychain order calculator',
+    subtitle: 'Choose the products, enter quantities, and instantly see the price, discount, and order total.',
+    productsTitle: 'Keychain types',
+    productsDescription: 'Select multiple products — discounts are recalculated automatically.',
+    selectedCount: 'Selected: {count}',
+    selectProduct: 'Select “{product}”',
+    imagePlaceholder: 'Image placeholder',
+    perItem: 'per item',
+    quantity: 'Quantity',
+    positionTotal: 'Line total',
+    discountApplied: '{discount} discount applied',
+    nextQuantityDiscount: '{count} more item(s) to unlock a {discount} discount.',
+    maxQuantityDiscount: 'Maximum quantity discount reached',
+    quantityThreshold: '{count} pcs',
+    promotionEyebrow: 'Promotion',
+    countdownLabel: 'Time left in promotion',
+    time: {
+      days: 'days',
+      hours: 'hrs',
+      minutes: 'min',
+      seconds: 'sec',
+    },
+    summaryTitle: 'Your estimate',
+    summaryShareTitle: 'Preliminary keychain estimate',
+    preliminaryNotice: 'This is a preliminary estimate. A manager will confirm the final price.',
+    totalQuantity: 'Total keychains',
+    subtotal: 'Before discount',
+    discount: 'Discount',
+    total: 'Total',
+    nextOrderDiscount: 'Add {amount} more to unlock a {discount} order discount.',
+    maxOrderDiscount: 'Maximum order discount reached',
+    leaveRequest: 'Send request',
+    copyCalculation: 'Copy estimate',
+    copyLink: 'Copy link',
+    reset: 'Reset',
+    linkLabel: 'Estimate link',
+    calculationCopied: 'Estimate copied',
+    linkCopied: 'Link copied',
+    copyError: 'Could not copy',
+    calculationCopiedBeforeRequest: 'Estimate copied — paste it into your message to the manager',
+    copyBeforeRequestError: 'The estimate could not be copied, but the chat will still open',
+    unavailableTitle: 'Calculator is temporarily unavailable',
+    unavailableDescription: 'Check the data configuration or try opening the page later.',
+    products: {
+      phone: {
+        name: 'Phone number keychain',
+        description: 'A contact number for returning lost keys, bags, or luggage.',
+      },
+      address: {
+        name: 'Address keychain',
+        description: 'A short address or landmark for belongings that need to be returned quickly.',
+      },
+      qr: {
+        name: 'QR code keychain',
+        description: 'A QR code containing a link, contact details, or other useful information.',
+      },
+      child: {
+        name: 'Child safety keychain',
+        description: 'A child name and parent contact details for school, travel, and events.',
+      },
+      pet: {
+        name: 'Pet ID tag',
+        description: 'A lightweight tag with the pet name and owner phone number.',
+      },
+      whistle: {
+        name: 'Whistle keychain',
+        description: 'A compact option for hiking, walks, and emergency situations.',
+      },
+      callsign: {
+        name: 'Name or callsign keychain',
+        description: 'A personalised keychain with a short label or memorable name.',
+      },
+      windshield: {
+        name: 'Car contact plate',
+        description: 'A contact plate placed under the windshield to reach the car owner.',
+      },
+    },
+    promotions: {
+      summer2026: {
+        title: 'Summer prices for popular keychains',
+        description: 'Promotional prices and increased discounts are applied automatically.',
+      },
+    },
+  },
+
   seo: {
     main: {
       title: '3D STL Generator — QR codes, keychains, cards and printable models | vsqr',
@@ -476,6 +564,11 @@ export default {
       keywords: '3d constructor online, build 3d model, csg online, stl editor in browser, boolean operations 3d, online stl editor',
       h1: '3D Model Constructor',
       subtitle: 'Assemble models from primitives and export the build to STL or OBJ.',
+    },
+    keychainCalculator: {
+      title: 'Keychain order calculator — prices and discounts | vsqr',
+      description: 'Estimate personalised keychains: select several types, enter quantities, apply discounts, and save the result in a shareable link.',
+      keywords: 'keychain calculator, custom keychains, phone number keychain, pet id tag, qr code keychain, keychain price',
     },
     paymentMethods: {
       title: 'Support vsqr — payment methods',

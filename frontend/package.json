@@ -6,7 +6,8 @@
   "scripts": {
     "build": "vite build",
     "dev": "vite --host 0.0.0.0",
-    "test:unit": "vue-cli-service test:unit"
+    "test": "vitest run",
+    "test:unit": "vitest run"
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.1",

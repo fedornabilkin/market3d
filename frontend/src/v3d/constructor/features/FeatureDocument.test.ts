@@ -14,6 +14,7 @@ import { SphereFeature } from './primitives/SphereFeature';
 import { TransformFeature } from './composite/TransformFeature';
 import { BooleanFeature } from './composite/BooleanFeature';
 import { GroupFeature } from './composite/GroupFeature';
+import { nextP2FeatureId } from './utils/dagMutations';
 
 describe('FeatureDocument: events', () => {
   it('fires events on add/update/remove', () => {
@@ -40,9 +41,70 @@ describe('FeatureDocument: events', () => {
     doc.updateParams('b1', { width: 10 }); // тот же width — не должно эмитить
     expect(fn).not.toHaveBeenCalled();
   });
+
+  it('does not recompute unchanged scene-group siblings in a batch', () => {
+    const doc = new FeatureDocument();
+    doc.addFeature(new BoxFeature('b1', { width: 10, height: 10, depth: 10 }));
+    doc.addFeature(new BoxFeature('b2', { width: 20, height: 20, depth: 20 }));
+    doc.addFeature(new TransformFeature('t1', {
+      position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1],
+    }, ['b1']));
+    doc.addFeature(new TransformFeature('t2', {
+      position: [20, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1],
+    }, ['b2']));
+    doc.addFeature(new GroupFeature('scene', {}, ['t1', 't2']));
+    doc.setRootIds(['scene']);
+    const unchangedOutput = doc.getOutput('t2');
+
+    doc.batchMutate(() => {
+      doc.addFeature(new BoxFeature('b3', { width: 5, height: 5, depth: 5 }));
+      doc.addFeature(new TransformFeature('t3', {
+        position: [40, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1],
+      }, ['b3']));
+      doc.updateInputs('scene', ['t1', 't2', 't3']);
+    });
+
+    expect(doc.getOutput('t2')).toBe(unchangedOutput);
+    expect(doc.getOutput('t3')).toBeDefined();
+    expect(doc.getOutput('scene')).toBeDefined();
+  });
+
+  it('reuses previous operands when extending a nested union chain', () => {
+    const doc = new FeatureDocument();
+    doc.addFeature(new BoxFeature('base', { width: 10, height: 10, depth: 10 }));
+    doc.addFeature(new SphereFeature('old_cutter', { radius: 1 }));
+    doc.addFeature(new BooleanFeature('old_union', { operation: 'union' }, ['base', 'old_cutter']));
+    doc.addFeature(new TransformFeature('target', {
+      position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1],
+    }, ['old_union']));
+    doc.addFeature(new GroupFeature('scene', {}, ['target']));
+    doc.setRootIds(['scene']);
+    const oldCutterOutput = doc.getOutput('old_cutter');
+
+    doc.batchMutate(() => {
+      doc.addFeature(new SphereFeature('new_cutter', { radius: 2 }));
+      doc.addFeature(new BooleanFeature('new_union', { operation: 'union' }, ['old_union', 'new_cutter']));
+      doc.updateInputs('target', ['new_union']);
+    });
+
+    expect(doc.getOutput('old_cutter')).toBe(oldCutterOutput);
+    expect(doc.getOutput('new_union')).toBeDefined();
+    expect(doc.getOutput('target')).toBeDefined();
+  });
 });
 
 describe('FeatureDocument: serialization', () => {
+  it('reserves generated IDs restored from JSON', () => {
+    FeatureDocument.fromJSON({
+      version: 2,
+      features: [{ id: 'p2_box_9000', type: 'box', params: { width: 1, height: 1, depth: 1 } }],
+      rootIds: ['p2_box_9000'],
+    });
+
+    const generatedParts = nextP2FeatureId('box').split('_');
+    expect(Number(generatedParts[generatedParts.length - 1])).toBeGreaterThan(9000);
+  });
+
   it('round-trips a complex graph', () => {
     const doc = new FeatureDocument();
     doc.addFeature(new BoxFeature('b1', { width: 10, height: 10, depth: 10 }));

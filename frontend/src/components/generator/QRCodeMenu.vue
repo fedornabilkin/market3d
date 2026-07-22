@@ -285,7 +285,7 @@ export default {
         }
       }
     },
-    prepareData() {
+    async prepareData() {
       this.generateError = ''
       this.isGenerating = true
       this.progressGenerating = 0
@@ -296,42 +296,38 @@ export default {
       // в options (preview.src, errorCorrectionLevel, wifi.security).
       // Снимаем его в nextTick — после flush-а вочера для этих мутаций.
       this._suppressAutoGen = true
-      this.$nextTick(() => {
-        this._suppressAutoGen = false
-      })
+      try {
+        const txt = this.getQRText()
+        if (this.options.code.active && txt === '') {
+          this.isGenerating = false
+          this.stopGenTimer()
+          this.generateError = 'You have not entered any text.'
+          return
+        }
 
-      const txt = this.getQRText()
-      if (this.options.code.active && txt === '') {
-        this.isGenerating = false
-        this.stopGenTimer()
-        this.generateError = 'You have not entered any text.'
-        return
-      }
+        if (this.options.icon.active && this.options.code.errorCorrectionLevel !== 'H') {
+          this.options.code.errorCorrectionLevel = 'H'
+        }
 
-      if (this.options.icon.active) {
-        this.options.code.errorCorrectionLevel = 'H'
-      }
-
-      if (this.options.code.active) {
-        try {
+        if (this.options.code.active) {
           const qrConfig = {errorCorrectionLevel: this.options.code.errorCorrectionLevel}
           const qrCodeObject = qrcode.create(txt, qrConfig)
           this.qrCodeBitMask = qrCodeObject.modules.data
 
           qrConfig.margin = 1
-          qrcode.toDataURL(txt, qrConfig, (err, src) => {
-            if (err) {throw err}
-            this.options.code.preview.src = src
-          })
-        } catch (e) {
-          this.generateError = `Error during generation: ${e.message}`
-          this.isGenerating = false
-          this.stopGenTimer()
-          return
+          this.options.code.preview.src = await qrcode.toDataURL(txt, qrConfig)
         }
-      }
 
-      this.render3d()
+        await this.render3d()
+      } catch (e) {
+        this.generateError = `Error during generation: ${e.message}`
+        this.isGenerating = false
+        this.stopGenTimer()
+      } finally {
+        // Let Vue flush mutations made by this method while the watcher is still muted.
+        await this.$nextTick()
+        this._suppressAutoGen = false
+      }
     },
     onDecode(rawValue) {
       this.options.content = rawValue

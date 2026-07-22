@@ -218,7 +218,7 @@ describe('FeatureGraph: recompute', () => {
     expect(csgMock.mock.calls[0][0]).toHaveLength(2);
   });
 
-  it('collapses nested union chains during dependency recompute', () => {
+  it('preserves ordinary nested union scope during dependency recompute', () => {
     const csgMock = vi.mocked(booleanCsg);
     csgMock.mockClear();
 
@@ -232,11 +232,32 @@ describe('FeatureGraph: recompute', () => {
     const r = g.recomputeDependencies(['outer']);
     expect(r.failed).toEqual([]);
 
-    expect(csgMock).toHaveBeenCalledTimes(1);
-    expect(csgMock.mock.calls[0][1]).toBe('union');
-    expect(csgMock.mock.calls[0][0]).toHaveLength(3);
+    expect(csgMock).toHaveBeenCalledTimes(2);
+    expect(csgMock.mock.calls[0][0]).toHaveLength(2);
+    expect(csgMock.mock.calls[1][0]).toHaveLength(2);
     expect(g.getOutput('outer')).toBeDefined();
-    expect(g.getOutput('inner')).toBeUndefined();
+    expect(g.getOutput('inner')).toBeDefined();
+  });
+
+  it('collapses only legacy nested chamfer aggregates during dependency recompute', () => {
+    const csgMock = vi.mocked(booleanCsg);
+    csgMock.mockClear();
+
+    const g = new FeatureGraph();
+    g.add(makeBox('base', 10));
+    g.add(makeBox('cutter1', 2));
+    g.add(makeBox('cutter2', 2));
+    g.add(makeBoolean('p2_chamfer_target_group_1', 'union', ['base', 'cutter1']));
+    g.add(makeBoolean('p2_chamfer_target_group_2', 'union', [
+      'p2_chamfer_target_group_1', 'cutter2',
+    ]));
+
+    const r = g.recomputeDependencies(['p2_chamfer_target_group_2']);
+    expect(r.failed).toEqual([]);
+    expect(csgMock).toHaveBeenCalledTimes(1);
+    expect(csgMock.mock.calls[0][0]).toHaveLength(3);
+    expect(g.getOutput('p2_chamfer_target_group_1')).toBeUndefined();
+    expect(g.getOutput('p2_chamfer_target_group_2')).toBeDefined();
   });
 
   it('group returns composite output', () => {

@@ -1,4 +1,4 @@
-import { ref, reactive, markRaw } from 'vue';
+import { ref, reactive, markRaw, onBeforeUnmount } from 'vue';
 import { V3DFacade } from '@/v3d/V3DFacade';
 import { useExportList } from '@/store/exportList';
 import { Share } from '@/entity/share';
@@ -31,6 +31,13 @@ export function useGenerator({ containerId = 'container3d', fileName, exportTime
   let camera = null;
   let renderer = null;
   let scene = null;
+
+  onBeforeUnmount(() => {
+    v3dFacade.dispose();
+    camera = null;
+    renderer = null;
+    scene = null;
+  });
 
   function initScene() {
     const container = document.getElementById(containerId);

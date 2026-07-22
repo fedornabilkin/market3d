@@ -4,6 +4,7 @@ import { FeatureGraph } from './FeatureGraph';
 import { FeatureRegistry, createDefaultRegistry } from './FeatureRegistry';
 import { SerializeVisitor } from './visitors/SerializeVisitor';
 import { ValidateVisitor, type ValidationIssue } from './visitors/ValidateVisitor';
+import { reserveP2FeatureIds } from './utils/dagMutations';
 
 export interface FeatureDocumentEvent {
   type: 'feature-added' | 'feature-removed' | 'feature-updated' | 'recompute-done';
@@ -26,7 +27,7 @@ type Listener = (event: FeatureDocumentEvent) => void;
  */
 export class FeatureDocument {
   private batchDepth = 0;
-  private batchDirty = false;
+  private readonly batchDirtyIds = new Set<FeatureId>();
   readonly graph = new FeatureGraph();
   rootIds: FeatureId[] = [];
   metadata: { name?: string; createdAt?: string; updatedAt?: string } = {};
@@ -56,7 +57,7 @@ export class FeatureDocument {
     this.graph.add(feature);
     const id = feature.id;
     this.emit({ type: 'feature-added', featureIds: [id] });
-    if (this.batchDepth > 0) { this.batchDirty = true; return; }
+    if (this.batchDepth > 0) { this.batchDirtyIds.add(id); return; }
     const result = this.graph.recompute([id]);
     this.emit({ type: 'recompute-done', featureIds: [...result.updated] });
   }
@@ -66,6 +67,10 @@ export class FeatureDocument {
     const ids = features.map((feature) => feature.id);
     for (const feature of features) this.graph.add(feature);
     this.emit({ type: 'feature-added', featureIds: ids });
+    if (this.batchDepth > 0) {
+      for (const id of ids) this.batchDirtyIds.add(id);
+      return;
+    }
     const result = this.graph.recomputeDependencies(recomputeRootIds ?? ids);
     this.emit({ type: 'recompute-done', featureIds: [...result.updated] });
   }
@@ -73,7 +78,7 @@ export class FeatureDocument {
   removeFeature(id: FeatureId): void {
     this.graph.remove(id);
     this.rootIds = this.rootIds.filter((rid) => rid !== id);
-    if (this.batchDepth > 0) { this.batchDirty = true; return; }
+    if (this.batchDepth > 0) { this.batchDirtyIds.add(id); return; }
     this.emit({ type: 'feature-removed', featureIds: [id] });
   }
 
@@ -81,7 +86,7 @@ export class FeatureDocument {
     const changed = this.graph.updateParams<TP>(id, patch);
     if (!changed) return;
     this.emit({ type: 'feature-updated', featureIds: [id] });
-    if (this.batchDepth > 0) { this.batchDirty = true; return; }
+    if (this.batchDepth > 0) { this.batchDirtyIds.add(id); return; }
     const result = this.graph.recompute([id]);
     this.emit({ type: 'recompute-done', featureIds: [...result.updated] });
   }
@@ -161,7 +166,7 @@ export class FeatureDocument {
     const changed = this.graph.updateInputs(id, next);
     if (!changed) return;
     this.emit({ type: 'feature-updated', featureIds: [id] });
-    if (this.batchDepth > 0) { this.batchDirty = true; return; }
+    if (this.batchDepth > 0) { this.batchDirtyIds.add(id); return; }
     const result = this.graph.recompute([id]);
     this.emit({ type: 'recompute-done', featureIds: [...result.updated] });
   }
@@ -174,7 +179,10 @@ export class FeatureDocument {
     }
     const prev = this.rootIds;
     this.rootIds = [...ids];
-    if (this.batchDepth > 0) { this.batchDirty = true; return; }
+    if (this.batchDepth > 0) {
+      for (const id of ids) this.batchDirtyIds.add(id);
+      return;
+    }
     if (prev.length !== ids.length || prev.some((id, index) => id !== ids[index])) {
       this.emit({ type: 'recompute-done', featureIds: ids });
     }
@@ -185,12 +193,53 @@ export class FeatureDocument {
     try { return mutate(); }
     finally {
       this.batchDepth--;
-      if (this.batchDepth === 0 && this.batchDirty) {
-        this.batchDirty = false;
-        const result = this.graph.recomputeDependencies(this.rootIds);
-        this.emit({ type: 'recompute-done', featureIds: [...result.updated] });
+      if (this.batchDepth === 0 && this.batchDirtyIds.size > 0) {
+        const dirtyIds = new Set(this.batchDirtyIds);
+        this.batchDirtyIds.clear();
+        this.emit({ type: 'recompute-done', featureIds: this.recomputeDirtyBranches(dirtyIds) });
       }
     }
+  }
+
+  /**
+   * Recomputes only changed children of scene groups. Recomputing dependencies
+   * of the scene root would also rebuild every unchanged CSG sibling whenever
+   * a primitive is added or one chamfered object is edited.
+   */
+  private recomputeDirtyBranches(dirtyIds: ReadonlySet<FeatureId>): FeatureId[] {
+    const branchRoots = new Set<FeatureId>();
+    const finalRoots = new Set<FeatureId>();
+
+    for (const rootId of this.rootIds) {
+      const root = this.graph.get(rootId);
+      if (root?.type !== 'group') {
+        branchRoots.add(rootId);
+        continue;
+      }
+
+      finalRoots.add(rootId);
+      for (const childId of root.getInputs()) {
+        const dependencies = this.graph.collectDependencies([childId]);
+        for (const dirtyId of dirtyIds) {
+          if (!dependencies.has(dirtyId)) continue;
+          branchRoots.add(childId);
+          break;
+        }
+      }
+    }
+
+    const updated = new Set<FeatureId>();
+    if (branchRoots.size > 0 || dirtyIds.size > 0) {
+      const protectedIds = new Set([...branchRoots, ...finalRoots]);
+      const result = this.graph.recomputeCollapsed([...dirtyIds], protectedIds);
+      for (const id of result.updated) updated.add(id);
+    }
+    for (const rootId of finalRoots) {
+      if (updated.has(rootId)) continue;
+      const result = this.graph.recompute([rootId]);
+      for (const id of result.updated) updated.add(id);
+    }
+    return [...updated];
   }
 
   pruneUnreachable(): FeatureId[] {
@@ -279,6 +328,7 @@ export class FeatureDocument {
     }
     this.graph.clear();
     this.rootIds = [];
+    reserveP2FeatureIds(json.features.map((feature) => feature.id));
 
     const sorted = sortByInputs(json.features);
     for (const fjson of sorted) {

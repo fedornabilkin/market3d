@@ -1,12 +1,15 @@
 <script setup>
 import { useThemeStore } from '@/store/theme';
-import { useRouter } from 'vue-router';
+import { computed } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { Sunny, Moon, Monitor, QuestionFilled } from '@element-plus/icons-vue';
 import { useTourStore } from '@/store/tour';
 
 const themeStore = useThemeStore();
 const router = useRouter();
+const route = useRoute();
 const tourStore = useTourStore();
+const isKeychainCalculator = computed(() => route.name === 'KeychainCalculator');
 
 const TOUR_PAGES = ['Main', 'GeneratorQR', 'GeneratorGRZ', 'GeneratorBraille', 'GeneratorCoaster', 'GeneratorNameTag', 'Constructor'];
 
@@ -27,7 +30,7 @@ nav.navbar(role='navigation' aria-label='main navigation')
     a.navbar-item(href='/')
       img(src='../../assets/logo.png' alt='vsqr.ru 3d генератор stl')
   .navbar-menu
-    .navbar-start
+    .navbar-start(v-if="!isKeychainCalculator")
       .navbar-item
         router-link.button.is-small.gen-nav-btn(:to="{ name: 'GeneratorQR' }" :title="$t('g.goToGeneratorQR')")
           span.icon
@@ -63,6 +66,11 @@ nav.navbar(role='navigation' aria-label='main navigation')
           span.icon
             i.fa.fa-cubes
           span.is-hidden-mobile {{ $t('g.goToConstructor') }}
+      .navbar-item
+        router-link.button.is-small.gen-nav-btn(:to="{ name: 'KeychainCalculator' }" :title="$t('g.goToKeychainCalculator')")
+          span.icon
+            i.fa.fa-calculator
+          span.is-hidden-mobile {{ $t('g.goToKeychainCalculator') }}
     .navbar-end
       .navbar-item
         a.button.is-small.gen-discuss-btn(href="https://t.me/+dSgck2GM29syZTQ6" target="_blank")

@@ -240,6 +240,7 @@ export default {
     if (this.rafId) cancelAnimationFrame(this.rafId)
     if (this._tasks) this._tasks.forEach(t => t.resolve && t.resolve())
     if (this._sleepTimer) clearTimeout(this._sleepTimer)
+    this.v3dFacade.dispose()
   },
   methods: {
     onResize() {

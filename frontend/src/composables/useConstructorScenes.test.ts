@@ -7,7 +7,10 @@ import type { FeatureHistoryService } from '@/services/FeatureHistoryService';
 import { useConstructorScenes } from './useConstructorScenes';
 
 vi.mock('@/v3d/constructor/features/loader/loadFeatureDocument', () => ({
-  loadFeatureDocument: vi.fn(async (json: FeatureDocumentJSON) => ({ json })),
+  loadFeatureDocument: vi.fn(async (json: FeatureDocumentJSON) => ({
+    json,
+    pruneUnreachable: () => [],
+  })),
 }));
 
 function scene(id: string): FeatureDocumentJSON {
@@ -20,7 +23,11 @@ function scene(id: string): FeatureDocumentJSON {
 
 describe('useConstructorScenes', () => {
   it('reuses evaluated documents and skips loading feedback for warm switches', async () => {
-    let current = { json: scene('scene-0') } as unknown as FeatureDocument;
+    const pruneSceneZero = vi.fn();
+    let current = {
+      json: scene('scene-0'),
+      pruneUnreachable: pruneSceneZero,
+    } as unknown as FeatureDocument;
     const sceneOne = scene('scene-1');
     const load = vi.fn((index: number) => index === 1 ? sceneOne : null);
     const replaceFeatureDocument = vi.fn((document: FeatureDocument) => {
@@ -51,5 +58,34 @@ describe('useConstructorScenes', () => {
     expect(replaceFeatureDocument).toHaveBeenCalledTimes(3);
     expect(loading.start).toHaveBeenCalledTimes(1);
     expect(loading.finish).toHaveBeenCalledTimes(1);
+    expect(pruneSceneZero).toHaveBeenCalledTimes(2);
+  });
+
+  it('prunes the active graph before flushing it during a switch', async () => {
+    const calls: string[] = [];
+    const current = {
+      pruneUnreachable: vi.fn(() => {
+        calls.push('prune');
+        return [];
+      }),
+    } as unknown as FeatureDocument;
+    const flushCurrentScene = vi.fn(() => calls.push('flush'));
+
+    const scenes = useConstructorScenes({
+      sceneCount: 2,
+      persistence: { load: vi.fn(() => null) } as unknown as ScenePersistenceService,
+      history: { clear: vi.fn() } as unknown as FeatureHistoryService,
+      loading: { start: vi.fn(), finish: vi.fn() },
+      getService: () => ({
+        getFeatureDocument: () => current,
+        replaceFeatureDocument: vi.fn(),
+      }) as unknown as ConstructorSceneService,
+      flushCurrentScene,
+      onLoaded: vi.fn(),
+    });
+
+    await scenes.switchTo(1);
+
+    expect(calls).toEqual(['prune', 'flush']);
   });
 });

@@ -68,10 +68,51 @@ export class Box {
    * Очищает сцену от всех узлов
    */
   clear() {
+    if (!this.sceneGraphRoot) return
+    this._disposeObject3D(this.sceneGraphRoot)
     this.scene.remove(this.sceneGraphRoot)
     this.sceneGraphRoot = new THREE.Object3D()
     this.scene.add(this.sceneGraphRoot)
     this.collectionNodes = {}
+  }
+
+  /** Releases GPU resources owned by a generated model before dropping it from the scene. */
+  _disposeObject3D(root) {
+    const geometries = new Set()
+    const materials = new Set()
+    root.traverse((object) => {
+      if (object.geometry) geometries.add(object.geometry)
+      const objectMaterials = Array.isArray(object.material)
+        ? object.material
+        : [object.material]
+      objectMaterials.filter(Boolean).forEach((material) => materials.add(material))
+    })
+    geometries.forEach((geometry) => geometry.dispose())
+    materials.forEach((material) => material.dispose())
+  }
+
+  /** Fully tears down a renderer that is no longer associated with a route. */
+  dispose() {
+    if (this.sceneGraphRoot) {
+      this._disposeObject3D(this.sceneGraphRoot)
+      this.scene?.remove(this.sceneGraphRoot)
+    }
+    if (this.grid) {
+      this._disposeObject3D(this.grid)
+      this.scene?.remove(this.grid)
+    }
+    this.controls?.dispose()
+    this.renderer?.renderLists?.dispose()
+    this.renderer?.dispose()
+    this.renderer?.forceContextLoss?.()
+    this.renderer?.domElement?.remove()
+    this.collectionNodes = {}
+    this.sceneGraphRoot = undefined
+    this.grid = undefined
+    this.controls = undefined
+    this.renderer = undefined
+    this.camera = undefined
+    this.scene = undefined
   }
 
   /**

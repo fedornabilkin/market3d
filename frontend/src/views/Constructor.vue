@@ -1,7 +1,7 @@
 <template lang="pug">
-.constructor-page
+.constructor-page(:class="{ 'is-resizing-sidebar': sidebarResizing }")
   ConstructorTour
-  .constructor-sidebar
+  .constructor-sidebar(:style="{ width: `${sidebarWidth}px` }")
     ConstructorNodesPanel(
       :scene-count="SCENE_COUNT"
       :active-scene-index="activeSceneIndex"
@@ -34,6 +34,23 @@
       @update:params="onFeatureFormParamsUpdate"
       @update:name="onFeatureFormNameUpdate"
     )
+
+  .constructor-sidebar-resizer(
+    role="separator"
+    aria-label="Изменить ширину боковой панели"
+    aria-orientation="vertical"
+    :aria-valuemin="SIDEBAR_MIN_WIDTH"
+    :aria-valuemax="sidebarMaximumWidth"
+    :aria-valuenow="sidebarWidth"
+    :style="{ left: `${sidebarWidth}px` }"
+    tabindex="0"
+    @pointerdown="startSidebarResize"
+    @pointermove="moveSidebarResize"
+    @pointerup="finishSidebarResize"
+    @pointercancel="finishSidebarResize"
+    @lostpointercapture="finishSidebarResize"
+    @keydown="handleSidebarResizeKeydown"
+  )
 
   .constructor-canvas-wrap
     div(ref="containerRef" class="canvas-container")
@@ -179,6 +196,10 @@ import { useSeoHeadI18n } from '@/composables/useSeoHead';
 useSeoHeadI18n('seo.constructor');
 
 const SCENE_COUNT = 3;
+const SIDEBAR_MIN_WIDTH = 240;
+const SIDEBAR_MAX_WIDTH = 560;
+const SIDEBAR_INITIAL_WIDTH = 290;
+const CANVAS_MIN_WIDTH = 320;
 /**
  * v2 — единственный рантайм-формат хранилища. Legacy v1-ключи мигрируются
  * один раз в `onMounted` через `migrateAllV1ToV2` и удаляются. После этого
@@ -190,6 +211,64 @@ const scenePersistence = new ScenePersistenceService(PRIMARY_KEYS);
 // ─── Refs ──────────────────────────────────────────────────────────────────
 
 const containerRef = ref<HTMLDivElement | null>(null);
+const sidebarWidth = ref(SIDEBAR_INITIAL_WIDTH);
+const sidebarResizing = ref(false);
+const sidebarMaximumWidth = ref(SIDEBAR_MAX_WIDTH);
+let sidebarResizePointerId: number | null = null;
+let sidebarResizeStartX = 0;
+let sidebarResizeStartWidth = SIDEBAR_INITIAL_WIDTH;
+
+function updateSidebarMaximumWidth(): void {
+  sidebarMaximumWidth.value = Math.max(
+    SIDEBAR_MIN_WIDTH,
+    Math.min(SIDEBAR_MAX_WIDTH, window.innerWidth - CANVAS_MIN_WIDTH),
+  );
+  sidebarWidth.value = THREE.MathUtils.clamp(
+    sidebarWidth.value,
+    SIDEBAR_MIN_WIDTH,
+    sidebarMaximumWidth.value,
+  );
+}
+
+function setSidebarWidth(width: number): void {
+  sidebarWidth.value = THREE.MathUtils.clamp(
+    width,
+    SIDEBAR_MIN_WIDTH,
+    sidebarMaximumWidth.value,
+  );
+}
+
+function startSidebarResize(event: PointerEvent): void {
+  if (event.pointerType === 'mouse' && event.button !== 0) return;
+  const handle = event.currentTarget as HTMLElement;
+  handle.setPointerCapture(event.pointerId);
+  sidebarResizePointerId = event.pointerId;
+  sidebarResizeStartX = event.clientX;
+  sidebarResizeStartWidth = sidebarWidth.value;
+  sidebarResizing.value = true;
+  event.preventDefault();
+}
+
+function moveSidebarResize(event: PointerEvent): void {
+  if (!sidebarResizing.value || event.pointerId !== sidebarResizePointerId) return;
+  setSidebarWidth(sidebarResizeStartWidth + event.clientX - sidebarResizeStartX);
+}
+
+function finishSidebarResize(event: PointerEvent): void {
+  if (event.pointerId !== sidebarResizePointerId) return;
+  sidebarResizePointerId = null;
+  sidebarResizing.value = false;
+}
+
+function handleSidebarResizeKeydown(event: KeyboardEvent): void {
+  const step = event.shiftKey ? 25 : 10;
+  if (event.key === 'ArrowLeft') setSidebarWidth(sidebarWidth.value - step);
+  else if (event.key === 'ArrowRight') setSidebarWidth(sidebarWidth.value + step);
+  else if (event.key === 'Home') setSidebarWidth(SIDEBAR_MIN_WIDTH);
+  else if (event.key === 'End') setSidebarWidth(sidebarMaximumWidth.value);
+  else return;
+  event.preventDefault();
+}
 /**
  * Selection — primary state в FeatureId. ModelNode-tree пересобирается на
  * каждой mutation (через featureDocumentToLegacy + serializer.fromJSON),
@@ -529,15 +608,16 @@ function addPrimitiveOfType(type: PrimitiveType) {
   if (!rootFeature || (rootFeature.type !== 'group' && rootFeature.type !== 'boolean')) return;
 
   const { feature, id } = primitiveFeatureFactory.create(type as never);
-  withFeatureDocHistory((doc) => {
+  const transformId = withFeatureDocHistory((doc) => {
     doc.addFeature(feature);
     const inputs = [...(rootFeature as { getInputs(): readonly string[] }).getInputs(), id];
     doc.updateInputs(rootFeature.id, inputs);
     // Сразу оборачиваем в Transform — иначе schema-form не покажет
     // isHole/color/position до первого drag'а (где обёртка создаётся лениво).
-    ensureTransformWrapper(doc, id);
+    return ensureTransformWrapper(doc, id);
   });
-  setSelectionByIds([id]);
+  if (!transformId) return;
+  setSelectionByIds([transformId]);
 
   addCooldown.value = true;
   setTimeout(() => { addCooldown.value = false; }, ADD_PRIMITIVE_COOLDOWN_MS);
@@ -737,6 +817,7 @@ async function importStlFromFile() {
 // ─── Lifecycle ────────────────────────────────────────────────────────────
 
 onMounted(() => {
+  updateSidebarMaximumWidth();
   if (!containerRef.value) return;
   sceneService = sceneController.mount(
     containerRef.value,
@@ -764,6 +845,7 @@ onMounted(() => {
 
   window.addEventListener('keydown', handleKeydown);
   window.addEventListener('beforeunload', _flushPendingSave);
+  window.addEventListener('resize', updateSidebarMaximumWidth);
 });
 
 onBeforeUnmount(() => {
@@ -775,6 +857,7 @@ onBeforeUnmount(() => {
   sceneService = null;
   window.removeEventListener('keydown', handleKeydown);
   window.removeEventListener('beforeunload', _flushPendingSave);
+  window.removeEventListener('resize', updateSidebarMaximumWidth);
 });
 </script>
 
@@ -793,13 +876,51 @@ onBeforeUnmount(() => {
   top: 0;
   left: 0;
   bottom: 0;
-  width: 290px;
+  min-width: 240px;
+  max-width: 560px;
   z-index: 5;
   background: rgba(255, 255, 255, 0.97);
   display: flex;
   flex-direction: column;
   overflow: hidden;
   border-right: 1px solid #d0d0d0;
+}
+
+.constructor-sidebar-resizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  cursor: col-resize;
+  touch-action: none;
+  z-index: 6;
+}
+
+.constructor-sidebar-resizer::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 2px;
+  background: transparent;
+  transition: background-color 120ms ease;
+}
+
+.constructor-sidebar-resizer:hover::after,
+.constructor-sidebar-resizer:focus-visible::after,
+.is-resizing-sidebar .constructor-sidebar-resizer::after {
+  background: #409eff;
+}
+
+.constructor-sidebar-resizer:focus-visible {
+  outline: none;
+}
+
+.is-resizing-sidebar,
+.is-resizing-sidebar * {
+  cursor: col-resize !important;
+  user-select: none !important;
 }
 
 /* ─── Canvas ──────────────────────────────────────────────────── */

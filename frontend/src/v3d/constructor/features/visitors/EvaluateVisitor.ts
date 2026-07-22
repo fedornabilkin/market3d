@@ -164,7 +164,12 @@ export class EvaluateVisitor extends FeatureVisitor<FeatureOutput> {
       const inputId = inputs[i];
       const out = this.ctx.resolved.get(inputId);
       if (out) {
-        csgInputs.push(...collectOperandsForCsg(out, f.params.operation, i));
+        csgInputs.push(...collectOperandsForCsg(
+          out,
+          f.params.operation,
+          i,
+          chamferHoleGroup(inputId, out),
+        ));
         continue;
       }
       if (f.params.operation === 'union' && this.ctx.skippedUnionIds?.has(inputId)) {
@@ -284,17 +289,19 @@ function collectOperandsForCsg(
   out: FeatureOutput,
   operation: BooleanFeature['params']['operation'],
   inputIndex: number,
+  holeGroup?: string,
 ): BooleanInput[] {
   if (out.kind === 'leaf') {
     return [{
       geometry: out.geometry,
       transform: bakeBottomAnchor(out.transform, out.bottomAnchorOffsetZ),
       isHole: out.isHole,
+      holeGroup: out.isHole ? holeGroup : undefined,
     }];
   }
 
   if (out.isHole || (operation === 'subtract' && inputIndex > 0)) {
-    return [materializeCompositeOperand(out)];
+    return [materializeCompositeOperand(out, holeGroup)];
   }
 
   const leaves: BooleanInput[] = [];
@@ -314,7 +321,12 @@ function collectSkippedUnionInputs(featureId: string, ctx: EvaluateContext): Boo
     const inputId = inputs[i];
     const out = ctx.resolved.get(inputId);
     if (out) {
-      csgInputs.push(...collectOperandsForCsg(out, 'union', i));
+      csgInputs.push(...collectOperandsForCsg(
+        out,
+        'union',
+        i,
+        chamferHoleGroup(inputId, out),
+      ));
       continue;
     }
     if (ctx.skippedUnionIds?.has(inputId)) {
@@ -326,7 +338,7 @@ function collectSkippedUnionInputs(featureId: string, ctx: EvaluateContext): Boo
   return csgInputs;
 }
 
-function materializeCompositeOperand(out: CompositeOutput): BooleanInput {
+function materializeCompositeOperand(out: CompositeOutput, holeGroup?: string): BooleanInput {
   const operation = 'union';
   let byOperation = compositeOperandCache.get(out as object);
   if (!byOperation) {
@@ -335,7 +347,12 @@ function materializeCompositeOperand(out: CompositeOutput): BooleanInput {
   }
   const cached = byOperation.get(operation);
   if (cached) {
-    return { geometry: cached, transform: new THREE.Matrix4(), isHole: out.isHole };
+    return {
+      geometry: cached,
+      transform: new THREE.Matrix4(),
+      isHole: out.isHole,
+      holeGroup: out.isHole ? holeGroup : undefined,
+    };
   }
   const leaves: BooleanInput[] = [];
   collectCompositeChildrenForOperand(out, leaves);
@@ -345,7 +362,14 @@ function materializeCompositeOperand(out: CompositeOutput): BooleanInput {
     geometry,
     transform: new THREE.Matrix4(),
     isHole: out.isHole,
+    holeGroup: out.isHole ? holeGroup : undefined,
   };
+}
+
+function chamferHoleGroup(inputId: string, output: FeatureOutput): string | undefined {
+  return output.isHole && (inputId.startsWith('p2_chamfer_root_') || output.name === 'Фаска')
+    ? 'chamfer'
+    : undefined;
 }
 
 function collectCompositeChildrenForOperand(out: CompositeOutput, target: BooleanInput[]): void {
