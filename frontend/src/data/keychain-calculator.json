@@ -18,7 +18,7 @@
       "nameKey": "keychainCalculator.products.phone.name",
       "descriptionKey": "keychainCalculator.products.phone.description",
       "image": "/images/keychains/phone.jpg",
-      "basePriceKopecks": 35000,
+      "basePriceKopecks": 25000,
       "state": "active",
       "sortOrder": 10,
       "discountTiers": [
@@ -32,7 +32,7 @@
       "nameKey": "keychainCalculator.products.address.name",
       "descriptionKey": "keychainCalculator.products.address.description",
       "image": "/images/keychains/address.jpg",
-      "basePriceKopecks": 40000,
+      "basePriceKopecks": 28000,
       "state": "active",
       "sortOrder": 20,
       "discountTiers": [
@@ -60,7 +60,7 @@
       "nameKey": "keychainCalculator.products.child.name",
       "descriptionKey": "keychainCalculator.products.child.description",
       "image": "/images/keychains/child.jpg",
-      "basePriceKopecks": 35000,
+      "basePriceKopecks": 30000,
       "state": "active",
       "sortOrder": 40,
       "discountTiers": [
@@ -74,7 +74,7 @@
       "nameKey": "keychainCalculator.products.pet.name",
       "descriptionKey": "keychainCalculator.products.pet.description",
       "image": "/images/keychains/pet.jpg",
-      "basePriceKopecks": 30000,
+      "basePriceKopecks": 45000,
       "state": "active",
       "sortOrder": 50,
       "discountTiers": [
@@ -88,7 +88,7 @@
       "nameKey": "keychainCalculator.products.whistle.name",
       "descriptionKey": "keychainCalculator.products.whistle.description",
       "image": "/images/keychains/whistle.png",
-      "basePriceKopecks": 50000,
+      "basePriceKopecks": 25000,
       "state": "active",
       "sortOrder": 60,
       "discountTiers": [
@@ -102,7 +102,7 @@
       "nameKey": "keychainCalculator.products.callsign.name",
       "descriptionKey": "keychainCalculator.products.callsign.description",
       "image": "/images/keychains/callsign.jpg",
-      "basePriceKopecks": 40000,
+      "basePriceKopecks": 25000,
       "state": "active",
       "sortOrder": 70,
       "discountTiers": [
@@ -116,7 +116,7 @@
       "nameKey": "keychainCalculator.products.windshield.name",
       "descriptionKey": "keychainCalculator.products.windshield.description",
       "image": "/images/keychains/windshield.jpg",
-      "basePriceKopecks": 55000,
+      "basePriceKopecks": 65000,
       "state": "active",
       "sortOrder": 80,
       "discountTiers": [
@@ -143,9 +143,9 @@
       "discountMode": "max",
       "maxDiscountBps": 2000,
       "productOverrides": {
-        "phone": { "priceKopecks": 32000 },
-        "qr": { "priceKopecks": 42000 },
-        "pet": { "priceKopecks": 28000 }
+        "phone": { "priceKopecks": 21000 },
+        "qr": { "priceKopecks": 41000 },
+        "pet": { "priceKopecks": 43000 }
       },
       "orderDiscountTiers": [
         { "minSubtotalKopecks": 150000, "discountBps": 500 },
