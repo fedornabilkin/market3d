@@ -28,7 +28,7 @@
           span.is-hidden-mobile {{$t('e.downloadHistory')}}
           span ({{ storeExport.getCollection().length }})
 
-ExportModal(v-if="exportModalVisible" :isActive="exportModalVisible" @close="exportModalVisible=false")
+ExportModal(v-if="exportModalVisible" :isActive="exportModalVisible" :warning="exportWarning" @close="exportModalVisible=false")
 
 HistoryModal(
   v-if="historyDownloadModalVisible"

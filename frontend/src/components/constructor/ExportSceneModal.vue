@@ -17,12 +17,22 @@
         .export-progress-label {{ status }}
         .export-progress-bar
           .export-progress-fill(:style="{ width: percent + '%' }")
+      .export-warning(v-if="warning" role="alert")
+        strong Файл скачан с предупреждением
+        span {{ warning }}
     .scene-settings-footer
       button.button.is-small(@click="$emit('close')" :disabled="exporting") Отмена
       button.button.is-small.is-primary(@click="$emit('export')" :disabled="exporting") {{ exporting ? 'Экспорт...' : 'Скачать' }}
 </template>
 <script setup lang="ts">
-defineProps<{ visible: boolean; exporting: boolean; hasSelection: boolean; percent: number; status: string }>();
+defineProps<{
+  visible: boolean;
+  exporting: boolean;
+  hasSelection: boolean;
+  percent: number;
+  status: string;
+  warning?: string;
+}>();
 const format = defineModel<'stl' | 'obj'>('format', { default: 'stl' });
 const onlySelected = defineModel<boolean>('onlySelected', { default: false });
 defineEmits<{ close: []; export: [] }>();
@@ -38,4 +48,5 @@ defineEmits<{ close: []; export: [] }>();
 .export-progress-label { font-size:.8rem; color:#666; margin-bottom:.3rem; }
 .export-progress-bar { height:6px; background:#e0e0e0; border-radius:3px; overflow:hidden; }
 .export-progress-fill { height:100%; background:#4a7cff; border-radius:3px; transition:width .15s ease; }
+.export-warning { display:flex; flex-direction:column; gap:.3rem; margin-top:.75rem; padding:.65rem; border:1px solid #d99b16; border-radius:6px; background:#fff5d6; color:#714f00; font-size:.8rem; }
 </style>

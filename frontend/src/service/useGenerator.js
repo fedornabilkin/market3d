@@ -27,6 +27,7 @@ export function useGenerator({ containerId = 'container3d', fileName, exportTime
   const sceneReady = ref(false);
   const isGenerating = ref(false);
   const exportModalVisible = ref(false);
+  const exportWarning = ref('');
   const historyDownloadModalVisible = ref(false);
 
   let camera = null;
@@ -86,6 +87,7 @@ export function useGenerator({ containerId = 'container3d', fileName, exportTime
   }
 
   function exportSTL() {
+    exportWarning.value = '';
     exportModalVisible.value = true;
     setTimeout(async () => {
       try {
@@ -93,6 +95,7 @@ export function useGenerator({ containerId = 'container3d', fileName, exportTime
           binary: !expSettings.ascii,
           multiple: expSettings.multiple,
           filename: `${_name()}.stl`,
+          onWarning: (warning) => { exportWarning.value = warning; },
         });
         _recordExport();
       } catch (error) {
@@ -103,18 +106,23 @@ export function useGenerator({ containerId = 'container3d', fileName, exportTime
   }
 
   function exportOBJ() {
+    exportWarning.value = '';
     exportModalVisible.value = true;
     setTimeout(async () => {
-      await v3dFacade.exportOBJ(`${_name()}.obj`);
+      await v3dFacade.exportOBJ(`${_name()}.obj`, {
+        onWarning: (warning) => { exportWarning.value = warning; },
+      });
       _recordExport();
     }, exportTimer);
   }
 
   function export3MF() {
+    exportWarning.value = '';
     exportModalVisible.value = true;
     setTimeout(async () => {
       await v3dFacade.export3MF({
         filename: `${_name()}.3mf`,
+        onWarning: (warning) => { exportWarning.value = warning; },
       });
       _recordExport();
     }, exportTimer);
@@ -169,6 +177,7 @@ export function useGenerator({ containerId = 'container3d', fileName, exportTime
     sceneReady,
     isGenerating,
     exportModalVisible,
+    exportWarning,
     historyDownloadModalVisible,
     initScene,
     startAnimation,

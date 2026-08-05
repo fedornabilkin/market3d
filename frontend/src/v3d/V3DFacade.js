@@ -268,7 +268,8 @@ export class V3DFacade {
     const {
       binary = true,
       multiple = false,
-      filename = null
+      filename = null,
+      onWarning = null,
     } = options;
 
     const exporter = new STLExporter();
@@ -282,18 +283,20 @@ export class V3DFacade {
 
       for (const key in parts) {
         if (parts[key]) {
-          const printableMesh = await this._buildPrintableMesh(
+          const prepared = await this._prepareExportObject(
             { [key]: parts[key] },
             { allowDisconnected: true, isolated: true },
+            parts[key],
+            onWarning,
           );
           try {
-            const data = exporter.parse(printableMesh, expConfig);
+            const data = exporter.parse(prepared.object, expConfig);
             const partFilename = filename 
               ? `${key}-${filename}.stl` 
               : `${key}-${this.generateFilename()}.stl`;
             zip.file(partFilename, typeof data === 'string' ? data : data.buffer);
           } finally {
-            this._disposePrintableMesh(printableMesh);
+            this._disposePreparedExport(prepared);
           }
         }
       }
@@ -307,12 +310,17 @@ export class V3DFacade {
       return zipBlob;
     }
 
-    const printableMesh = await this._buildPrintableMesh();
+    const prepared = await this._prepareExportObject(
+      this.box.getNodes(),
+      {},
+      this.box.sceneGraphRoot,
+      onWarning,
+    );
     let result;
     try {
-      result = exporter.parse(printableMesh, expConfig);
+      result = exporter.parse(prepared.object, expConfig);
     } finally {
-      this._disposePrintableMesh(printableMesh);
+      this._disposePreparedExport(prepared);
     }
     const stlFilename = filename || `${this.generateFilename()}.stl`;
 
@@ -332,18 +340,23 @@ export class V3DFacade {
    * @param {string} filename - Имя файла (опционально)
    * @returns {Promise<string>} Promise с содержимым OBJ файла
    */
-  async exportOBJ(filename = null) {
+  async exportOBJ(filename = null, options = {}) {
     if (!this.box) {
       throw new Error('Scene not initialized. Call initialize() first.');
     }
 
     const exporter = new OBJExporter();
-    const printableMesh = await this._buildPrintableMesh();
+    const prepared = await this._prepareExportObject(
+      this.box.getNodes(),
+      {},
+      this.box.sceneGraphRoot,
+      options.onWarning,
+    );
     let result;
     try {
-      result = exporter.parse(printableMesh);
+      result = exporter.parse(prepared.object);
     } finally {
-      this._disposePrintableMesh(printableMesh);
+      this._disposePreparedExport(prepared);
     }
     const objFilename = filename || `${this.generateFilename()}.obj`;
     
@@ -357,14 +370,19 @@ export class V3DFacade {
       throw new Error('Scene not initialized. Call initialize() first.');
     }
 
-    const { filename = null } = options;
+    const { filename = null, onWarning = null } = options;
     const exporter = new ThreeMFExporter();
-    const printableMesh = await this._buildPrintableMesh();
+    const prepared = await this._prepareExportObject(
+      this.box.getNodes(),
+      {},
+      this.box.sceneGraphRoot,
+      onWarning,
+    );
     let blob;
     try {
-      blob = await exporter.parse(printableMesh);
+      blob = await exporter.parse(prepared.object);
     } finally {
-      this._disposePrintableMesh(printableMesh);
+      this._disposePreparedExport(prepared);
     }
     const threeMfFilename = filename || `${this.generateFilename()}.3mf`;
     save(blob, threeMfFilename);
@@ -384,6 +402,29 @@ export class V3DFacade {
       }));
     const { geometry } = await buildPrintableModel(parts, { allowDisconnected });
     return new THREE.Mesh(geometry, new THREE.MeshBasicMaterial());
+  }
+
+  async _prepareExportObject(nodes, buildOptions, fallbackObject, onWarning) {
+    try {
+      const printableMesh = await this._buildPrintableMesh(nodes, buildOptions);
+      return { object: printableMesh, printableMesh };
+    } catch (error) {
+      fallbackObject.updateMatrixWorld(true);
+      const warning = this._createManifoldWarning(error);
+      console.warn('[Export] Printable model fallback:', error);
+      onWarning?.(warning);
+      return { object: fallbackObject, printableMesh: null };
+    }
+  }
+
+  _createManifoldWarning(error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    return 'Модель содержит неманифолдную геометрию. Файл скачан без исправления '
+      + `и может потребовать ремонта в слайсере. Причина: ${reason}`;
+  }
+
+  _disposePreparedExport(prepared) {
+    if (prepared.printableMesh) this._disposePrintableMesh(prepared.printableMesh);
   }
 
   _disposePrintableMesh(mesh) {

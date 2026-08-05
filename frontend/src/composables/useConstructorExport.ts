@@ -12,12 +12,14 @@ export function useConstructorExport(
   const exporting = ref(false);
   const percent = ref(0);
   const status = ref('');
+  const warning = ref('');
 
   async function start(): Promise<void> {
     const service = getService();
     if (!service || exporting.value) return;
     exporting.value = true;
     percent.value = 0;
+    warning.value = '';
     status.value = 'Подготовка модели...';
     const extension = format.value;
     const timestamp = new Date().toISOString().replace(/[-:]/g, '').replace('T', '_').slice(0, 15);
@@ -26,27 +28,35 @@ export function useConstructorExport(
       percent.value = total === 0 ? 100 : Math.round((done / total) * 90);
       status.value = `CSG: ${done} / ${total}`;
     };
+    const onWarning = (message: string) => {
+      warning.value = message;
+      status.value = 'Файл скачан с предупреждением';
+    };
     try {
       await delay(50);
       const exporter = service.getExporter();
-      if (extension === 'stl') await exporter.exportSTLAsync(filename, onlySelected.value, onProgress);
+      if (extension === 'stl') {
+        await exporter.exportSTLAsync(filename, onlySelected.value, onProgress, onWarning);
+      }
       else await exporter.exportOBJAsync(filename, onlySelected.value, onProgress);
       percent.value = 100;
-      status.value = 'Готово!';
+      status.value = warning.value ? 'Файл скачан с предупреждением' : 'Готово!';
       sendScreenshot(service);
-      await delay(400);
+      if (!warning.value) await delay(400);
     } catch (error) {
       console.error('[Export] failed:', error);
       status.value = 'Ошибка экспорта';
       await delay(1500);
     } finally {
       exporting.value = false;
-      percent.value = 0;
-      visible.value = false;
+      if (!warning.value) {
+        percent.value = 0;
+        visible.value = false;
+      }
     }
   }
 
-  return { visible, format, onlySelected, exporting, percent, status, start };
+  return { visible, format, onlySelected, exporting, percent, status, warning, start };
 }
 
 function sendScreenshot(service: ConstructorSceneService): void {

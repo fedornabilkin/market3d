@@ -11,6 +11,10 @@ div(:class="{'modal': true, 'is-active': isActive}")
         span(v-if="seconds === 0") {{ $t('e.downloadStarted') }}
         progress.progress.is-small.is-primary(max="100" :value="progress")
 
+      .notification.is-warning.is-light.mt-3(v-if="warning" role="alert")
+        p.has-text-weight-semibold Файл скачан с предупреждением
+        p.is-size-6 {{ warning }}
+
       .my-2
         p Проект разрабатывает один человек на энтузиазме
         p Кнопка для передачи энтузиазмов
@@ -41,6 +45,10 @@ export default {
     isActive: {
       type: Boolean,
       required: true,
+    },
+    warning: {
+      type: String,
+      default: '',
     },
   },
   data: () => ({

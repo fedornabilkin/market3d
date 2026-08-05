@@ -102,6 +102,7 @@
     :has-selection="!!selectedFeatureId"
     :percent="exportPercent"
     :status="exportStatusText"
+    :warning="exportWarningText"
     @close="showExportModal = false"
     @export="doExport"
   )
@@ -801,6 +802,7 @@ const exportOnlySelected = constructorExport.onlySelected;
 const exporting = constructorExport.exporting;
 const exportPercent = constructorExport.percent;
 const exportStatusText = constructorExport.status;
+const exportWarningText = constructorExport.warning;
 const doExport = constructorExport.start;
 
 async function importStlFromFile() {

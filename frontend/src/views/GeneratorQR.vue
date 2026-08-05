@@ -105,7 +105,7 @@
           span.is-hidden-mobile {{$t('e.downloadAll')}}
           span ({{ storeExport.getDownloadAll() }})
 
-ExportModal(v-if="exportModalVisible" :isActive="exportModalVisible" @close="exportModalVisible=false")
+ExportModal(v-if="exportModalVisible" :isActive="exportModalVisible" :warning="exportWarning" @close="exportModalVisible=false")
 
 HistoryModal(
   v-if="historyDownloadModalVisible"
@@ -347,23 +347,28 @@ export default {
       window.localStorage.setItem(this.storeExport.keyStoreAll, this.storeExport.getDownloadAll());
     },
     exportOBJ() {
+      this.exportWarning = '';
       this.exportModalVisible = true;
       this.autoRotation = false;
 
       setTimeout(async () => {
-        await this.v3dFacade.exportOBJ(`${buildFileName(this.options)}.obj`);
+        await this.v3dFacade.exportOBJ(`${buildFileName(this.options)}.obj`, {
+          onWarning: (warning) => { this.exportWarning = warning; },
+        });
         const image = this.v3dFacade.getImageDataUrl();
         this._recordQrExport(image);
         this.sendImage(image);
       }, this.exportTimer);
     },
     export3MF() {
+      this.exportWarning = '';
       this.exportModalVisible = true;
       this.autoRotation = false;
 
       setTimeout(async () => {
         await this.v3dFacade.export3MF({
           filename: `${buildFileName(this.options)}.3mf`,
+          onWarning: (warning) => { this.exportWarning = warning; },
         });
         const image = this.v3dFacade.getImageDataUrl();
         this._recordQrExport(image);
@@ -371,6 +376,7 @@ export default {
       }, this.exportTimer);
     },
     exportSTL() {
+      this.exportWarning = '';
       this.exportModalVisible = true;
       this.autoRotation = false;
 
@@ -380,6 +386,7 @@ export default {
             binary: !this.expSettings.ascii,
             multiple: this.expSettings.multiple,
             filename: `${buildFileName(this.options)}.stl`,
+            onWarning: (warning) => { this.exportWarning = warning; },
           });
           const image = this.v3dFacade.getImageDataUrl();
           this._recordQrExport(image);

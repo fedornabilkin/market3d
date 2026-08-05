@@ -5,6 +5,7 @@ import type { FeatureDocument } from './features/FeatureDocument';
 import type { CompositeOutput, FeatureId, FeatureOutput, LeafOutput } from './features/types';
 
 export type ExportProgressCallback = (done: number, total: number) => void;
+export type ExportWarningCallback = (warning: string) => void;
 
 export class ModelExporter {
   constructor(
@@ -12,10 +13,14 @@ export class ModelExporter {
     private readonly getSelectedFeatureId: () => FeatureId | null,
   ) {}
 
-  async exportSTL(filename = 'scene.stl', onlySelected = false): Promise<void> {
+  async exportSTL(
+    filename = 'scene.stl',
+    onlySelected = false,
+    onWarning?: ExportWarningCallback,
+  ): Promise<void> {
     const object = this.getExportObject(onlySelected);
     if (!object) return;
-    await this.exportPrintableSTL(object, filename);
+    await this.exportPrintableSTL(object, filename, onWarning);
   }
 
   exportOBJ(filename = 'scene.obj', onlySelected = false): void {
@@ -29,11 +34,12 @@ export class ModelExporter {
     filename = 'scene.stl',
     onlySelected = false,
     onProgress?: ExportProgressCallback,
+    onWarning?: ExportWarningCallback,
   ): Promise<void> {
     const object = await this.getExportObjectAsync(onlySelected, onProgress);
     if (!object) return;
     await new Promise((r) => setTimeout(r, 0));
-    await this.exportPrintableSTL(object, filename);
+    await this.exportPrintableSTL(object, filename, onWarning);
   }
 
   async exportOBJAsync(
@@ -124,15 +130,29 @@ export class ModelExporter {
     return 1 + output.children.reduce((sum, child) => sum + ModelExporter.countOutputs(child), 0);
   }
 
-  private async exportPrintableSTL(object: THREE.Object3D, filename: string): Promise<void> {
+  private async exportPrintableSTL(
+    object: THREE.Object3D,
+    filename: string,
+    onWarning?: ExportWarningCallback,
+  ): Promise<void> {
     try {
-      const { buildPrintableModel } = await import('../print/PrintableModelBuilder');
-      const { geometry } = await buildPrintableModel([{
-        id: 'constructor',
-        object,
-        isBase: true,
-        applyPlanarOverlap: true,
-      }], { allowDisconnected: true });
+      let geometry: THREE.BufferGeometry;
+      try {
+        const { buildPrintableModel } = await import('../print/PrintableModelBuilder');
+        ({ geometry } = await buildPrintableModel([{
+          id: 'constructor',
+          object,
+          isBase: true,
+          applyPlanarOverlap: true,
+        }], { allowDisconnected: true }));
+      } catch (error) {
+        const warning = ModelExporter.createManifoldWarning(error);
+        console.warn('[Export] Printable model fallback:', error);
+        onWarning?.(warning);
+        const result = new STLExporter().parse(object, { binary: true });
+        ModelExporter.downloadBlob(new Blob([result], { type: 'application/octet-stream' }), filename);
+        return;
+      }
       const material = new THREE.MeshBasicMaterial();
       const mesh = new THREE.Mesh(geometry, material);
       try {
@@ -145,6 +165,12 @@ export class ModelExporter {
     } finally {
       ModelExporter.disposeObject(object);
     }
+  }
+
+  private static createManifoldWarning(error: unknown): string {
+    const reason = error instanceof Error ? error.message : String(error);
+    return 'Модель содержит неманифолдную геометрию. Файл скачан без исправления '
+      + `и может потребовать ремонта в слайсере. Причина: ${reason}`;
   }
 
   private static disposeObject(object: THREE.Object3D): void {
