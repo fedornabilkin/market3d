@@ -346,8 +346,15 @@ export default class NameTagGenerator extends BaseGenerator {
       }
 
       // Position: center text horizontally, align vertical baseline to 0.
-      // Lift letters up by the backing depth so they rest on the plate.
-      mesh.position.set(info.x - totalWidth / 2, -this.options.size / 2, this._letterBaseZ());
+      // TextGeometry extends its lower bevel below z=0. Seat the actual bottom
+      // of every glyph on the backing instead of burying a large bevel in it.
+      const bounds = new THREE.Box3().setFromObject(mesh);
+      const bottomCompensation = Number.isFinite(bounds.min.z) ? Math.max(0, -bounds.min.z) : 0;
+      mesh.position.set(
+        info.x - totalWidth / 2,
+        -this.options.size / 2,
+        this._letterBaseZ() + bottomCompensation,
+      );
       mesh.updateMatrix();
       group.add(mesh);
     }

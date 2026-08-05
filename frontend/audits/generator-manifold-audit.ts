@@ -80,7 +80,7 @@ function toParts(meshes: Record<string, THREE.Object3D | undefined>): PrintableP
     .filter(([id, object]): object is THREE.Object3D => (
       Boolean(object) && (!requestedParts || requestedParts.includes(id))
     ))
-    .map(([id, object]) => ({ id, object, isBase: id === 'base' }));
+    .map(([id, object]) => ({ id, object, isBase: id === 'base' || id === 'backing' }));
 }
 
 function disposeMeshes(meshes: Record<string, THREE.Object3D | undefined>): void {
@@ -113,6 +113,10 @@ function createNameTagMeshes(): Record<string, THREE.Object3D | undefined> {
   } else if (variant === 'random') {
     options.message = 'Высота';
     options.randomHeight = { active: true, variance: 0.8, seed: 42 };
+  } else if (variant === 'bevel-transition') {
+    options.bevel = { active: true, size: 0.7, thickness: 0.7, segments: 3 };
+  } else if (variant === 'bevel-max') {
+    options.bevel = { active: true, size: 3, thickness: 3, segments: 8 };
   }
   return new NameTagGenerator(options).generate();
 }
