@@ -2,10 +2,117 @@ import { describe, it, expect } from 'vitest';
 import * as THREE from 'three';
 
 import {
+  CSG_ATTRIBUTES,
   CUT_INFLATE_EPS,
+  cleanupGeometry,
   inflateGeom,
+  prepareGeometryForCsg,
   removeDegenerateTriangles,
 } from './geometryCleanup';
+
+describe('prepareGeometryForCsg', () => {
+  it('normalizes geometry with and without UVs to the same CSG attributes', () => {
+    const withUv = new THREE.BoxGeometry(10, 10, 10);
+    withUv.setAttribute(
+      'color',
+      new THREE.Float32BufferAttribute(new Array(withUv.getAttribute('position').count * 3).fill(1), 3),
+    );
+    const withoutUv = withUv.clone();
+    withoutUv.deleteAttribute('uv');
+
+    const preparedWithUv = prepareGeometryForCsg(withUv);
+    const preparedWithoutUv = prepareGeometryForCsg(withoutUv);
+
+    expect(Object.keys(preparedWithUv.attributes).sort()).toEqual([...CSG_ATTRIBUTES].sort());
+    expect(Object.keys(preparedWithoutUv.attributes).sort()).toEqual([...CSG_ATTRIBUTES].sort());
+    expect(preparedWithUv.getIndex()).not.toBeNull();
+    expect(preparedWithoutUv.getIndex()).not.toBeNull();
+    expect(withUv.hasAttribute('uv')).toBe(true);
+    expect(withUv.hasAttribute('color')).toBe(true);
+  });
+
+  it('preserves separate vertices when source UV seam values differ', () => {
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute(
+      'position',
+      new THREE.Float32BufferAttribute([
+        0, 0, 0, 1, 0, 0, 0, 1, 0,
+        1, 0, 0, 1, 1, 0, 0, 1, 0,
+      ], 3),
+    );
+    geometry.setAttribute(
+      'uv',
+      new THREE.Float32BufferAttribute([
+        0, 0, 1, 0, 0, 1,
+        0, 0, 1, 1, 1, 0,
+      ], 2),
+    );
+
+    const prepared = prepareGeometryForCsg(geometry);
+
+    expect(prepared.getAttribute('position').count).toBe(6);
+    expect(prepared.getIndex()?.count).toBe(6);
+    expect(Array.from(prepared.getAttribute('uv').array)).toEqual([
+      0, 0, 1, 0, 0, 1,
+      0, 0, 1, 1, 1, 0,
+    ]);
+  });
+
+  it('rejects geometry without positions with an actionable error', () => {
+    expect(() => prepareGeometryForCsg(new THREE.BufferGeometry())).toThrow(
+      'three-component position attribute',
+    );
+  });
+
+  it('converts interleaved imported positions to ordinary CSG attributes', () => {
+    const geometry = new THREE.BufferGeometry();
+    const data = new THREE.InterleavedBuffer(new Float32Array([
+      0, 0, 0, 10,
+      1, 0, 0, 20,
+      0, 1, 0, 30,
+    ]), 4);
+    geometry.setAttribute('position', new THREE.InterleavedBufferAttribute(data, 3, 0));
+
+    const prepared = prepareGeometryForCsg(geometry);
+
+    expect(prepared.getAttribute('position').isInterleavedBufferAttribute).not.toBe(true);
+    expect(prepared.getAttribute('uv').count).toBe(3);
+    expect(prepared.getIndex()?.count).toBe(3);
+    expect(Object.keys(prepared.attributes).sort()).toEqual([...CSG_ATTRIBUTES].sort());
+  });
+});
+
+describe('cleanupGeometry', () => {
+  it('preserves CSG triangulation and seam attributes around a T-junction', () => {
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute(
+      'position',
+      new THREE.Float32BufferAttribute([
+        0, 0, 0,
+        2, 0, 0,
+        0, 2, 0,
+        1, 0, 0,
+        1, -1, 0,
+      ], 3),
+    );
+    geometry.setAttribute(
+      'uv',
+      new THREE.Float32BufferAttribute([
+        0, 0,
+        1, 0,
+        0, 1,
+        0.5, 0,
+        0.5, -0.5,
+      ], 2),
+    );
+    geometry.setIndex([0, 1, 2, 0, 4, 3]);
+
+    const cleaned = cleanupGeometry(geometry);
+
+    expect(cleaned.getIndex()?.count).toBe(6);
+    expect(cleaned.hasAttribute('uv')).toBe(true);
+  });
+});
 
 describe('inflateGeom', () => {
   it('expands cutter bounds while preserving its center', () => {

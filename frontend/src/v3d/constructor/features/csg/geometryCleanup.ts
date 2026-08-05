@@ -10,6 +10,86 @@ import * as BufferGeometryUtils from 'three/examples/jsm/utils/BufferGeometryUti
 /** Prevents coplanar cutter faces from triggering pathological BVH-CSG work. */
 export const CUT_INFLATE_EPS = 0.005;
 
+/** Attributes shared by every operand passed to three-bvh-csg. */
+export const CSG_ATTRIBUTES = ['position', 'uv', 'normal'];
+
+/**
+ * Converts arbitrary constructor geometry to a stable CSG input. UV and normal
+ * seams are preserved because they keep hard faces and triangulation stable.
+ * Missing UVs are synthesized so every operand has the exact attribute schema
+ * required by three-bvh-csg.
+ */
+export function prepareGeometryForCsg(
+  geometry: THREE.BufferGeometry,
+): THREE.BufferGeometry {
+  const sourcePosition = geometry.getAttribute('position');
+  if (!sourcePosition || sourcePosition.itemSize !== 3) {
+    throw new Error('CSG input geometry must have a three-component position attribute');
+  }
+
+  const positions = new Float32Array(sourcePosition.count * 3);
+  for (let index = 0; index < sourcePosition.count; index += 1) {
+    const offset = index * 3;
+    positions[offset] = sourcePosition.getX(index);
+    positions[offset + 1] = sourcePosition.getY(index);
+    positions[offset + 2] = sourcePosition.getZ(index);
+    if (
+      !Number.isFinite(positions[offset]) ||
+      !Number.isFinite(positions[offset + 1]) ||
+      !Number.isFinite(positions[offset + 2])
+    ) {
+      throw new Error(`CSG input geometry has a non-finite position at vertex ${index}`);
+    }
+  }
+
+  let prepared = new THREE.BufferGeometry();
+  prepared.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  const sourceIndex = geometry.getIndex();
+  if (sourceIndex) {
+    if (sourceIndex.count % 3 !== 0) {
+      throw new Error('CSG input geometry index count must be divisible by three');
+    }
+    const indices = new Array<number>(sourceIndex.count);
+    for (let index = 0; index < sourceIndex.count; index += 1) {
+      const vertexIndex = sourceIndex.getX(index);
+      if (!Number.isInteger(vertexIndex) || vertexIndex < 0 || vertexIndex >= sourcePosition.count) {
+        throw new Error(`CSG input geometry has an invalid index at offset ${index}`);
+      }
+      indices[index] = vertexIndex;
+    }
+    prepared.setIndex(indices);
+  } else if (sourcePosition.count % 3 !== 0) {
+    throw new Error('Non-indexed CSG input geometry vertex count must be divisible by three');
+  }
+
+  const sourceUv = geometry.getAttribute('uv');
+  const uvs = new Float32Array(sourcePosition.count * 2);
+  if (sourceUv && sourceUv.itemSize >= 2 && sourceUv.count === sourcePosition.count) {
+    for (let index = 0; index < sourceUv.count; index += 1) {
+      uvs[index * 2] = sourceUv.getX(index);
+      uvs[index * 2 + 1] = sourceUv.getY(index);
+    }
+  }
+  prepared.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+
+  const sourceNormal = geometry.getAttribute('normal');
+  if (sourceNormal && sourceNormal.itemSize === 3 && sourceNormal.count === sourcePosition.count) {
+    const normals = new Float32Array(sourceNormal.count * 3);
+    for (let index = 0; index < sourceNormal.count; index += 1) {
+      normals[index * 3] = sourceNormal.getX(index);
+      normals[index * 3 + 1] = sourceNormal.getY(index);
+      normals[index * 3 + 2] = sourceNormal.getZ(index);
+    }
+    prepared.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
+  } else {
+    prepared.computeVertexNormals();
+  }
+
+  prepared = BufferGeometryUtils.mergeVertices(prepared, 1e-5);
+  prepared.computeVertexNormals();
+  return prepared;
+}
+
 /** Expands a cutter around its bounding-box center by epsilon on each side. */
 export function inflateGeom(geom: THREE.BufferGeometry, epsilon: number): void {
   geom.computeBoundingBox();
@@ -37,12 +117,12 @@ export function inflateGeom(geom: THREE.BufferGeometry, epsilon: number): void {
  *  3. computeVertexNormals по чистой геометрии.
  */
 export function cleanupGeometry(geom: THREE.BufferGeometry): THREE.BufferGeometry {
-  const topologyGeometry = geom.clone();
-  for (const key of Object.keys(topologyGeometry.attributes)) {
-    if (key !== 'position') topologyGeometry.deleteAttribute(key);
-  }
-  const welded = BufferGeometryUtils.mergeVertices(topologyGeometry, 1e-4);
-  const cleaned = removeDuplicateTriangles(removeDegenerateTriangles(splitTJunctions(welded)));
+  // Keep CSG's original triangulation and seam attributes. Re-triangulating
+  // T-junctions here used to corrupt valid coplanar faces after repeated
+  // chamfers, producing reversed or missing triangles in the constructor.
+  // Print/export topology repair is handled separately by the CAD kernel.
+  const welded = BufferGeometryUtils.mergeVertices(geom, 1e-4);
+  const cleaned = removeDegenerateTriangles(welded);
   cleaned.computeVertexNormals();
   return cleaned;
 }

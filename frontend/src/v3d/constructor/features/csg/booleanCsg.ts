@@ -1,8 +1,13 @@
 import * as THREE from 'three';
-import * as BufferGeometryUtils from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { Brush, Evaluator, ADDITION, SUBTRACTION, INTERSECTION } from 'three-bvh-csg';
 import type { BooleanOperation } from '../composite/BooleanFeature';
-import { CUT_INFLATE_EPS, cleanupGeometry, inflateGeom } from './geometryCleanup';
+import {
+  CSG_ATTRIBUTES,
+  CUT_INFLATE_EPS,
+  cleanupGeometry,
+  inflateGeom,
+  prepareGeometryForCsg,
+} from './geometryCleanup';
 import { groupByBoundsIntersection } from './intersectionGroups';
 import { PreparedGeometryCache } from './PreparedGeometryCache';
 
@@ -41,6 +46,7 @@ export function booleanCsg(
 
   const evaluator = new Evaluator();
   evaluator.useGroups = false;
+  evaluator.attributes = CSG_ATTRIBUTES;
 
   const op = bvhOp(operation);
   let current: Brush = inputToBrush(solids[0], false);
@@ -119,7 +125,9 @@ function combineHoleBrushes(brushes: readonly Brush[], evaluator: Evaluator): Br
   for (let index = 1; index < brushes.length; index++) {
     combined = evaluator.evaluate(combined, brushes[index], ADDITION);
   }
-  const brush = new Brush(cleanupGeometry(combined.geometry));
+  // cleanupGeometry intentionally keeps topology only. This cutter is fed
+  // into another CSG pass, so restore the common attribute schema first.
+  const brush = new Brush(prepareGeometryForCsg(cleanupGeometry(combined.geometry)));
   brush.updateMatrixWorld();
   return brush;
 }
@@ -141,13 +149,7 @@ function inputToGeometry(input: BooleanInput, inflate: boolean): THREE.BufferGeo
 }
 
 function prepGeometry(geometry: THREE.BufferGeometry): THREE.BufferGeometry {
-  let g = geometry.clone();
-  for (const key of Object.keys(g.attributes)) {
-    if (!['position', 'normal', 'uv'].includes(key)) g.deleteAttribute(key);
-  }
-  g = BufferGeometryUtils.mergeVertices(g, 1e-5);
-  g.computeVertexNormals();
-  return g;
+  return prepareGeometryForCsg(geometry);
 }
 
 function isIdentity(m: THREE.Matrix4): boolean {
