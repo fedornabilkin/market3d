@@ -1,4 +1,5 @@
 import { ref, reactive, markRaw, onBeforeUnmount } from 'vue';
+import { ElMessage } from 'element-plus';
 import { V3DFacade } from '@/v3d/V3DFacade';
 import { useExportList } from '@/store/exportList';
 import { Share } from '@/entity/share';
@@ -87,12 +88,17 @@ export function useGenerator({ containerId = 'container3d', fileName, exportTime
   function exportSTL() {
     exportModalVisible.value = true;
     setTimeout(async () => {
-      await v3dFacade.exportSTL({
-        binary: !expSettings.ascii,
-        multiple: expSettings.multiple,
-        filename: `${_name()}.stl`,
-      });
-      _recordExport();
+      try {
+        await v3dFacade.exportSTL({
+          binary: !expSettings.ascii,
+          multiple: expSettings.multiple,
+          filename: `${_name()}.stl`,
+        });
+        _recordExport();
+      } catch (error) {
+        console.error(error);
+        ElMessage.error(error instanceof Error ? error.message : 'Не удалось экспортировать STL.');
+      }
     }, exportTimer);
   }
 

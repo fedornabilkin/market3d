@@ -2,10 +2,12 @@ import { markRaw } from 'vue';
 import { Box } from "@/v3d/box";
 import { Director } from "@/v3d/director";
 import ModelGenerator from "@/v3d/generator/ModelGenerator.js";
+import * as THREE from 'three';
 import { BaseRotation } from "@/v3d/animation/baseRotation";
 import { STLExporter } from 'three/examples/jsm/exporters/STLExporter.js';
 import { OBJExporter } from 'three/examples/jsm/exporters/OBJExporter.js';
 import { ThreeMFExporter } from '@/v3d/exporters/ThreeMFExporter.js';
+import { buildPrintableModel } from '@/v3d/print/PrintableModelBuilder';
 import JSZip from 'jszip';
 import { save, saveAsArrayBuffer, saveAsString } from '@/utils.js';
 
@@ -251,6 +253,15 @@ export class V3DFacade {
     // Этот метод можно использовать для остановки/запуска
   }
 
+  _buildPrintableMesh() {
+    this.box.sceneGraphRoot.updateMatrixWorld(true);
+    const parts = Object.entries(this.box.getNodes())
+      .filter(([, object]) => Boolean(object))
+      .map(([id, object]) => ({ id, object, isBase: id === 'base' }));
+    const { geometry } = buildPrintableModel(parts);
+    return new THREE.Mesh(geometry, new THREE.MeshPhongMaterial({ color: 0xffffff }));
+  }
+
   /**
    * Экспорт модели в STL формат
    * @param {Object} options - Опции экспорта
@@ -296,23 +307,26 @@ export class V3DFacade {
       save(zipBlob, zipFilename);
       
       return zipBlob;
-        } else {
-          // Экспорт объединенной модели — передаём sceneGraphRoot целиком,
-          // STLExporter сам traverse'ит все дочерние Mesh
-          this.box.sceneGraphRoot.updateMatrixWorld(true);
-          const result = exporter.parse(this.box.sceneGraphRoot, expConfig);
-          const stlFilename = filename || `${this.generateFilename()}.stl`;
+    }
 
-          if (exportAsBinary) {
-            saveAsArrayBuffer(result, stlFilename);
-          } else {
-            saveAsString(result, stlFilename);
-          }
+    const printableMesh = this._buildPrintableMesh();
+    try {
+      const result = exporter.parse(printableMesh, expConfig);
+      const stlFilename = filename || `${this.generateFilename()}.stl`;
 
-          return new Blob([result], {
-            type: exportAsBinary ? 'application/octet-stream' : 'text/plain'
-          });
-        }
+      if (exportAsBinary) {
+        saveAsArrayBuffer(result, stlFilename);
+      } else {
+        saveAsString(result, stlFilename);
+      }
+
+      return new Blob([result], {
+        type: exportAsBinary ? 'application/octet-stream' : 'text/plain'
+      });
+    } finally {
+      printableMesh.geometry.dispose();
+      printableMesh.material.dispose();
+    }
   }
 
   /**

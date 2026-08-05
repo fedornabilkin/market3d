@@ -132,6 +132,7 @@ import YoomoneyWidget from "@/components/monetisation/YoomoneyWidget.vue";
 import { Share } from "@/entity/share";
 import { TooltipBuilder } from "@/entity/builder";
 import { dataURItoBlob } from '@/utils.js';
+import { ElMessage } from 'element-plus';
 import { useTourStore } from "@/store/tour";
 import { useTourPlacement } from "@/service/useTourPlacement";
 import { useGenerator } from "@/service/useGenerator";
@@ -374,14 +375,19 @@ export default {
       this.autoRotation = false;
 
       setTimeout(async () => {
-        await this.v3dFacade.exportSTL({
-          binary: !this.expSettings.ascii,
-          multiple: this.expSettings.multiple,
-          filename: `${buildFileName(this.options)}.stl`,
-        });
-        const image = this.v3dFacade.getImageDataUrl();
-        this._recordQrExport(image);
-        this.sendImage(image);
+        try {
+          await this.v3dFacade.exportSTL({
+            binary: !this.expSettings.ascii,
+            multiple: this.expSettings.multiple,
+            filename: `${buildFileName(this.options)}.stl`,
+          });
+          const image = this.v3dFacade.getImageDataUrl();
+          this._recordQrExport(image);
+          this.sendImage(image);
+        } catch (error) {
+          console.error(error);
+          ElMessage.error(error instanceof Error ? error.message : 'Не удалось экспортировать STL.');
+        }
       }, this.exportTimer);
     },
     sendImage(image) {
