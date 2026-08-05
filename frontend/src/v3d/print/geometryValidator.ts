@@ -113,9 +113,11 @@ export function validatePrintableGeometry(
     }
   }
 
-  const componentCount = countComponents(triangles, edgeTriangles);
-  if (componentCount > 1 && !options.allowDisconnected) {
-    addDiagnostic('disconnected-components', componentCount);
+  const components = findComponents(triangles, edgeTriangles);
+  const componentCount = components.length;
+  const solidComponentCount = countSolidComponents(components, triangles, canonicalPositions);
+  if (solidComponentCount > 1 && !options.allowDisconnected) {
+    addDiagnostic('disconnected-components', solidComponentCount);
   }
 
   return result(diagnostics, triangles.length, componentCount);
@@ -195,10 +197,10 @@ function countVertexFans(
   return countGraphComponents(connected);
 }
 
-function countComponents(
+function findComponents(
   triangles: Triangle[],
   edgeTriangles: Map<string, Array<{ triangleIndex: number; forward: boolean }>>,
-): number {
+): number[][] {
   const connected = new Map<number, Set<number>>();
   triangles.forEach((_, triangleIndex) => connected.set(triangleIndex, new Set()));
   for (const entries of edgeTriangles.values()) {
@@ -209,25 +211,62 @@ function countComponents(
       }
     }
   }
-  return countGraphComponents(connected);
+  return collectGraphComponents(connected);
+}
+
+/**
+ * A valid solid with sealed cavities has several disconnected boundary shells.
+ * Inner shells have the opposite winding (and signed volume) to the largest
+ * outer shell. Separate physical solids have the same sign as that outer shell.
+ */
+function countSolidComponents(
+  components: number[][],
+  triangles: Triangle[],
+  positions: THREE.Vector3[],
+): number {
+  if (components.length <= 1) return components.length;
+  const volumes = components.map((component) => component.reduce((volume, triangleIndex) => {
+    const [a, b, c] = triangles[triangleIndex].map((vertex) => positions[vertex]) as [
+      THREE.Vector3,
+      THREE.Vector3,
+      THREE.Vector3,
+    ];
+    return volume + (
+      a.x * (b.y * c.z - b.z * c.y)
+      + a.y * (b.z * c.x - b.x * c.z)
+      + a.z * (b.x * c.y - b.y * c.x)
+    ) / 6;
+  }, 0));
+  const reference = volumes.reduce((largest, volume) => (
+    Math.abs(volume) > Math.abs(largest) ? volume : largest
+  ), 0);
+  if (Math.abs(reference) <= Number.EPSILON) return components.length;
+  const outerSign = Math.sign(reference);
+  return volumes.filter((volume) => Math.abs(volume) <= Number.EPSILON || Math.sign(volume) === outerSign).length;
 }
 
 function countGraphComponents(graph: Map<number, Set<number>>): number {
+  return collectGraphComponents(graph).length;
+}
+
+function collectGraphComponents(graph: Map<number, Set<number>>): number[][] {
   const visited = new Set<number>();
-  let components = 0;
+  const components: number[][] = [];
   for (const start of graph.keys()) {
     if (visited.has(start)) continue;
-    components += 1;
+    const component: number[] = [];
     const queue = [start];
     visited.add(start);
     while (queue.length > 0) {
       const current = queue.pop()!;
+      component.push(current);
       for (const neighbour of graph.get(current) ?? []) {
         if (visited.has(neighbour)) continue;
         visited.add(neighbour);
         queue.push(neighbour);
       }
     }
+    components.push(component);
   }
   return components;
 }

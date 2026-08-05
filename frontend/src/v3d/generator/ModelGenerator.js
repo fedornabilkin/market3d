@@ -1,8 +1,6 @@
 import * as THREE from 'three';
 import {Font} from 'three/examples/jsm/loaders/FontLoader.js';
 import {TextGeometry} from 'three/examples/jsm/geometries/TextGeometry.js';
-import * as BufferGeometryUtils from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import {Brush, Evaluator, SUBTRACTION} from 'three-bvh-csg';
 import polygonClipping from 'polygon-clipping';
 import fontInterSemiBold from '@/assets/fonts/Inter_SemiBold.json';
 import fontInterSemiBoldItalic from '@/assets/fonts/Inter_SemiBold_Italic.json';
@@ -117,11 +115,12 @@ export default class ModelGenerator extends BaseGenerator {
     let baseMesh = new THREE.Mesh(geo, materialBase)
     baseMesh.updateMatrix()
 
-    // Слепые отверстия вырезаем через BVH CSG — это честный 3D-boolean,
-    // который не упирается в coplanar-проблемы three-csg-ts.
+    // Глухие карманы строим слоями из исходного 2D-контура. Это сохраняет
+    // отверстие и не создаёт разорванные швы, которые three-bvh-csg оставлял
+    // на стыке цилиндрического cutter и плиты.
     if (blindHoles.length) {
-      baseMesh = this._subtractBlindHoles(baseMesh, blindHoles)
-      baseMesh.material = materialBase
+      geo.dispose()
+      baseMesh = this._buildLayeredMagnetBase(baseShape, blindHoles, materialBase)
     }
 
     return baseMesh
@@ -184,45 +183,41 @@ export default class ModelGenerator extends BaseGenerator {
     return path
   }
 
-  /**
-   * Вычитает из плиты набор слепых (не сквозных) отверстий через three-bvh-csg.
-   * После вычитания склеиваем совпадающие вершины, чтобы результат был манифолдным.
-   */
-  _subtractBlindHoles(plateMesh, slots) {
-    try {
-      const size = this.options.magnet.size
-      const depth = this.options.magnet.depth
-      const offsetZ = this.options.magnet.hidden ? (this.options.magnet.offsetZ || 0) : 0
+  /** Builds an exact stepped plate with one or more magnet recesses. */
+  _buildLayeredMagnetBase(baseShape, slots, material) {
+    const baseDepth = Math.max(0.01, this.options.base.depth)
+    const recessDepth = Math.max(0.01, this.options.magnet.depth)
+    const requestedOffset = this.options.magnet.hidden
+      ? Math.max(0, this.options.magnet.offsetZ || 0)
+      : 0
+    const cutStart = Math.min(baseDepth, requestedOffset)
+    const cutEnd = Math.min(baseDepth, cutStart + recessDepth)
+    const overlap = Math.min(0.02, baseDepth / 100)
+    const group = new THREE.Group()
 
-      const plateBrush = new Brush(this.prepForBvhCsg(plateMesh.geometry))
-      plateBrush.updateMatrixWorld()
-
-      const evaluator = new Evaluator()
-      let current = plateBrush
-      for (const slot of slots) {
-        let holeGeo
-        if (this.options.magnet.shape === 'round') {
-          holeGeo = new THREE.CylinderGeometry(size / 2, size / 2, depth, 32)
-          holeGeo.rotateX(Math.PI / 2)
-        } else {
-          holeGeo = new THREE.BoxGeometry(size, size, depth)
-        }
-        holeGeo.translate(slot.x, slot.y, depth / 2 + offsetZ)
-        const holeBrush = new Brush(this.prepForBvhCsg(holeGeo))
-        holeBrush.updateMatrixWorld()
-        const result = evaluator.evaluate(current, holeBrush, SUBTRACTION)
-        current = result
+    const addLayer = (bottom, top, withHoles) => {
+      if (top - bottom <= 1e-5) return
+      const shape = baseShape.clone()
+      if (withHoles) {
+        for (const slot of slots) shape.holes.push(this._magnetHolePath(slot.x, slot.y))
       }
-
-      const finalGeo = BufferGeometryUtils.mergeVertices(current.geometry, 1e-4)
-      finalGeo.computeVertexNormals()
-      const mesh = new THREE.Mesh(finalGeo, plateMesh.material)
+      const geometry = new THREE.ExtrudeGeometry(shape, {
+        steps: 1,
+        depth: top - bottom,
+        bevelEnabled: false,
+        curveSegments: 32,
+      })
+      const mesh = new THREE.Mesh(geometry, material)
+      mesh.position.z = bottom
       mesh.updateMatrix()
-      return mesh
-    } catch (e) {
-      console.warn('ModelGenerator: BVH CSG blind-hole subtract failed', e)
-      return plateMesh
+      group.add(mesh)
     }
+
+    if (cutStart > 0) addLayer(0, Math.min(baseDepth, cutStart + overlap), false)
+    addLayer(cutStart, cutEnd, true)
+    if (cutEnd < baseDepth) addLayer(Math.max(0, cutEnd - overlap), baseDepth, false)
+    group.updateMatrix()
+    return group
   }
 
   /**

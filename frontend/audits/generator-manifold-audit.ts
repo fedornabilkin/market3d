@@ -104,14 +104,23 @@ function createOverlappingBoxes(): Record<string, THREE.Object3D | undefined> {
 }
 
 function createQrMeshes(): Record<string, THREE.Object3D | undefined> {
-  const simple = new URLSearchParams(location.search).get('simple') === '1';
+  const params = new URLSearchParams(location.search);
+  const simple = params.get('simple') === '1';
+  const magnetMode = params.get('magnet');
   const generator = new ModelGenerator({
     base: new Base({ active: true, width: 60, height: 60, depth: 3, cornerRadius: 5 }),
     border: new Border({ active: !simple, width: 1, depth: 1 }),
     code: new Code({ active: true, depth: 1, margin: 3, emptyCenter: false }),
     text: new Text({ active: !simple, message: 'AUDIT', size: 5, depth: 1 }),
     keychain: new Keychain({ active: !simple, placement: 'left', holeDiameter: 6, borderWidth: 3, height: 3 }),
-    magnet: new Magnet({ active: false }),
+    magnet: new Magnet({
+      active: Boolean(magnetMode),
+      hidden: magnetMode === 'hidden',
+      shape: 'round',
+      size: 10,
+      depth: 1,
+      count: 1,
+    }),
     icon: { active: false, isNoneName: () => true },
   }, mask);
   const base = generator.getBaseMesh();

@@ -84,4 +84,40 @@ describe('PrintableModelBuilder', () => {
   it('не создаёт STL без геометрии', async () => {
     await expect(buildPrintableModel([])).rejects.toThrow('Нет геометрии для экспорта STL');
   });
+
+  it('принимает единое тело с замкнутой внутренней полостью', async () => {
+    const base = new THREE.Group();
+    const addBox = (size: [number, number, number], position: [number, number, number]) => {
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(...size));
+      mesh.position.set(...position);
+      base.add(mesh);
+    };
+    addBox([10, 10, 1.1], [0, 0, 0.55]);
+    addBox([10, 10, 1.1], [0, 0, 3.45]);
+    addBox([3.1, 10, 2.2], [-3.45, 0, 2]);
+    addBox([3.1, 10, 2.2], [3.45, 0, 2]);
+    addBox([4, 3.1, 2.2], [0, -3.45, 2]);
+    addBox([4, 3.1, 2.2], [0, 3.45, 2]);
+
+    const model = await buildPrintableModel([{ id: 'base', object: base, isBase: true }]);
+
+    expect(model.validation.valid).toBe(true);
+    expect(model.validation.componentCount).toBe(2);
+    model.geometry.dispose();
+  });
+
+  it('по-прежнему отклоняет физически раздельные тела', async () => {
+    const base = new THREE.Group();
+    const first = new THREE.Mesh(new THREE.BoxGeometry(2, 2, 2));
+    const second = new THREE.Mesh(new THREE.BoxGeometry(2, 2, 2));
+    second.position.x = 5;
+    base.add(first, second);
+
+    await expect(buildPrintableModel([{ id: 'base', object: base, isBase: true }]))
+      .rejects.toMatchObject({
+        diagnostics: expect.arrayContaining([
+          expect.objectContaining({ code: 'disconnected-components' }),
+        ]),
+      });
+  });
 });
