@@ -18,10 +18,7 @@ const auditDefinitions: Array<[string, () => Record<string, THREE.Object3D | und
   ['Control: two overlapping boxes', createOverlappingBoxes],
   ['QR-код: рамка, текст и ушко', createQrMeshes],
   ['Штрихкод: рамка, текст и ушко', createBarcodeMeshes],
-  ['NameTag: текст, подложка и ушко', () => new NameTagGenerator({
-    message: 'MANIFOLD',
-    keychain: { active: true, placement: 'left', holeDiameter: 6, borderWidth: 3, height: 3 },
-  }).generate()],
+  ['NameTag: реальные настройки генератора', createNameTagMeshes],
   ['ГРЗ: рамка, символы и ушко', () => new GRZGenerator({
     keychain: { active: true, placement: 'left', holeDiameter: 6, borderWidth: 3, height: 3 },
   }).generate()],
@@ -51,7 +48,8 @@ async function runAudit(name: string, createMeshes: () => Record<string, THREE.O
   const startedAt = performance.now();
   const meshes = createMeshes();
   try {
-    const model = await buildPrintableModel(toParts(meshes));
+    const allowDisconnected = new URLSearchParams(location.search).get('variant') === 'no-backing';
+    const model = await buildPrintableModel(toParts(meshes), { allowDisconnected });
     const output = {
       name,
       passed: model.validation.valid,
@@ -101,6 +99,22 @@ function createOverlappingBoxes(): Record<string, THREE.Object3D | undefined> {
   const detail = new THREE.Mesh(new THREE.BoxGeometry(2, 2, 1));
   detail.position.z = 1.9;
   return { base, detail };
+}
+
+function createNameTagMeshes(): Record<string, THREE.Object3D | undefined> {
+  const variant = new URLSearchParams(location.search).get('variant');
+  const options: Record<string, unknown> = {};
+  if (variant === 'hollow') {
+    options.hollow = { active: true, wallThickness: 0.8, floorThickness: 0.6 };
+  } else if (variant === 'no-backing') {
+    options.backing = { active: false };
+  } else if (variant === 'cyrillic') {
+    options.message = 'Имя';
+  } else if (variant === 'random') {
+    options.message = 'Высота';
+    options.randomHeight = { active: true, variance: 0.8, seed: 42 };
+  }
+  return new NameTagGenerator(options).generate();
 }
 
 function createQrMeshes(): Record<string, THREE.Object3D | undefined> {

@@ -1,9 +1,7 @@
 import * as THREE from 'three';
 import { Font } from 'three/examples/jsm/loaders/FontLoader.js';
 import { TextGeometry } from 'three/examples/jsm/geometries/TextGeometry.js';
-import * as BufferGeometryUtils from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import polygonClipping from 'polygon-clipping';
-import { Brush, Evaluator, SUBTRACTION } from 'three-bvh-csg';
 import fontInterExtraBold from '@/assets/fonts/Inter_ExtraBold.json';
 import fontInterExtraBoldItalic from '@/assets/fonts/Inter_ExtraBold_Italic.json';
 import fontInterSemiBold from '@/assets/fonts/Inter_SemiBold.json';
@@ -313,25 +311,38 @@ export default class NameTagGenerator extends BaseGenerator {
 
       let mesh;
       try {
-        const geo = new TextGeometry(info.char, {
-          font: this.font,
-          size: this.options.size,
-          depth: letterDepth,
-          bevelEnabled: bevelActive && bt > 0,
-          bevelSize: bs,
-          bevelThickness: bt,
-          bevelSegments,
-          curveSegments: 6,
-        });
-        mesh = new THREE.Mesh(geo, material);
+        if (hollowActive) {
+          const glyphShapes = this.font.generateShapes(info.char, this.options.size);
+          try {
+            mesh = this._createHollowLetter(glyphShapes, material, {
+              letterDepth,
+              wall,
+              floor,
+              bevelActive,
+              bevelSize: bs,
+              bevelThickness: bt,
+              bevelSegments,
+            });
+          } catch (error) {
+            console.warn('NameTagGenerator: exact hollow glyph failed, using solid glyph', info.char, error);
+          }
+        }
+        if (!mesh) {
+          const geo = new TextGeometry(info.char, {
+            font: this.font,
+            size: this.options.size,
+            depth: letterDepth,
+            bevelEnabled: bevelActive && bt > 0,
+            bevelSize: bs,
+            bevelThickness: bt,
+            bevelSegments,
+            curveSegments: 6,
+          });
+          mesh = new THREE.Mesh(geo, material);
+        }
       } catch (e) {
         console.warn('NameTagGenerator: glyph failed', info.char, e);
         continue;
-      }
-
-      if (hollowActive) {
-        const hollowed = this._hollowOutLetter(mesh, material, letterDepth, wall, floor);
-        if (hollowed) mesh = hollowed;
       }
 
       // Position: center text horizontally, align vertical baseline to 0.
@@ -344,44 +355,102 @@ export default class NameTagGenerator extends BaseGenerator {
     return group;
   }
 
-  _hollowOutLetter(outerMesh, material, letterDepth, wall, floor) {
-    // Carve a scaled-down copy of the glyph out of the top face, leaving walls and
-    // an optional floor at the bottom. Uses three-bvh-csg for numerical robustness.
-    const box = new THREE.Box3().setFromObject(outerMesh);
-    const size = new THREE.Vector3();
-    box.getSize(size);
-    if (size.x < wall * 2.2 || size.y < wall * 2.2) {
-      return outerMesh; // too small to hollow safely
+  _createHollowLetter(glyphShapes, material, options) {
+    if (options.floor >= options.letterDepth - 1e-5) return null;
+    const outerPolygons = this._shapesToPolygons(glyphShapes, 6);
+    if (!outerPolygons.length) return null;
+
+    const outer = polygonClipping.union(outerPolygons[0], ...outerPolygons.slice(1));
+    const points = outer.flat(2);
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minY = Infinity;
+    let maxY = -Infinity;
+    for (const [x, y] of points) {
+      minX = Math.min(minX, x);
+      maxX = Math.max(maxX, x);
+      minY = Math.min(minY, y);
+      maxY = Math.max(maxY, y);
     }
-    const center = new THREE.Vector3();
-    box.getCenter(center);
+    const width = maxX - minX;
+    const height = maxY - minY;
+    if (width <= options.wall * 2.2 || height <= options.wall * 2.2) return null;
 
-    const sx = (size.x - wall * 2) / size.x;
-    const sy = (size.y - wall * 2) / size.y;
+    const centerX = (minX + maxX) / 2;
+    const centerY = (minY + maxY) / 2;
+    const scaleX = (width - options.wall * 2) / width;
+    const scaleY = (height - options.wall * 2) / height;
+    const inner = outer.map((polygon) => polygon.map((ring) => ring.map(([x, y]) => [
+      centerX + (x - centerX) * scaleX,
+      centerY + (y - centerY) * scaleY,
+    ])));
+    const walls = polygonClipping.difference(outer, inner);
+    const outerShapes = this._polygonsToShapes(outer);
+    const wallShapes = this._polygonsToShapes(walls);
+    if (!wallShapes.length) return null;
 
-    const innerGeo = outerMesh.geometry.clone();
-    innerGeo.translate(-center.x, -center.y, 0);
-    innerGeo.scale(sx, sy, 1);
-    innerGeo.translate(center.x, center.y, 0);
-    innerGeo.translate(0, 0, floor);
-
-    try {
-      const outerBrush = new Brush(this.prepForBvhCsg(outerMesh.geometry));
-      outerBrush.updateMatrixWorld();
-      const innerBrush = new Brush(this.prepForBvhCsg(innerGeo));
-      innerBrush.updateMatrixWorld();
-
-      const evaluator = new Evaluator();
-      const result = evaluator.evaluate(outerBrush, innerBrush, SUBTRACTION);
-      // Weld coincident vertices produced by BVH CSG to guarantee a manifold mesh.
-      result.geometry = BufferGeometryUtils.mergeVertices(result.geometry, 1e-4);
-      result.geometry.computeVertexNormals();
-      result.material = material;
-      return result;
-    } catch (e) {
-      console.warn('NameTagGenerator: hollow BVH CSG failed', e);
-      return outerMesh;
+    const group = new THREE.Group();
+    const floorDepth = Math.min(options.letterDepth, Math.max(0, options.floor));
+    const overlap = Math.min(0.02, options.letterDepth / 100);
+    if (floorDepth > 0 && outerShapes.length) {
+      const floorGeometry = new THREE.ExtrudeGeometry(outerShapes, {
+        depth: Math.min(options.letterDepth, floorDepth + overlap),
+        bevelEnabled: false,
+        curveSegments: 6,
+      });
+      group.add(new THREE.Mesh(floorGeometry, material));
     }
+
+    const wallBottom = floorDepth > 0 ? Math.max(0, floorDepth - overlap) : 0;
+    const wallDepth = Math.max(0.05, options.letterDepth - wallBottom);
+    const maxWallBevel = Math.max(0, Math.min(options.wall / 4, wallDepth / 2 - 0.01));
+    const bevelThickness = Math.min(options.bevelThickness, maxWallBevel);
+    const bevelSize = Math.min(options.bevelSize, bevelThickness);
+    const wallGeometry = new THREE.ExtrudeGeometry(wallShapes, {
+      depth: wallDepth,
+      bevelEnabled: options.bevelActive && bevelThickness > 0,
+      bevelSize,
+      bevelThickness,
+      bevelSegments: options.bevelSegments,
+      curveSegments: 6,
+    });
+    const wallMesh = new THREE.Mesh(wallGeometry, material);
+    wallMesh.position.z = wallBottom;
+    group.add(wallMesh);
+    group.updateMatrix();
+    return group;
+  }
+
+  _shapesToPolygons(shapes, curveSegments) {
+    return shapes.map((shape) => {
+      const points = shape.extractPoints(curveSegments);
+      return [points.shape, ...points.holes]
+        .map((ring) => this._closePolygonRing(ring))
+        .filter((ring) => ring.length >= 4);
+    }).filter((polygon) => polygon.length > 0);
+  }
+
+  _closePolygonRing(points) {
+    const ring = points.map(({ x, y }) => [x, y]);
+    if (!ring.length) return ring;
+    const [firstX, firstY] = ring[0];
+    const [lastX, lastY] = ring[ring.length - 1];
+    if (firstX !== lastX || firstY !== lastY) ring.push([firstX, firstY]);
+    return ring;
+  }
+
+  _polygonsToShapes(polygons) {
+    const shapes = [];
+    for (const polygon of polygons) {
+      if (!polygon.length || polygon[0].length < 4) continue;
+      const shape = new THREE.Shape(polygon[0].map(([x, y]) => new THREE.Vector2(x, y)));
+      for (let index = 1; index < polygon.length; index += 1) {
+        if (polygon[index].length < 4) continue;
+        shape.holes.push(new THREE.Path(polygon[index].map(([x, y]) => new THREE.Vector2(x, y))));
+      }
+      shapes.push(shape);
+    }
+    return shapes;
   }
 
   // ─── Keychain ─────────────────────────────────────────

@@ -312,7 +312,7 @@ export class V3DFacade {
 
     const prepared = await this._prepareExportObject(
       this.box.getNodes(),
-      {},
+      { allowDisconnected: true },
       this.box.sceneGraphRoot,
       onWarning,
     );
@@ -348,7 +348,7 @@ export class V3DFacade {
     const exporter = new OBJExporter();
     const prepared = await this._prepareExportObject(
       this.box.getNodes(),
-      {},
+      { allowDisconnected: true },
       this.box.sceneGraphRoot,
       options.onWarning,
     );
@@ -374,7 +374,7 @@ export class V3DFacade {
     const exporter = new ThreeMFExporter();
     const prepared = await this._prepareExportObject(
       this.box.getNodes(),
-      {},
+      { allowDisconnected: true },
       this.box.sceneGraphRoot,
       onWarning,
     );
