@@ -49,18 +49,18 @@ describe('keychain calculator pricing', () => {
     ], baseResolved);
 
     expect(result.lines[0]).toMatchObject({
-      subtotalKopecks: 105000,
+      subtotalKopecks: 75000,
       quantityDiscountBps: 300,
       orderDiscountBps: 0,
       appliedDiscountBps: 300,
-      discountKopecks: 3150,
-      totalKopecks: 101850,
+      discountKopecks: 2250,
+      totalKopecks: 72750,
     });
   });
 
   it('uses the larger discount in max mode', () => {
     const result = calculateKeychainOrder([
-      { productSlug: 'phone', quantity: 5 },
+      { productSlug: 'phone', quantity: 6 },
     ], baseResolved);
 
     expect(result.orderDiscountBps).toBe(300);
@@ -85,11 +85,11 @@ describe('keychain calculator pricing', () => {
 
   it('uses promotional prices and promotional order tiers', () => {
     const result = calculateKeychainOrder([
-      { productSlug: 'phone', quantity: 5 },
+      { productSlug: 'phone', quantity: 8 },
     ], promoResolved);
 
     expect(result.activePromotionCode).toBe('summer-2026');
-    expect(result.lines[0].unitPriceKopecks).toBe(32000);
+    expect(result.lines[0].unitPriceKopecks).toBe(21000);
     expect(result.lines[0].hasPromotionalPrice).toBe(true);
     expect(result.orderDiscountBps).toBe(500);
   });
@@ -106,7 +106,7 @@ describe('keychain calculator pricing', () => {
     });
     expect(result.nextOrderTier).toEqual({
       minSubtotalKopecks: 150000,
-      missingSubtotalKopecks: 90000,
+      missingSubtotalKopecks: 60000,
       discountBps: 300,
     });
   });

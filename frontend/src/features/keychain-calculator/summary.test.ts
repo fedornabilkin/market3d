@@ -26,8 +26,8 @@ describe('keychain calculator summary', () => {
     });
 
     const normalized = summary.replace(/\u00a0/g, ' ');
-    expect(normalized).toContain('Брелок с телефоном — 3 × 350 ₽ = 1 018,50 ₽ (−3 %)');
-    expect(normalized).toContain('Итого: 1 018,50 ₽');
+    expect(normalized).toContain('Брелок с телефоном — 3 × 250 ₽ = 727,50 ₽ (−3 %)');
+    expect(normalized).toContain('Итого: 727,50 ₽');
     expect(normalized).toContain('items=phone:3');
   });
 });

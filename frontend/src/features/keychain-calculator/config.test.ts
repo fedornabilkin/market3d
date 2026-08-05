@@ -34,8 +34,8 @@ describe('keychain calculator config', () => {
     const resolved = resolveCalculatorConfig(config, new Date('2026-07-16T12:00:00+03:00'));
     const phone = resolved.products.find(({ product }) => product.slug === 'phone')!;
 
-    expect(phone.product.basePriceKopecks).toBe(35000);
-    expect(phone.unitPriceKopecks).toBe(32000);
+    expect(phone.product.basePriceKopecks).toBe(25000);
+    expect(phone.unitPriceKopecks).toBe(21000);
     expect(phone.hasPromotionalPrice).toBe(true);
   });
 
