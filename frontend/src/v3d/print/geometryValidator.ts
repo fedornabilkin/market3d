@@ -65,7 +65,7 @@ export function validatePrintableGeometry(
       addDiagnostic('non-finite-position');
       continue;
     }
-    const key = vertexKey(vertex, weldEpsilon);
+    const key = weldEpsilon > 0 ? vertexKey(vertex, weldEpsilon) : `source:${sourceIndex}`;
     let canonicalIndex = canonicalByPosition.get(key);
     if (canonicalIndex === undefined) {
       canonicalIndex = canonicalPositions.length;

@@ -1,13 +1,12 @@
 import { markRaw } from 'vue';
+import * as THREE from 'three';
 import { Box } from "@/v3d/box";
 import { Director } from "@/v3d/director";
 import ModelGenerator from "@/v3d/generator/ModelGenerator.js";
-import * as THREE from 'three';
 import { BaseRotation } from "@/v3d/animation/baseRotation";
 import { STLExporter } from 'three/examples/jsm/exporters/STLExporter.js';
 import { OBJExporter } from 'three/examples/jsm/exporters/OBJExporter.js';
 import { ThreeMFExporter } from '@/v3d/exporters/ThreeMFExporter.js';
-import { buildPrintableModel } from '@/v3d/print/PrintableModelBuilder';
 import JSZip from 'jszip';
 import { save, saveAsArrayBuffer, saveAsString } from '@/utils.js';
 
@@ -253,15 +252,6 @@ export class V3DFacade {
     // Этот метод можно использовать для остановки/запуска
   }
 
-  _buildPrintableMesh() {
-    this.box.sceneGraphRoot.updateMatrixWorld(true);
-    const parts = Object.entries(this.box.getNodes())
-      .filter(([, object]) => Boolean(object))
-      .map(([id, object]) => ({ id, object, isBase: id === 'base' }));
-    const { geometry } = buildPrintableModel(parts);
-    return new THREE.Mesh(geometry, new THREE.MeshPhongMaterial({ color: 0xffffff }));
-  }
-
   /**
    * Экспорт модели в STL формат
    * @param {Object} options - Опции экспорта
@@ -292,11 +282,19 @@ export class V3DFacade {
 
       for (const key in parts) {
         if (parts[key]) {
-          const data = exporter.parse(parts[key], expConfig);
-          const partFilename = filename 
-            ? `${key}-${filename}.stl` 
-            : `${key}-${this.generateFilename()}.stl`;
-          zip.file(partFilename, data.buffer);
+          const printableMesh = await this._buildPrintableMesh(
+            { [key]: parts[key] },
+            { allowDisconnected: true, isolated: true },
+          );
+          try {
+            const data = exporter.parse(printableMesh, expConfig);
+            const partFilename = filename 
+              ? `${key}-${filename}.stl` 
+              : `${key}-${this.generateFilename()}.stl`;
+            zip.file(partFilename, typeof data === 'string' ? data : data.buffer);
+          } finally {
+            this._disposePrintableMesh(printableMesh);
+          }
         }
       }
 
@@ -309,24 +307,24 @@ export class V3DFacade {
       return zipBlob;
     }
 
-    const printableMesh = this._buildPrintableMesh();
+    const printableMesh = await this._buildPrintableMesh();
+    let result;
     try {
-      const result = exporter.parse(printableMesh, expConfig);
-      const stlFilename = filename || `${this.generateFilename()}.stl`;
-
-      if (exportAsBinary) {
-        saveAsArrayBuffer(result, stlFilename);
-      } else {
-        saveAsString(result, stlFilename);
-      }
-
-      return new Blob([result], {
-        type: exportAsBinary ? 'application/octet-stream' : 'text/plain'
-      });
+      result = exporter.parse(printableMesh, expConfig);
     } finally {
-      printableMesh.geometry.dispose();
-      printableMesh.material.dispose();
+      this._disposePrintableMesh(printableMesh);
     }
+    const stlFilename = filename || `${this.generateFilename()}.stl`;
+
+    if (exportAsBinary) {
+      saveAsArrayBuffer(result, stlFilename);
+    } else {
+      saveAsString(result, stlFilename);
+    }
+
+    return new Blob([result], {
+      type: exportAsBinary ? 'application/octet-stream' : 'text/plain'
+    });
   }
 
   /**
@@ -340,7 +338,13 @@ export class V3DFacade {
     }
 
     const exporter = new OBJExporter();
-    const result = exporter.parse(this.box.getScene());
+    const printableMesh = await this._buildPrintableMesh();
+    let result;
+    try {
+      result = exporter.parse(printableMesh);
+    } finally {
+      this._disposePrintableMesh(printableMesh);
+    }
     const objFilename = filename || `${this.generateFilename()}.obj`;
     
     saveAsArrayBuffer(result, objFilename);
@@ -354,13 +358,37 @@ export class V3DFacade {
     }
 
     const { filename = null } = options;
-    this.box.sceneGraphRoot.updateMatrixWorld(true);
-
     const exporter = new ThreeMFExporter();
-    const blob = await exporter.parse(this.box.sceneGraphRoot);
+    const printableMesh = await this._buildPrintableMesh();
+    let blob;
+    try {
+      blob = await exporter.parse(printableMesh);
+    } finally {
+      this._disposePrintableMesh(printableMesh);
+    }
     const threeMfFilename = filename || `${this.generateFilename()}.3mf`;
     save(blob, threeMfFilename);
     return blob;
+  }
+
+  async _buildPrintableMesh(nodes = this.box.getNodes(), options = {}) {
+    const { buildPrintableModel } = await import('@/v3d/print/PrintableModelBuilder');
+    const { allowDisconnected = false, isolated = false } = options;
+    const parts = Object.entries(nodes)
+      .filter(([, object]) => Boolean(object))
+      .map(([id, object]) => ({
+        id,
+        object,
+        isBase: isolated || id === 'base' || id === 'backing',
+        applyPlanarOverlap: isolated ? id !== 'base' && id !== 'backing' : undefined,
+      }));
+    const { geometry } = await buildPrintableModel(parts, { allowDisconnected });
+    return new THREE.Mesh(geometry, new THREE.MeshBasicMaterial());
+  }
+
+  _disposePrintableMesh(mesh) {
+    mesh.geometry.dispose();
+    mesh.material.dispose();
   }
 
   /**

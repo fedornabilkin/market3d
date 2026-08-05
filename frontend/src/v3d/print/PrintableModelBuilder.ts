@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { booleanCsg, type BooleanInput } from '../constructor/features/csg/booleanCsg';
+import type { BooleanInput } from '../constructor/features/csg/booleanCsg';
+import { unionPrintableParts } from './ManifoldKernel';
 import {
   validatePrintableGeometry,
   type PrintDiagnostic,
@@ -12,6 +13,11 @@ export interface PrintablePart {
   id: string;
   object: THREE.Object3D;
   isBase?: boolean;
+  applyPlanarOverlap?: boolean;
+}
+
+export interface PrintableModelBuildOptions {
+  allowDisconnected?: boolean;
 }
 
 export interface PrintableModel {
@@ -29,22 +35,26 @@ export class PrintableModelBuildError extends Error {
   }
 }
 
-export function buildPrintableModel(parts: readonly PrintablePart[]): PrintableModel {
-  const inputs = collectPrintableInputs(parts);
-  if (inputs.length === 0) {
+export async function buildPrintableModel(
+  parts: readonly PrintablePart[],
+  options: PrintableModelBuildOptions = {},
+): Promise<PrintableModel> {
+  if (parts.length === 0) {
     throw new PrintableModelBuildError('Нет геометрии для экспорта STL.');
   }
 
   let geometry: THREE.BufferGeometry;
   try {
-    geometry = booleanCsg(inputs, 'union');
+    geometry = await unionPrintableParts(parts);
   } catch (error) {
     throw new PrintableModelBuildError(
-      `Не удалось объединить детали модели: ${error instanceof Error ? error.message : String(error)}`,
+      `Не удалось собрать печатную модель: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
 
-  const validation = validatePrintableGeometry(geometry);
+  const validation = validatePrintableGeometry(geometry, {
+    allowDisconnected: options.allowDisconnected,
+  });
   if (!validation.valid) {
     geometry.dispose();
     throw new PrintableModelBuildError(

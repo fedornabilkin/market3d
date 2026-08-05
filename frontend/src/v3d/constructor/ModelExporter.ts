@@ -12,11 +12,10 @@ export class ModelExporter {
     private readonly getSelectedFeatureId: () => FeatureId | null,
   ) {}
 
-  exportSTL(filename = 'scene.stl', onlySelected = false): void {
+  async exportSTL(filename = 'scene.stl', onlySelected = false): Promise<void> {
     const object = this.getExportObject(onlySelected);
     if (!object) return;
-    const result = new STLExporter().parse(object, { binary: true });
-    ModelExporter.downloadBlob(new Blob([result], { type: 'application/octet-stream' }), filename);
+    await this.exportPrintableSTL(object, filename);
   }
 
   exportOBJ(filename = 'scene.obj', onlySelected = false): void {
@@ -34,8 +33,7 @@ export class ModelExporter {
     const object = await this.getExportObjectAsync(onlySelected, onProgress);
     if (!object) return;
     await new Promise((r) => setTimeout(r, 0));
-    const result = new STLExporter().parse(object, { binary: true });
-    ModelExporter.downloadBlob(new Blob([result], { type: 'application/octet-stream' }), filename);
+    await this.exportPrintableSTL(object, filename);
   }
 
   async exportOBJAsync(
@@ -124,6 +122,38 @@ export class ModelExporter {
   private static countOutputs(output: FeatureOutput): number {
     if (output.kind === 'leaf') return 1;
     return 1 + output.children.reduce((sum, child) => sum + ModelExporter.countOutputs(child), 0);
+  }
+
+  private async exportPrintableSTL(object: THREE.Object3D, filename: string): Promise<void> {
+    try {
+      const { buildPrintableModel } = await import('../print/PrintableModelBuilder');
+      const { geometry } = await buildPrintableModel([{
+        id: 'constructor',
+        object,
+        isBase: true,
+        applyPlanarOverlap: true,
+      }], { allowDisconnected: true });
+      const material = new THREE.MeshBasicMaterial();
+      const mesh = new THREE.Mesh(geometry, material);
+      try {
+        const result = new STLExporter().parse(mesh, { binary: true });
+        ModelExporter.downloadBlob(new Blob([result], { type: 'application/octet-stream' }), filename);
+      } finally {
+        geometry.dispose();
+        material.dispose();
+      }
+    } finally {
+      ModelExporter.disposeObject(object);
+    }
+  }
+
+  private static disposeObject(object: THREE.Object3D): void {
+    object.traverse((child) => {
+      if (!(child instanceof THREE.Mesh)) return;
+      child.geometry.dispose();
+      const materials = Array.isArray(child.material) ? child.material : [child.material];
+      materials.forEach((material) => material.dispose());
+    });
   }
 
   private static downloadBlob(blob: Blob, filename: string): void {

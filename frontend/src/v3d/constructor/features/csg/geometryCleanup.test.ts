@@ -64,6 +64,17 @@ describe('removeDegenerateTriangles', () => {
     expect(out.getIndex()!.count).toBe(0);
   });
 
+  it('выбрасывает коллинеарный треугольник с разными индексами', () => {
+    const geom = new THREE.BufferGeometry();
+    geom.setAttribute(
+      'position',
+      new THREE.Float32BufferAttribute([0, 0, 0, 1, 0, 0, 2, 0, 0], 3),
+    );
+    geom.setIndex([0, 1, 2]);
+
+    expect(removeDegenerateTriangles(geom).getIndex()!.count).toBe(0);
+  });
+
   it('не трогает геометрию без вырожденных граней (возвращает её же)', () => {
     const geom = new THREE.BufferGeometry();
     geom.setAttribute(

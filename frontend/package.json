@@ -19,6 +19,7 @@
     "deepmerge": "^4.2.2",
     "element-plus": "^2.8.8",
     "jszip": "^3.5.0",
+    "manifold-3d": "^3.5.1",
     "path-that-svg": "^1.2.4",
     "pinia": "^3.0.4",
     "polygon-clipping": "^0.15.7",
